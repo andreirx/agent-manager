@@ -9,7 +9,9 @@
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
-    "am-001": "tsx src/cli/run-am-001.ts"
+    "am-001": "tsx src/cli/run-am-001.ts",
+    "relay": "tsx src/cli/relay.ts",
+    "human": "tsx src/cli/human-input.ts"
   },
   "keywords": [
     "agent",

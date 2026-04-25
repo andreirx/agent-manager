@@ -89,15 +89,35 @@ When creating technical debt, add an entry to `docs/TECH-DEBT.md` with:
 
 ## Current Phase
 
-Phase 4 — first self-hosting vertical slice (READY TO RUN).
+Simplified relay system (READY).
 
 Completed:
-- Phase 0: contracts frozen in `docs/contracts/`
-- Phase 1: core entities in `src/core/`
-- Phase 2: ports in `src/application/ports/`
-- Phase 3: Claude adapter in `src/adapters/providers/claude-code/`
-- Phase 4: AM-001 slice ready in `slices/AM-001/`
+- Phase 0-4: Infrastructure validated
+- Scope correction: Simplified from "workflow platform" to "relay automation"
+- Codex adapter
+- Relay loop use case
+- Reviewer prompt with verdict format
 
-To run: `npm run am-001`
+To run relay: `npm run relay -- <slice-id>`
 
-Next: Phase 5 — Codex adapter + review loop
+Minimal filesystem per slice:
+```
+slices/<id>/
+  brief.md       # task description
+  current.md     # latest artifact
+  context.md     # generated context for actor
+  status.json    # phase, updatedAt, lastActor
+  notes-for-human.md  # only when blocked
+```
+
+Relay loop:
+1. Read brief + current
+2. Send to builder (claude) or reviewer (codex) based on phase
+3. Parse verdict from reviewer (STATUS: approved|revise|escalate)
+4. Update current.md and status.json
+5. Stop on blocked or max iterations
+
+Human only needed for:
+- Deadlock breaking
+- Ambiguous decisions
+- Final acceptance
