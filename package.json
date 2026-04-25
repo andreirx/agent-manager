@@ -8,7 +8,8 @@
     "build": "tsc",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "am-001": "tsx src/cli/run-am-001.ts"
   },
   "keywords": [
     "agent",
@@ -26,6 +27,7 @@
     "@types/node": "^20.11.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.4.0"
   }
 }

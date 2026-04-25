@@ -89,11 +89,15 @@ When creating technical debt, add an entry to `docs/TECH-DEBT.md` with:
 
 ## Current Phase
 
-Phase 2 — narrow ports (COMPLETE).
+Phase 4 — first self-hosting vertical slice (READY TO RUN).
 
 Completed:
 - Phase 0: contracts frozen in `docs/contracts/`
 - Phase 1: core entities in `src/core/`
 - Phase 2: ports in `src/application/ports/`
+- Phase 3: Claude adapter in `src/adapters/providers/claude-code/`
+- Phase 4: AM-001 slice ready in `slices/AM-001/`
 
-Next: Phase 3 — Claude adapter
+To run: `npm run am-001`
+
+Next: Phase 5 — Codex adapter + review loop
