@@ -1,0 +1,449 @@
+Agent Manager research notes
+Date: 2026-04-25
+Status: working summary of discussion points, local CLI inspection, and web research
+
+======================================================================
+1. DISCUSSION POINTS LOCKED SO FAR
+======================================================================
+
+1.1 Product shape
+
+- Agent Manager is a supervisor.
+- It is not a chat frontend.
+- It is not a code-analysis engine.
+- It is not a generic swarm framework.
+
+1.2 Core problem being solved
+
+Current workflow:
+- user gives Claude a slice
+- Claude designs
+- Codex reviews the design
+- Claude implements after design is settled
+- Codex reviews the diff
+- Claude reworks
+- user manually relays outputs between tools
+
+Target workflow:
+- supervisor owns the relay work
+- human remains the authority for escalation and important decisions
+- builder and reviewer loops are explicit and traceable
+
+1.3 Stable abstraction
+
+- SDLC roles are the stable product abstraction
+- provider tools are replaceable mechanisms behind those roles
+
+Initial role examples:
+- requirements engineer
+- developer
+- reviewer
+- tester
+
+Initial provider examples:
+- Claude Code
+- Codex
+- OpenCode (future)
+
+1.4 Persistence model
+
+- No database for the first architecture
+- Text and JSON on disk are the system of record
+- Raw execution traces live in gitignored logs
+- Authoritative slice artifacts are tracked in the repository
+
+1.5 Logging split
+
+Gitignored:
+- raw prompts
+- raw stdout/stderr
+- terminal captures
+- stream events
+- retries
+
+Tracked:
+- briefs
+- design drafts
+- review findings
+- design freeze artifacts
+- implementation review artifacts
+- final status / escalation artifacts
+
+Agreed log naming shape:
+- timestamped
+- sortable
+- includes role
+- includes slice id
+- provider may be included
+
+Recommended machine-safe pattern:
+- YYYY-MM-DD_HH-MM-SSZ__<role>__<provider>__slice-<id>.<ext>
+
+1.6 Prompts
+
+- Prompts are tracked in the repo
+- External machine-local prompt files are not the long-term source of truth
+- The repo should contain system prompts and role prompts as versioned assets
+
+1.7 Self-hosting / bootstrap principle
+
+Guiding principle:
+- Agent Manager must be usable in building Agent Manager
+- exactly as repo-graph is used in building repo-graph
+
+Implications:
+- early features must be dogfoodable
+- on-disk artifacts must be human-readable and agent-usable
+- hidden state is architectural debt
+- the product should supervise real slices in its own repo as early as possible
+
+1.8 TypeScript decision
+
+Current conclusion:
+- TypeScript is the right first implementation language
+
+Reasoning:
+- repo-graph already supports the surrounding toolchain
+- the immediate problem is protocol/orchestration, not daemon engineering
+- prompt/schema/artifact iteration is easier in TS than Go
+- provider adapters will mostly normalize text/JSON and shell out to external CLIs
+- self-hosting will benefit from rapid contract iteration
+
+1.9 Repo-graph relationship
+
+- repo-graph remains a separate product boundary
+- repo-graph is a companion orientation and quality-control substrate
+- Agent Manager should consume repo-graph outputs as external deterministic evidence
+
+Examples of repo-graph inputs to route into agents:
+- orient output
+- check output
+- explain output
+- module/boundary information
+- trust and quality-control signals
+
+
+======================================================================
+2. ARCHITECTURAL SHAPE DISCUSSED
+======================================================================
+
+2.1 Supervisor model
+
+Working model:
+- Claude = builder
+- Codex = critic/reviewer
+- Supervisor = protocol authority
+- Human = escalation authority
+
+2.2 Workflow loop
+
+Design loop:
+- brief
+- design draft
+- review
+- revision
+- design freeze or escalation
+
+Implementation loop:
+- implementation against frozen design
+- diff review
+- rework
+- pass or escalation
+
+2.3 Important rule
+
+- silent design drift is forbidden
+- once a design is frozen, later divergence must be explicit
+
+2.4 tmux position
+
+tmux can be useful for:
+- long-lived sessions
+- observability
+- manual takeover
+- process hosting for interactive agents
+
+tmux must not be the authoritative data bus.
+
+Primary contract remains:
+- tracked artifacts
+- structured files
+- gitignored logs
+
+
+======================================================================
+3. WEB RESEARCH DISCOVERIES
+======================================================================
+
+This section records what was learned from web searches and page inspection.
+Where something is inferred rather than directly stated by the source, it is marked as inference.
+
+3.1 OpenAI Codex
+
+Confirmed from OpenAI Codex docs:
+
+- Codex has a documented non-interactive mode.
+- Codex has an SDK.
+- Codex has an app-server surface.
+- Codex docs include concepts such as automations, workflows, subagents, worktrees, and local environments.
+
+Practical discovery for this project:
+- Codex is usable as a review/critic backend without driving the interactive TUI.
+- The product has official structured/non-interactive surfaces, so terminal scraping should be avoided.
+
+3.2 Claude Code
+
+Confirmed from Claude Code docs:
+
+- Claude Code has documented headless/programmatic usage.
+- Claude Code has a CLI reference.
+- Claude Code has Remote Control for continuing local sessions from other devices.
+
+Practical discovery for this project:
+- Claude can be used either as a long-lived builder session or via headless runs.
+- Remote Control strengthens the case for using Claude as a long-running builder role when needed.
+
+3.3 GasTown
+
+Confirmed from the public repository and docs:
+
+- GasTown is a multi-agent workspace manager.
+- It has explicit roles and operational components such as coordinator/watchdog style actors.
+- It uses persistent externalized work state rather than relying only on agent chat history.
+- It has lifecycle hooks and mail/message injection concepts.
+- It models provider integration explicitly.
+- The current public core is Go-based.
+
+Important inference:
+- The value to peel from GasTown is not its vocabulary but its invariants:
+  - persistent work state
+  - role separation
+  - mailbox handoffs
+  - provider capability abstraction
+  - watchdog behavior
+  - provenance
+
+Important negative conclusion:
+- Full GasTown adoption would likely import too much ontology and platform scope for the narrower Agent Manager problem.
+
+3.4 AWS CLI Agent Orchestrator
+
+Confirmed from the public repository:
+
+- There is an open-source AWS project called CLI Agent Orchestrator.
+
+Practical takeaway:
+- This validated that "CLI-first agent orchestration" is a recognized problem category.
+- It supported the decision to think in terms of supervisor/process/orchestrator, not only prompt wrappers.
+
+3.5 Composio Agent Orchestrator
+
+Confirmed from the public repository page:
+
+- There is an open-source project aimed at orchestrating multiple coding agents, including CI fixes, merge conflicts, and reviews.
+
+Practical takeaway:
+- This further validated the product category.
+- It also reinforced that many existing systems are broader than the immediate problem and may carry excess architecture for a focused local supervisor.
+
+3.6 tmux ecosystem
+
+Confirmed from public repositories:
+
+- libtmux exists as a Python tmux API/wrapper
+- tmuxp exists as a tmux session manager built on libtmux
+
+Practical takeaway:
+- If tmux control ever becomes a major requirement, there are existing libraries rather than hand-written pane scraping from scratch.
+- This mattered more before the TypeScript decision was locked.
+
+
+======================================================================
+4. LOCAL CLI INSPECTION DISCOVERIES
+======================================================================
+
+These were discovered by inspecting the locally installed CLIs, not by web search.
+
+4.1 Codex local CLI
+
+Confirmed from `codex --help`, `codex exec --help`, and `codex review --help`:
+
+- `codex exec` exists for non-interactive runs
+- `codex review` exists for non-interactive code review
+- Codex supports explicit `--model`
+- Codex supports `--output-schema`
+- Codex supports `--json`
+- Codex supports writing the last message to a file
+- Codex has app-server and MCP server surfaces
+
+Additional local discovery:
+- the installed binary exposes config keys/strings related to reasoning effort
+- strings visible in the binary include:
+  - `model_reasoning_effort`
+  - `reasoning_effort`
+  - `default_reasoning_effort`
+  - `supported_reasoning_efforts`
+
+Practical conclusion:
+- Codex is a good fit for the reviewer/critic adapter
+- model pinning to GPT-5.4 is supported
+- high reasoning effort appears supported through configuration
+
+4.2 Claude local CLI
+
+Confirmed from `claude --help`:
+
+- `--print` exists for non-interactive output
+- `--output-format json` exists
+- `--output-format stream-json` exists
+- `--json-schema` exists
+- `--model` exists
+- `--effort` exists
+- `--resume` and `--continue` exist
+- `--tmux` and `--worktree` options exist
+
+Practical conclusion:
+- Claude is usable both as:
+  - a headless provider run
+  - a long-running interactive session with resumability
+
+
+======================================================================
+5. GAS TOWN / GO DISCUSSION
+======================================================================
+
+Question considered:
+- why GasTown is written in Go
+- whether Go would be the right choice for Agent Manager
+
+What was actually confirmed:
+- the current public GasTown core is Go-based
+- the repo also contains npm-related packaging, but that alone does not prove a TypeScript origin
+
+Inference discussed:
+- Go fits long-lived daemons, orchestration, subprocess control, concurrency, and single-binary distribution
+
+Conclusion for Agent Manager:
+- Go is defensible for a heavier daemon/control-plane product
+- It is not the best first choice for the current problem
+- The current problem is more protocol-heavy than daemon-heavy
+- Therefore TypeScript remains the better initial choice
+
+
+======================================================================
+6. RECOMMENDED DESIGN DIRECTIONS THAT EMERGED
+======================================================================
+
+6.1 Support module, not repo-graph core concern
+
+- Agent Manager should remain a separate support module / product
+- repo-graph remains focused on engineering intelligence
+- Agent Manager remains focused on supervised workflow
+
+6.2 Keep raw logs and authoritative artifacts separate
+
+This was one of the most important design clarifications.
+
+Wrong:
+- everything only in logs
+
+Correct:
+- logs = raw operational exhaust
+- tracked slice artifacts = authoritative workflow state
+
+6.3 Build around role contracts
+
+Wrong center:
+- "Claude adapter"
+- "Codex adapter"
+
+Right center:
+- reviewer role
+- developer role
+- tester role
+- requirements engineer role
+
+Providers are then mapped behind those roles.
+
+6.4 Use structured contracts where possible
+
+- output schemas
+- normalized findings
+- explicit slice phases
+- explicit escalation artifacts
+
+Free-form prose can exist, but the supervisor should not rely on prose-only contracts for state transitions.
+
+6.5 Prefer official structured surfaces over terminal scraping
+
+This was supported by both:
+- official web docs
+- local CLI help inspection
+
+Conclusion:
+- use official non-interactive/headless modes whenever possible
+- use tmux as session/lifecycle support, not as the primary payload bus
+
+
+======================================================================
+7. OPEN QUESTIONS LEFT AFTER THIS ROUND
+======================================================================
+
+- exact prompt catalog structure under `prompts/`
+- exact slice artifact structure under `slices/`
+- exact provider adapter contract
+- exact first CLI commands
+- exact first vertical slice for self-hosting
+- whether there will be a headless-only path, an interactive+headless hybrid, or both in v1
+
+
+======================================================================
+8. SOURCE LIST
+======================================================================
+
+Web sources inspected:
+
+- OpenAI Codex non-interactive mode
+  https://developers.openai.com/codex/noninteractive
+- OpenAI Codex SDK
+  https://developers.openai.com/codex/sdk
+- OpenAI Codex app-server
+  https://developers.openai.com/codex/app-server
+- Claude Code headless/programmatic docs
+  https://code.claude.com/docs/en/headless
+- Claude Code CLI reference
+  https://code.claude.com/docs/en/cli-reference
+- Claude Code Remote Control
+  https://code.claude.com/docs/en/remote-control
+- GasTown repository
+  https://github.com/gastownhall/gastown
+- GasTown overview
+  https://github.com/gastownhall/gastown/blob/main/docs/overview.md
+- GasTown why-these-features
+  https://github.com/gastownhall/gastown/blob/main/docs/why-these-features.md
+- GasTown hooks
+  https://github.com/gastownhall/gastown/blob/main/docs/HOOKS.md
+- GasTown agent-provider integration
+  https://github.com/gastownhall/gastown/blob/main/docs/agent-provider-integration.md
+- AWS CLI Agent Orchestrator
+  https://github.com/awslabs/cli-agent-orchestrator
+- Composio Agent Orchestrator
+  https://github.com/ComposioHQ/agent-orchestrator
+- libtmux
+  https://github.com/tmux-python/libtmux
+- tmuxp
+  https://github.com/tmux-python/tmuxp
+
+Local sources inspected:
+
+- `/Users/apple/CLAUDE-SYSTEM.txt`
+- `codex --help`
+- `codex exec --help`
+- `codex review --help`
+- `claude --help`
+- `/Users/apple/Documents/APLICATII BIJUTERIE/repo-graph/README.md`
+- `/Users/apple/Documents/APLICATII BIJUTERIE/repo-graph/CLAUDE.md`
+- `/Users/apple/Documents/APLICATII BIJUTERIE/repo-graph/docs/VISION.md`
+- `/Users/apple/Documents/APLICATII BIJUTERIE/repo-graph/docs/ROADMAP.md`
+- `/Users/apple/Documents/APLICATII BIJUTERIE/repo-graph/docs/TECH-DEBT.md`
+- `/Users/apple/Documents/APLICATII BIJUTERIE/repo-graph/docs/architecture/agent-orientation-contract.md`
