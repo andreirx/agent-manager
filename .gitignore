@@ -1,0 +1,40 @@
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+coverage/
+.pnpm-store/
+
+# Runtime state
+*.log
+logs/
+.tmp/
+tmp/
+cache/
+
+# Agent session artifacts
+sessions/
+runs/
+outbox/
+inbox/
+artifacts/
+transcripts/
+
+# Secrets / local config
+.env
+.env.*
+*.local.json
+secrets/
