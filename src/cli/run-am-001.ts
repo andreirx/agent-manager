@@ -20,6 +20,8 @@ import { runBuilder } from '../application/use-cases/run-builder.js';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
 
+const BUILDER_MODEL = 'claude-opus-4-8';
+
 async function main() {
   console.log('=== AM-001 Builder Run ===\n');
 
@@ -50,6 +52,7 @@ async function main() {
         repoRoot,
         runId,
         providerId: 'claude',  // provider identity from composition root
+        model: BUILDER_MODEL,
       },
       { clock, store, provider }
     );

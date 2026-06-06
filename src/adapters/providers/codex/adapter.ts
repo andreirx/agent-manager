@@ -126,6 +126,12 @@ export class CodexAdapter implements ProviderRunnerPort {
       args.push('--model', request.model);
     }
 
+    // Codex CLI exposes reasoning effort through config overrides, not a
+    // dedicated `codex exec` flag.
+    if (request.effort) {
+      args.push('--config', `model_reasoning_effort="${request.effort}"`);
+    }
+
     // Prompt via stdin (positional argument)
     args.push('-');
 

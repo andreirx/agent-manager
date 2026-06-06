@@ -16,14 +16,44 @@ import { FilesystemArtifactStore } from '../adapters/filesystem/index.js';
 import { ClaudeAdapter } from '../adapters/providers/claude-code/index.js';
 import { CodexAdapter } from '../adapters/providers/codex/index.js';
 import { relayLoop } from '../application/use-cases/relay.js';
+import type {
+  ProviderRunnerPort,
+  RunRequest,
+  RunResult,
+} from '../application/ports/provider-runner.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
+
+const BUILDER_MODEL = 'claude-opus-4-8';
+const REVIEWER_MODEL = 'gpt-5.5';
+const REVIEWER_EFFORT = 'high';
 
 function computeDigest(content: string): string {
   const hash = createHash('sha256');
   hash.update(content);
   return `sha256:${hash.digest('hex')}`;
+}
+
+function withRunDefaults(
+  runner: ProviderRunnerPort,
+  defaults: Partial<Pick<RunRequest, 'model' | 'effort'>>
+): ProviderRunnerPort {
+  return {
+    run(request: RunRequest): Promise<RunResult> {
+      const requestWithDefaults: RunRequest = {
+        ...request,
+        ...(request.model === undefined && defaults.model !== undefined
+          ? { model: defaults.model }
+          : {}),
+        ...(request.effort === undefined && defaults.effort !== undefined
+          ? { effort: defaults.effort }
+          : {}),
+      };
+
+      return runner.run(requestWithDefaults);
+    },
+  };
 }
 
 async function main() {
@@ -40,22 +70,33 @@ async function main() {
   const clock = new SystemClock();
   const store = new FilesystemArtifactStore();
 
-  const builder = new ClaudeAdapter(
+  const builder = withRunDefaults(
+    new ClaudeAdapter(
+      {
+        logsDir: resolve(repoRoot, 'logs'),
+        repoRoot,
+      },
+      store,
+      clock
+    ),
     {
-      logsDir: resolve(repoRoot, 'logs'),
-      repoRoot,
-    },
-    store,
-    clock
+      model: BUILDER_MODEL,
+    }
   );
 
-  const reviewer = new CodexAdapter(
+  const reviewer = withRunDefaults(
+    new CodexAdapter(
+      {
+        logsDir: resolve(repoRoot, 'logs'),
+        repoRoot,
+      },
+      store,
+      clock
+    ),
     {
-      logsDir: resolve(repoRoot, 'logs'),
-      repoRoot,
-    },
-    store,
-    clock
+      model: REVIEWER_MODEL,
+      effort: REVIEWER_EFFORT,
+    }
   );
 
   try {
