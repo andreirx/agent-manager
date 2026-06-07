@@ -31,7 +31,7 @@ async function main() {
   const provider = new ClaudeAdapter(
     {
       logsDir: resolve(repoRoot, 'logs'),
-      repoRoot,
+      promptRoot: repoRoot,
     },
     store,
     clock

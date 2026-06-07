@@ -31,8 +31,18 @@ export interface ClaudeAdapterConfig {
   /** Path to logs directory (absolute) */
   readonly logsDir: string;
 
-  /** Path to repository root (for resolving prompt paths) */
-  readonly repoRoot: string;
+  /** Path to prompt-asset root (agent-manager; for resolving prompt paths) */
+  readonly promptRoot: string;
+
+  /**
+   * Absolute path to the shared system-prompt file (e.g. CLAUDE-SYSTEM.txt).
+   *
+   * When set, passed to Claude via `--append-system-prompt-file` so the house
+   * rules are layered ON TOP of Claude's default agentic system prompt (tool
+   * scaffolding, dynamic cwd/env/git context, and target CLAUDE.md auto-load
+   * all survive). Absent => no shared-prompt flag (self-host default).
+   */
+  readonly sharedInstructionPath?: string;
 
   /** Claude CLI command (default: 'claude') */
   readonly command?: string;
@@ -62,8 +72,18 @@ export class ClaudeAdapterCompositionError extends Error {
  * Headless mode only. No interactive/resume support in this version.
  * Schema-constrained output is not supported in Phase 3.
  */
+/**
+ * Internal config with defaults resolved. `sharedInstructionPath` stays optional
+ * (it has no default); only command/timeout/grace are guaranteed present.
+ */
+type ResolvedClaudeConfig = ClaudeAdapterConfig & {
+  command: string;
+  defaultTimeout: number;
+  killGracePeriod: number;
+};
+
 export class ClaudeAdapter implements ProviderRunnerPort {
-  private readonly config: Required<ClaudeAdapterConfig>;
+  private readonly config: ResolvedClaudeConfig;
   private readonly store: ArtifactStorePort;
   private readonly clock: ClockPort;
 
@@ -80,6 +100,15 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     };
     this.store = store;
     this.clock = clock;
+  }
+
+  /**
+   * Preload step for parity with adapters that read external files. Claude
+   * receives the shared prompt via a path flag, so there is nothing to preload;
+   * provided so callers (e.g. dry-run) can treat all adapters uniformly.
+   */
+  async prewarm(): Promise<void> {
+    // intentionally empty
   }
 
   async run(request: RunRequest): Promise<RunResult> {
@@ -103,7 +132,7 @@ export class ClaudeAdapter implements ProviderRunnerPort {
         );
       }
 
-      const fullPath = join(this.config.repoRoot, prompt.path);
+      const fullPath = join(this.config.promptRoot, prompt.path);
       const asset = await this.store.readPromptAsset(fullPath);
 
       // Verify digest matches
@@ -118,11 +147,16 @@ export class ClaudeAdapter implements ProviderRunnerPort {
       promptContents.push(asset.content);
     }
 
-    // Combine prompts
-    const fullPrompt = promptContents.join('\n\n---\n\n');
+    // Combine file prompts, then append dynamic per-run context (not a pinned
+    // asset, so it is delivered inline rather than resolved/digested).
+    const parts = [...promptContents];
+    if (request.contextText) {
+      parts.push(request.contextText);
+    }
+    const fullPrompt = parts.join('\n\n---\n\n');
 
-    // Build command arguments
-    const args = this.buildArgs(request);
+    // Build full invocation (command, args, cwd)
+    const invocation = this.buildInvocation(request);
 
     // Determine log path
     const logPath = this.buildLogPath(request, startedAt);
@@ -131,7 +165,7 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     await mkdir(dirname(logPath), { recursive: true });
 
     // Execute Claude
-    const execResult = await this.execute(args, request.timeout, fullPrompt);
+    const execResult = await this.execute(invocation, request.timeout, fullPrompt);
 
     const completedAt = this.clock.now();
 
@@ -142,11 +176,37 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     return this.buildResult(request, execResult, logPath, startedAt, completedAt);
   }
 
+  /**
+   * Build the full provider invocation: command, argv, and working directory.
+   *
+   * Claude has no working-directory flag; the spawned process cwd is the only
+   * mechanism, and it also drives Claude's project-root CLAUDE.md auto-discovery
+   * and git context. cwd defaults to the prompt root (self-host) and becomes the
+   * target repo when `request.workingDir` is set.
+   */
+  buildInvocation(request: RunRequest): {
+    command: string;
+    args: string[];
+    cwd: string;
+  } {
+    return {
+      command: this.config.command,
+      args: this.buildArgs(request),
+      cwd: request.workingDir ?? this.config.promptRoot,
+    };
+  }
+
   private buildArgs(request: RunRequest): string[] {
     const args: string[] = ['--print'];
 
     // Output format: text for now (schema mode not supported in Phase 3)
     args.push('--output-format', 'text');
+
+    // Shared house-rules layer, APPENDED to (not replacing) the default agentic
+    // system prompt so tool scaffolding + dynamic context survive.
+    if (this.config.sharedInstructionPath) {
+      args.push('--append-system-prompt-file', this.config.sharedInstructionPath);
+    }
 
     // Model override
     if (request.model) {
@@ -156,6 +216,16 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     // Effort override
     if (request.effort) {
       args.push('--effort', request.effort);
+    }
+
+    // Permission posture. Only emitted when explicitly requested; absent =>
+    // self-host default (no flag).
+    if (request.permission === 'write') {
+      // Full autonomy: file edits + bash/validation without prompts.
+      args.push('--dangerously-skip-permissions');
+    } else if (request.permission === 'read-only') {
+      // Plan mode: investigation (incl. `git diff`) allowed, edits blocked.
+      args.push('--permission-mode', 'plan');
     }
 
     // Prompt will be passed via stdin
@@ -177,7 +247,7 @@ export class ClaudeAdapter implements ProviderRunnerPort {
   }
 
   private async execute(
-    args: string[],
+    invocation: { command: string; args: string[]; cwd: string },
     timeout: number | undefined,
     stdinContent: string
   ): Promise<ExecResult> {
@@ -187,8 +257,9 @@ export class ClaudeAdapter implements ProviderRunnerPort {
       let proc: ChildProcess;
 
       try {
-        proc = spawn(this.config.command, args, {
+        proc = spawn(invocation.command, invocation.args, {
           stdio: ['pipe', 'pipe', 'pipe'],
+          cwd: invocation.cwd,
         });
       } catch (err) {
         // spawn itself threw (very rare, e.g., invalid options)

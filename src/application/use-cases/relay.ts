@@ -21,6 +21,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import type { ClockPort, ProviderRunnerPort } from '../ports/index.js';
 import type { PromptRef } from '../../core/run-record.js';
 import { RunStatus } from '../../core/run-record.js';
+import { parseVerdict, type Verdict } from './relay-shared.js';
 
 /**
  * Phase in the relay loop.
@@ -29,8 +30,11 @@ export type RelayPhase = 'design' | 'review-design' | 'implement' | 'review-impl
 
 /**
  * Verdict parsed from reviewer output.
+ *
+ * Re-exported from relay-shared (single source of the verdict contract) to
+ * preserve the existing `Verdict` import surface of this module.
  */
-export type Verdict = 'approved' | 'revise' | 'escalate' | 'unknown';
+export type { Verdict };
 
 /**
  * Actor type.
@@ -349,28 +353,6 @@ function buildContextPrompt(brief: string, current: string, phase: RelayPhase): 
   }
 
   return parts.join('');
-}
-
-/**
- * Parse verdict from reviewer output.
- *
- * Looks for STATUS: line at top of output.
- */
-function parseVerdict(output: string): Verdict {
-  const lines = output.split('\n');
-
-  for (const line of lines.slice(0, 10)) {
-    const trimmed = line.trim().toUpperCase();
-
-    if (trimmed.startsWith('STATUS:')) {
-      const status = trimmed.replace('STATUS:', '').trim().toLowerCase();
-      if (status === 'approved' || status === 'approve') return 'approved';
-      if (status === 'revise' || status === 'revision' || status === 'changes' || status === 'revisions') return 'revise';
-      if (status === 'escalate' || status === 'escalation' || status === 'block') return 'escalate';
-    }
-  }
-
-  return 'unknown';
 }
 
 /**

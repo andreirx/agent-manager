@@ -44,6 +44,41 @@ export interface RunRequest {
 
   /** Timeout in milliseconds (optional) */
   readonly timeout?: number;
+
+  /**
+   * Absolute path used as the provider process working directory.
+   *
+   * Self-host runs omit this (cwd falls back to the prompt root). Target-owned
+   * relay sets it to the target repository so the agent reads/edits that tree
+   * and its CLAUDE.md / git context resolve there.
+   */
+  readonly workingDir?: string;
+
+  /**
+   * Workflow intent for this run. Provider-neutral; the use case decides it from
+   * the phase, the adapter maps it (with `permission`) to CLI flags.
+   * - 'plan'   : select/author a slice
+   * - 'edit'   : implement (agentic file edits)
+   * - 'review' : inspect changes and emit a verdict
+   */
+  readonly mode?: 'plan' | 'edit' | 'review';
+
+  /**
+   * Permission posture. Provider-neutral; mapped to provider flags by adapters.
+   * Absent => no permission flag is emitted (self-host default behavior).
+   */
+  readonly permission?: 'read-only' | 'write';
+
+  /**
+   * Dynamic, per-run context appended after the digest-pinned file prompts.
+   *
+   * Unlike `prompts` (stable, reproducible assets resolved under the prompt
+   * root and digest-verified), this is freshly generated each run (e.g. a slice
+   * selection packet) and is not a stored asset, so it carries no digest and is
+   * not resolved against the prompt root. Delivered to the provider via stdin
+   * together with the file prompts.
+   */
+  readonly contextText?: string;
 }
 
 /**

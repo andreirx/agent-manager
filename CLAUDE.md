@@ -85,7 +85,17 @@ When creating technical debt, add an entry to `docs/TECH-DEBT.md` with:
 
 ## Commands and Workflows
 
-(To be added as CLI surfaces are implemented)
+| Command | Purpose |
+|---------|---------|
+| `npm run relay -- <slice-id>` | Self-host relay on an AM-* slice inside agent-manager |
+| `npm run relay-target -- <target-path> [opts]` | Target-owned relay on an external repo (e.g. `../repo-graph`) |
+| `npm run am-001` | One-shot builder run for AM-001 |
+| `npm run human` | Record a human intervention |
+| `npm run typecheck` | `tsc --noEmit` |
+
+`relay-target` options: `--builder claude|codex`, `--supervisor claude|codex`,
+`--shared-prompt <path>`, `--max-iter <n>`, `--until <phase>`, `--dry-run`.
+See `docs/contracts/target-owned-relay.md`.
 
 ## Current Phase
 
@@ -121,3 +131,26 @@ Human only needed for:
 - Deadlock breaking
 - Ambiguous decisions
 - Final acceptance
+
+### Target-owned relay (PROTOTYPE)
+
+Drives the loop on an external repo with that repo as the system of record.
+Distinct from self-host relay: `promptRoot` (agent-manager prompts) and
+`workingDir` (target repo) are separate; the builder edits the target's working
+tree; the reviewer reads the resulting `git diff`; either role can be Claude or
+Codex.
+
+Phase graph: `select-slice` → (`implement` → `review-impl`)* → `done` | `blocked`.
+Selection is **read-only** (supervisor only picks a slice; AM writes
+`selection.json`). `--max-iter` bounds build/review **cycles**. The active slice
+is tracked in `current.json`, so `--until select-slice` then a plain run resume
+the same slice (`--slice <id>` / `--reselect` to override). Each provider call
+writes a `runs/*.json` run record referencing its log path.
+
+The target is **always** the `<target-path>` argument; no repo is hardcoded
+(`../repo-graph` is only an example). The relay provisions
+`<target>/.agent-manager/` (committed artifacts + run records; `logs/` ignored)
+on first run for any target.
+
+Run: `npm run relay-target -- <target-path>` (add `--dry-run` first to inspect
+the exact provider invocations). Full contract: `docs/contracts/target-owned-relay.md`.

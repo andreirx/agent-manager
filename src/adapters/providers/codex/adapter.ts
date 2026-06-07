@@ -9,7 +9,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, isAbsolute } from 'node:path';
 
 import type { ClockPort, ArtifactStorePort } from '../../../application/ports/index.js';
@@ -27,8 +27,18 @@ export interface CodexAdapterConfig {
   /** Path to logs directory (absolute) */
   readonly logsDir: string;
 
-  /** Path to repository root (for resolving prompt paths) */
-  readonly repoRoot: string;
+  /** Path to prompt-asset root (agent-manager; for resolving prompt paths) */
+  readonly promptRoot: string;
+
+  /**
+   * Absolute path to the shared system-prompt file (e.g. CLAUDE-SYSTEM.txt).
+   *
+   * When set, the adapter READS the file and injects its content as Codex's
+   * `developer_instructions` config (additive on top of Codex base
+   * instructions), because `-c key=value` takes an inline value. Absent =>
+   * no developer-instructions override (self-host default).
+   */
+  readonly sharedInstructionPath?: string;
 
   /** Codex CLI command (default: 'codex') */
   readonly command?: string;
@@ -55,10 +65,23 @@ export class CodexAdapterCompositionError extends Error {
  *
  * Headless mode only.
  */
+/**
+ * Internal config with defaults resolved. `sharedInstructionPath` stays optional
+ * (it has no default); only command/timeout/grace are guaranteed present.
+ */
+type ResolvedCodexConfig = CodexAdapterConfig & {
+  command: string;
+  defaultTimeout: number;
+  killGracePeriod: number;
+};
+
 export class CodexAdapter implements ProviderRunnerPort {
-  private readonly config: Required<CodexAdapterConfig>;
+  private readonly config: ResolvedCodexConfig;
   private readonly store: ArtifactStorePort;
   private readonly clock: ClockPort;
+
+  /** Lazily-read content of sharedInstructionPath, cached after first run. */
+  private sharedInstruction: string | undefined;
 
   constructor(
     config: CodexAdapterConfig,
@@ -75,8 +98,31 @@ export class CodexAdapter implements ProviderRunnerPort {
     this.clock = clock;
   }
 
+  /** Read the shared instruction file once (if configured) and cache it. */
+  private async loadSharedInstruction(): Promise<void> {
+    if (
+      this.config.sharedInstructionPath &&
+      this.sharedInstruction === undefined
+    ) {
+      this.sharedInstruction = await readFile(
+        this.config.sharedInstructionPath,
+        'utf-8'
+      );
+    }
+  }
+
+  /**
+   * Preload the shared instruction so a subsequent buildInvocation() reflects
+   * the real argv (including --config developer_instructions). Used by dry-run.
+   */
+  async prewarm(): Promise<void> {
+    await this.loadSharedInstruction();
+  }
+
   async run(request: RunRequest): Promise<RunResult> {
     const startedAt = this.clock.now();
+
+    await this.loadSharedInstruction();
 
     // Validate and read all prompt contents
     const promptContents: string[] = [];
@@ -87,7 +133,7 @@ export class CodexAdapter implements ProviderRunnerPort {
         );
       }
 
-      const fullPath = join(this.config.repoRoot, prompt.path);
+      const fullPath = join(this.config.promptRoot, prompt.path);
       const asset = await this.store.readPromptAsset(fullPath);
 
       if (asset.digest !== prompt.digest) {
@@ -100,14 +146,18 @@ export class CodexAdapter implements ProviderRunnerPort {
       promptContents.push(asset.content);
     }
 
-    const fullPrompt = promptContents.join('\n\n---\n\n');
+    const parts = [...promptContents];
+    if (request.contextText) {
+      parts.push(request.contextText);
+    }
+    const fullPrompt = parts.join('\n\n---\n\n');
 
-    const args = this.buildArgs(request);
+    const invocation = this.buildInvocation(request);
     const logPath = this.buildLogPath(request, startedAt);
 
     await mkdir(dirname(logPath), { recursive: true });
 
-    const execResult = await this.execute(args, request.timeout, fullPrompt);
+    const execResult = await this.execute(invocation, request.timeout, fullPrompt);
 
     const completedAt = this.clock.now();
 
@@ -116,9 +166,27 @@ export class CodexAdapter implements ProviderRunnerPort {
     return this.buildResult(request, execResult, logPath, startedAt, completedAt);
   }
 
+  /**
+   * Build the full provider invocation: command, argv, and working directory.
+   *
+   * Codex accepts an explicit `-C <dir>` working root AND honors the spawned
+   * process cwd; both are set to the target repo when `request.workingDir` is
+   * provided so config/AGENTS.md resolution is unambiguous.
+   */
+  buildInvocation(request: RunRequest): {
+    command: string;
+    args: string[];
+    cwd: string;
+  } {
+    return {
+      command: this.config.command,
+      args: this.buildArgs(request),
+      cwd: request.workingDir ?? this.config.promptRoot,
+    };
+  }
+
   private buildArgs(request: RunRequest): string[] {
-    // Use exec mode for general artifact review
-    // review mode is for code diff review, not artifact review
+    // exec = non-interactive headless run.
     const args: string[] = ['exec'];
 
     // Model override
@@ -130,6 +198,29 @@ export class CodexAdapter implements ProviderRunnerPort {
     // dedicated `codex exec` flag.
     if (request.effort) {
       args.push('--config', `model_reasoning_effort="${request.effort}"`);
+    }
+
+    // Shared house-rules layer delivered as developer-instructions (additive on
+    // top of Codex base instructions). JSON-encoded so it is a valid TOML basic
+    // string for `-c key=value` parsing (newlines/quotes safely escaped).
+    if (this.sharedInstruction !== undefined) {
+      args.push(
+        '--config',
+        `developer_instructions=${JSON.stringify(this.sharedInstruction)}`
+      );
+    }
+
+    // Permission posture via sandbox policy. Only emitted when explicitly
+    // requested; absent => self-host default (no flag).
+    if (request.permission === 'write') {
+      args.push('--sandbox', 'workspace-write');
+    } else if (request.permission === 'read-only') {
+      args.push('--sandbox', 'read-only');
+    }
+
+    // Working root for the agent (target repo in target-owned relay).
+    if (request.workingDir) {
+      args.push('-C', request.workingDir);
     }
 
     // Prompt via stdin (positional argument)
@@ -149,7 +240,7 @@ export class CodexAdapter implements ProviderRunnerPort {
   }
 
   private async execute(
-    args: string[],
+    invocation: { command: string; args: string[]; cwd: string },
     timeout: number | undefined,
     stdinContent: string
   ): Promise<ExecResult> {
@@ -159,8 +250,9 @@ export class CodexAdapter implements ProviderRunnerPort {
       let proc: ChildProcess;
 
       try {
-        proc = spawn(this.config.command, args, {
+        proc = spawn(invocation.command, invocation.args, {
           stdio: ['pipe', 'pipe', 'pipe'],
+          cwd: invocation.cwd,
         });
       } catch (err) {
         reject(

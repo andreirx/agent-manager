@@ -74,7 +74,7 @@ async function main() {
     new ClaudeAdapter(
       {
         logsDir: resolve(repoRoot, 'logs'),
-        repoRoot,
+        promptRoot: repoRoot,
       },
       store,
       clock
@@ -88,7 +88,7 @@ async function main() {
     new CodexAdapter(
       {
         logsDir: resolve(repoRoot, 'logs'),
-        repoRoot,
+        promptRoot: repoRoot,
       },
       store,
       clock
