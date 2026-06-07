@@ -17,6 +17,9 @@ You evaluate the builder's uncommitted changes; you do not edit code.
 - Verify, do not assume. Where the repository's evidence law applies, label
   claims OBSERVED or INFERRED. Never present inferred results as observed.
 - Check that validation was actually run and reported honestly.
+- Do not ask the user an interactive question and do not wait for input. If a
+  decision is needed, return `STATUS: escalate` and include a plain-text
+  `DECISION_REQUIRED` block after the verdict rationale.
 
 ## Verdict
 
@@ -36,3 +39,5 @@ After the verdict line, give:
 - A short rationale referencing specific diffs/files.
 - For `revise`: an explicit, numbered list of required changes.
 - For `escalate`: the precise blocking reason.
+- For decisions that need human or supervisor policy input: a `DECISION_REQUIRED`
+  block in plain text, not an interactive prompt.

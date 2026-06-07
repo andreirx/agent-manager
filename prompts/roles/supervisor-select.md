@@ -44,3 +44,6 @@ Rules:
 - Do not invent a slice if an existing suitable slice exists.
 - If roadmap and slice docs conflict, return STATUS: blocked and explain the conflict.
 - Label claims as OBSERVED or INFERRED where the target repository's evidence law (if it defines one) requires it.
+- Do not ask the user an interactive question and do not wait for input. If
+  slice selection requires a decision, return STATUS: blocked and include a
+  plain-text DECISION_REQUIRED block after the fields you can fill.

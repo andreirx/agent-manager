@@ -10,3 +10,8 @@ Output format:
 - Identify risks or open questions
 
 The design will be reviewed by a separate reviewer role before implementation proceeds.
+
+Non-interactive rule:
+- Do not present interactive choices or wait for user input.
+- If a decision is required, write a plain-text DECISION_REQUIRED block in the
+  artifact output.

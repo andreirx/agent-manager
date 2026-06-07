@@ -110,6 +110,49 @@ Each entry should include:
 
 ---
 
+### TD-008
+
+- **ID**: TD-008
+- **Date**: 2026-06-07
+- **What**: Full event-stream transcript logging is implemented for the Claude
+  adapter (`--output-format stream-json --verbose`, raw events stored in the run
+  log for human analysis, final text extracted for the artifact). The Codex
+  adapter still logs plain text (`codex exec` stdout/stderr), so runs executed
+  by the Codex provider have no equivalent structured tool-call transcript.
+- **Why acceptable**: Provider roles are swappable, but the current default
+  target-owned binding uses Claude as builder and Codex as supervisor/reviewer.
+  Claude also exposes a verified `stream-json --verbose` event stream in the
+  installed CLI, making it the first tractable transcript implementation. Codex
+  runs still produce captured stdout/stderr and authoritative artifacts; they
+  only lack a structured tool-call transcript.
+- **Proper solution**: Add a Codex experimental JSON event output (or parse
+  `codex exec --json`/equivalent) and store it as the log, extracting the final
+  message for the artifact — mirroring the Claude adapter.
+- **When to address**: When Codex-provider runs need audit-grade tool-call
+  transcripts, especially if Codex is bound to the builder role for a target
+  workflow.
+- **Status**: OPEN
+
+---
+
+### TD-009
+
+- **ID**: TD-009
+- **Date**: 2026-06-07
+- **What**: Claude transcript capture is **default-on for every Claude run**,
+  including the self-host relay and `am-001`. Their logs grew from plain text to
+  full stream-json transcripts. Logs are gitignored, but transcript logs are
+  larger and accumulate.
+- **Why acceptable**: Logs are operational, gitignored, and the richer record is
+  generally desirable. The adapter exposes `captureTranscript: false` to revert
+  any composition root to text logs.
+- **Proper solution**: If self-host log size matters, set `captureTranscript:
+  false` in the self-host CLIs, and/or add log rotation/retention.
+- **When to address**: If/when self-host log volume becomes a problem.
+- **Status**: OPEN
+
+---
+
 ## Resolved Entries
 
 (none yet)

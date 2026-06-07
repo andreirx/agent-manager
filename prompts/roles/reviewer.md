@@ -26,3 +26,8 @@ Verdict meanings:
 
 If status is "revise", be specific about what must change.
 If status is "escalate", explain what decision is needed.
+
+Non-interactive rule:
+- Do not present interactive choices or wait for user input.
+- If a decision is required, start with STATUS: escalate and write a plain-text
+  DECISION_REQUIRED block in the artifact output.

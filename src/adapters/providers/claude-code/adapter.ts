@@ -52,6 +52,16 @@ export interface ClaudeAdapterConfig {
 
   /** Grace period before SIGKILL after SIGTERM (default: 5000 = 5 sec) */
   readonly killGracePeriod?: number;
+
+  /**
+   * Capture a full stream-json event transcript as the run log (for later
+   * HUMAN analysis), while still extracting the final assistant text as the
+   * run's output artifact. Runs Claude with `--output-format stream-json
+   * --verbose` (stream-json in --print mode requires --verbose). The transcript
+   * is operational log output only; it is never fed to another agent.
+   * Default: true. Set false for plain `--output-format text` logs.
+   */
+  readonly captureTranscript?: boolean;
 }
 
 /**
@@ -80,6 +90,7 @@ type ResolvedClaudeConfig = ClaudeAdapterConfig & {
   command: string;
   defaultTimeout: number;
   killGracePeriod: number;
+  captureTranscript: boolean;
 };
 
 export class ClaudeAdapter implements ProviderRunnerPort {
@@ -97,6 +108,9 @@ export class ClaudeAdapter implements ProviderRunnerPort {
       defaultTimeout: 300_000,
       killGracePeriod: 5_000,
       ...config,
+      // After the spread so an omitted key defaults to true rather than
+      // becoming undefined.
+      captureTranscript: config.captureTranscript ?? true,
     };
     this.store = store;
     this.clock = clock;
@@ -169,11 +183,15 @@ export class ClaudeAdapter implements ProviderRunnerPort {
 
     const completedAt = this.clock.now();
 
+    // Extract the final assistant text (the run's artifact). In transcript mode
+    // the raw stdout is the JSONL event stream, kept verbatim in the log.
+    const finalText = this.extractFinalText(execResult.stdout);
+
     // Write log (adapter-owned operational output, not via artifact port)
-    await this.writeLog(logPath, request, execResult, startedAt, completedAt);
+    await this.writeLog(logPath, request, execResult, finalText, startedAt, completedAt);
 
     // Build result
-    return this.buildResult(request, execResult, logPath, startedAt, completedAt);
+    return this.buildResult(request, execResult, finalText, logPath, startedAt, completedAt);
   }
 
   /**
@@ -199,8 +217,20 @@ export class ClaudeAdapter implements ProviderRunnerPort {
   private buildArgs(request: RunRequest): string[] {
     const args: string[] = ['--print'];
 
-    // Output format: text for now (schema mode not supported in Phase 3)
-    args.push('--output-format', 'text');
+    // Output format. Transcript mode emits a full stream-json event stream
+    // (stored verbatim in the log for human analysis); the final assistant text
+    // is extracted for the artifact. stream-json in --print mode REQUIRES
+    // --verbose (verified against the installed CLI).
+    if (this.config.captureTranscript) {
+      args.push('--output-format', 'stream-json', '--verbose');
+    } else {
+      args.push('--output-format', 'text');
+    }
+
+    // Print mode must be artifact-only. Disable Claude Code prompt suggestions
+    // so the adapter never emits "next user prompt" / interactive-choice
+    // affordances into the captured workflow output.
+    args.push('--prompt-suggestions', 'false');
 
     // Shared house-rules layer, APPENDED to (not replacing) the default agentic
     // system prompt so tool scaffolding + dynamic context survive.
@@ -369,10 +399,63 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     });
   }
 
+  /**
+   * Extract the final assistant text from captured stdout.
+   *
+   * Text mode: stdout is already the final text.
+   * Transcript mode: stdout is a JSONL event stream. The authoritative final
+   * text is the `result` event's `result` field; fallback is the concatenated
+   * text blocks of the last `assistant` message (e.g. when the process was
+   * killed before a result event). Non-JSON / partial lines are tolerated.
+   */
+  private extractFinalText(stdout: string): string {
+    if (!this.config.captureTranscript) {
+      return stdout;
+    }
+    let resultText: string | undefined;
+    let lastAssistantText = '';
+    for (const line of stdout.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let ev: unknown;
+      try {
+        ev = JSON.parse(trimmed);
+      } catch {
+        continue;
+      }
+      if (typeof ev !== 'object' || ev === null) continue;
+      const e = ev as { type?: unknown; result?: unknown; message?: unknown };
+      if (e.type === 'result' && typeof e.result === 'string') {
+        resultText = e.result;
+      } else if (
+        e.type === 'assistant' &&
+        typeof e.message === 'object' &&
+        e.message !== null
+      ) {
+        const content = (e.message as { content?: unknown }).content;
+        if (Array.isArray(content)) {
+          const text = content
+            .filter(
+              (b): b is { type: string; text: string } =>
+                typeof b === 'object' &&
+                b !== null &&
+                (b as { type?: unknown }).type === 'text' &&
+                typeof (b as { text?: unknown }).text === 'string'
+            )
+            .map((b) => b.text)
+            .join('');
+          if (text) lastAssistantText = text;
+        }
+      }
+    }
+    return resultText ?? lastAssistantText;
+  }
+
   private async writeLog(
     logPath: string,
     request: RunRequest,
     result: ExecResult,
+    finalText: string,
     startedAt: string,
     completedAt: string
   ): Promise<void> {
@@ -400,19 +483,45 @@ export class ClaudeAdapter implements ProviderRunnerPort {
       `## Prompts`,
       ``,
       ...request.prompts.map((p) => `- ${p.path} (${p.digest})`),
-      ``,
-      `## STDOUT`,
-      ``,
-      '```',
-      result.stdout,
-      '```',
-      ``,
-      `## STDERR`,
-      ``,
-      '```',
-      result.stderr,
-      '```'
+      ``
     );
+
+    if (this.config.captureTranscript) {
+      // Full event transcript for human analysis, plus the extracted final text.
+      lines.push(
+        `## Final Text`,
+        ``,
+        '```',
+        finalText,
+        '```',
+        ``,
+        `## Transcript (stream-json events)`,
+        ``,
+        '```jsonl',
+        result.stdout,
+        '```',
+        ``,
+        `## STDERR`,
+        ``,
+        '```',
+        result.stderr,
+        '```'
+      );
+    } else {
+      lines.push(
+        `## STDOUT`,
+        ``,
+        '```',
+        result.stdout,
+        '```',
+        ``,
+        `## STDERR`,
+        ``,
+        '```',
+        result.stderr,
+        '```'
+      );
+    }
 
     await writeFile(logPath, lines.join('\n'), 'utf-8');
   }
@@ -420,6 +529,7 @@ export class ClaudeAdapter implements ProviderRunnerPort {
   private buildResult(
     request: RunRequest,
     execResult: ExecResult,
+    finalText: string,
     logPath: string,
     startedAt: string,
     completedAt: string
@@ -435,15 +545,16 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     }
 
     // Output artifact handling:
-    // Type 'provider-output' marks this as provisional raw output.
-    // Phase 4 application logic maps it to an authoritative artifact path/type.
+    // Content is the EXTRACTED final assistant text (not the raw transcript),
+    // so downstream consumers (build-<n>.md, reviewer) see the same final text
+    // regardless of log format. Type 'provider-output' marks provisional output.
     const outputArtifacts =
-      status === RunStatus.COMPLETED && execResult.stdout.trim()
+      status === RunStatus.COMPLETED && finalText.trim()
         ? [
             {
               suggestedPath: `${request.role}-output.md`,
               type: 'provider-output',
-              content: execResult.stdout,
+              content: finalText,
             },
           ]
         : [];

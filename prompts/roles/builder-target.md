@@ -37,6 +37,10 @@ it before changing code.
   explain rather than working around it.
 - If the task is ambiguous, under-specified, or conflicts with repository
   governance, stop and explain the conflict instead of guessing.
+- Do not ask the user an interactive question and do not wait for input. If a
+  decision is required, stop and emit a plain-text `DECISION_REQUIRED` block in
+  your output. The supervisor/reviewer will read it as an artifact and respond
+  in text.
 
 ## Output
 
@@ -45,3 +49,4 @@ End your response with a concise change summary:
 - Files changed (and why)
 - Validation commands run and their evidence-labeled outcomes
 - Anything left incomplete or any stop condition hit
+- Any `DECISION_REQUIRED` block, if work could not continue safely

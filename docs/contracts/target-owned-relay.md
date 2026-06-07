@@ -61,7 +61,7 @@ docs carry the design.
 
 ## Provider flag mapping (mechanism)
 
-Common Claude: `--print --output-format text [--append-system-prompt-file <shared>] --model <m> --effort <e>`, spawn `cwd = workingDir`, prompt via stdin `-p -`.
+Common Claude: `--print --output-format stream-json --verbose --prompt-suggestions false [--append-system-prompt-file <shared>] --model <m> --effort <e>`, spawn `cwd = workingDir`, prompt via stdin `-p -`. (`stream-json --verbose` captures the transcript log — see Logging; `captureTranscript: false` reverts to `--output-format text`.)
 Common Codex: `exec --model <m> --config model_reasoning_effort="<e>" [--config developer_instructions=<json>] -C <workingDir>`, spawn `cwd = workingDir`, prompt via stdin `-`.
 
 | Phase | mode | permission | Claude adds | Codex adds |
@@ -85,6 +85,22 @@ TOML basic string for `-c key=value`).
 > Note: `--system-prompt`/`--system-prompt-file` would REPLACE Claude's default
 > prompt and strip the agentic harness; `--append-system-prompt-file` is the
 > ratified choice.
+
+## Logging (Claude transcript)
+
+Claude runs capture a full `stream-json` event transcript — every tool call,
+tool result, reasoning/assistant message, and the final `result` event — stored
+verbatim in the run log (`<target>/.agent-manager/logs/…`, gitignored) for
+**human** analysis. The adapter extracts the final assistant text (the `result`
+event's `result` field; fallback: last `assistant` text blocks) into
+`build-<n>.md` and the run's output artifact, so the reviewer and relay logic see
+the same final text regardless of log format.
+
+The transcript is operational log output ONLY; it is never fed to another agent.
+The reviewer reads `build-<n>.md` + `git diff`, not the log. Default on for all
+Claude runs (self-host included); set the adapter's `captureTranscript: false`
+to revert to `--output-format text`. Codex runs remain text-only (see TECH-DEBT
+TD-008).
 
 ## Storage (in the target repo)
 
@@ -121,6 +137,34 @@ artifacts). Committing/branching is currently out of scope (see TECH-DEBT).
 Reviewer output MUST begin with `STATUS: approved|revise|escalate`. Parsing is
 shared with the self-host relay (`relay-shared.ts`), so reviewer prompts/providers
 are swappable without changing parsing.
+
+## Non-interactive contract
+
+Provider runs are batch text-in/text-out executions. Agents must not present
+interactive choices, menus, pickers, buttons, or prompts that wait for a user.
+
+If a run cannot safely continue without a decision, the agent writes the decision
+as a plain-text artifact instead of waiting:
+
+```
+DECISION_REQUIRED:
+- ID: <stable short id>
+  QUESTION: <decision needed>
+  OPTIONS:
+  - <option A and consequence>
+  - <option B and consequence>
+  RECOMMENDED: <option, if one is defensible>
+  BLOCKING_REASON: <why work cannot safely continue without this decision>
+```
+
+Phase-specific handling:
+
+- `select-slice`: return `STATUS: blocked` and include `DECISION_REQUIRED`.
+- `implement`: stop work and include `DECISION_REQUIRED` in the builder output.
+- `review-impl`: return `STATUS: escalate` and include `DECISION_REQUIRED`.
+
+Claude is invoked with `--print`, stdin/stdout pipes, and
+`--prompt-suggestions false`. The adapter does not open an interactive session.
 
 ## CLI
 
