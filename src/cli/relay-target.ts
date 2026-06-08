@@ -15,6 +15,8 @@
  *   --shared-prompt <path>      shared system-prompt file
  *                               (default: /Users/apple/CLAUDE-SYSTEM.txt)
  *   --max-iter <n>             max build/review CYCLES         (default: 10)
+ *   --timeout <minutes>        per-provider-run timeout        (default: 20)
+ *   --reviewer-write           elevate review phase to write (so rmap can run)
  *   --slice <id>               resume a specific slice (skip selection)
  *   --reselect                 force a fresh selection even if a slice is active
  *   --until select-slice       stop after selection (no building)
@@ -62,7 +64,12 @@ type RawAdapter = ClaudeAdapter | CodexAdapter;
 
 function makeAdapter(
   name: TargetActor,
-  config: { logsDir: string; promptRoot: string; sharedInstructionPath?: string },
+  config: {
+    logsDir: string;
+    promptRoot: string;
+    sharedInstructionPath?: string;
+    defaultTimeout?: number;
+  },
   store: FilesystemArtifactStore,
   clock: SystemClock
 ): RawAdapter {
@@ -77,6 +84,10 @@ interface Args {
   supervisor: TargetActor;
   sharedPrompt: string;
   maxIter: number;
+  /** Per-provider-run timeout in ms (opus --effort max routinely exceeds 5 min). */
+  timeoutMs: number;
+  /** Elevate the REVIEW phase to write posture (so tools like rmap can run). */
+  reviewerWrite: boolean;
   slice?: string;
   reselect: boolean;
   until?: TargetPhase;
@@ -97,6 +108,8 @@ function parseArgs(argv: string[]): Args {
   let supervisor: TargetActor = 'codex';
   let sharedPrompt = DEFAULT_SHARED_PROMPT;
   let maxIter = 10;
+  let timeoutMs = 20 * 60_000; // 20 min default; opus --effort max exceeds 5 min
+  let reviewerWrite = false;
   let slice: string | undefined;
   let reselect = false;
   let until: TargetPhase | undefined;
@@ -131,11 +144,23 @@ function parseArgs(argv: string[]): Args {
       case '--max-iter':
         maxIter = Number.parseInt(value('--max-iter'), 10);
         break;
+      case '--timeout': {
+        const mins = Number.parseInt(value('--timeout'), 10);
+        if (!Number.isFinite(mins) || mins < 1) {
+          console.error('--timeout must be a positive integer (minutes).');
+          process.exit(1);
+        }
+        timeoutMs = mins * 60_000;
+        break;
+      }
       case '--slice':
         slice = value('--slice');
         break;
       case '--reselect':
         reselect = true;
+        break;
+      case '--reviewer-write':
+        reviewerWrite = true;
         break;
       case '--until': {
         const u = value('--until');
@@ -173,7 +198,7 @@ function parseArgs(argv: string[]): Args {
   }
 
   // exactOptionalPropertyTypes: include optionals only when present.
-  const base: Args = { target, builder, supervisor, sharedPrompt, maxIter, reselect, dryRun };
+  const base: Args = { target, builder, supervisor, sharedPrompt, maxIter, timeoutMs, reviewerWrite, reselect, dryRun };
   const withSlice = slice !== undefined ? { ...base, slice } : base;
   return until !== undefined ? { ...withSlice, until } : withSlice;
 }
@@ -229,7 +254,7 @@ async function printDryRun(
       adapter: supervisorRaw,
       provider: args.supervisor,
       mode: 'review',
-      permission: 'read-only',
+      permission: args.reviewerWrite ? 'write' : 'read-only',
       role: 'reviewer',
     },
   ];
@@ -293,6 +318,7 @@ async function main(): Promise<void> {
   const adapterConfig = {
     logsDir: resolve(targetDir, '.agent-manager', 'logs'),
     promptRoot,
+    defaultTimeout: args.timeoutMs,
     ...(sharedInstructionPath ? { sharedInstructionPath } : {}),
   };
 
@@ -321,6 +347,7 @@ async function main(): Promise<void> {
     supervisorEffort: supervisorDef.effort,
     maxIterations: args.maxIter,
     reselect: args.reselect,
+    reviewerPermission: args.reviewerWrite ? 'write' : 'read-only',
   };
   const withSlice = args.slice !== undefined ? { ...base, sliceId: args.slice } : base;
   const input: TargetRelayInput =

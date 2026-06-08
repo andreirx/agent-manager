@@ -105,6 +105,13 @@ export interface TargetRelayInput {
   supervisorEffort: string;
   /** Max build/review CYCLES (each cycle = one implement + one review). */
   maxIterations?: number;
+  /**
+   * Sandbox posture for the REVIEW phase. Default 'read-only' (the reviewer must
+   * not edit the work it judges). 'write' (codex `--sandbox workspace-write`)
+   * lets the reviewer run tools that need to write state, e.g. `rmap`. Selection
+   * stays read-only regardless.
+   */
+  reviewerPermission?: 'read-only' | 'write';
   /** Resume this specific slice id (skip selection). */
   sliceId?: string;
   /** Force a fresh selection even if an active slice exists. */
@@ -532,7 +539,7 @@ async function runReview(
     sliceId: status.sliceId,
     role: 'reviewer',
     mode: 'review',
-    permission: 'read-only',
+    permission: input.reviewerPermission ?? 'read-only',
     workingDir: input.targetDir,
     model: input.supervisorModel,
     effort: input.supervisorEffort,
