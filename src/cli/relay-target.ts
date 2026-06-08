@@ -253,7 +253,7 @@ async function printDryRun(
     console.log(`  cwd : ${inv.cwd}`);
     console.log(`  cmd : ${inv.command} ${inv.args.map(formatArg).join(' ')}`);
     if (sharedInstructionPath && p.provider === 'claude') {
-      console.log(`  shared-prompt: ${sharedInstructionPath} (via --append-system-prompt-file above)`);
+      console.log(`  shared-prompt: ${sharedInstructionPath} (via --system-prompt-file above)`);
     }
     console.log(`  stdin: <pinned role prompts> + <generated ${p.label} context>\n`);
   }

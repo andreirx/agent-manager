@@ -61,7 +61,7 @@ docs carry the design.
 
 ## Provider flag mapping (mechanism)
 
-Common Claude: `--print --output-format stream-json --verbose --prompt-suggestions false [--append-system-prompt-file <shared>] --model <m> --effort <e>`, spawn `cwd = workingDir`, prompt via stdin `-p -`. (`stream-json --verbose` captures the transcript log — see Logging; `captureTranscript: false` reverts to `--output-format text`.)
+Common Claude: `--print --output-format stream-json --verbose --prompt-suggestions false [--system-prompt-file <shared>] --model <m> --effort <e>`, spawn `cwd = workingDir`, prompt via stdin `-p -`. (`stream-json --verbose` captures the transcript log — see Logging; `captureTranscript: false` reverts to `--output-format text`.)
 Common Codex: `exec --model <m> --config model_reasoning_effort="<e>" [--config developer_instructions=<json>] -C <workingDir>`, spawn `cwd = workingDir`, prompt via stdin `-`.
 
 | Phase | mode | permission | Claude adds | Codex adds |
@@ -77,14 +77,17 @@ supervisor *author* new slice docs (the original D4 "authoring" case) would be a
 separate, explicitly write-enabled phase — not yet built.
 
 Shared system prompt (`CLAUDE-SYSTEM.txt`): Claude receives it via
-`--append-system-prompt-file` (path; appends to the default agentic prompt, so
-tool scaffolding + dynamic context + target `CLAUDE.md` auto-load survive). Codex
-receives its **content** as `developer_instructions` (JSON-encoded to be a valid
-TOML basic string for `-c key=value`).
+`--system-prompt-file` (path), which **replaces** Claude's default system prompt
+with this file (operator preference for coding tasks). Codex receives its
+**content** as `developer_instructions` (JSON-encoded to be a valid TOML basic
+string for `-c key=value`).
 
-> Note: `--system-prompt`/`--system-prompt-file` would REPLACE Claude's default
-> prompt and strip the agentic harness; `--append-system-prompt-file` is the
-> ratified choice.
+> Note: `--system-prompt-file` replaces Claude's default system prompt prose.
+> Tools remain available, but Claude's default dynamic context (cwd/env/git) and
+> target `CLAUDE.md` auto-load are NOT injected — the role prompts therefore
+> instruct the agent to read target governance (`CLAUDE.md`/`AGENTS.md`)
+> explicitly. `--append-system-prompt-file` (layer on top) is the alternative if
+> auto-load/default harness is wanted instead.
 
 ## Logging (Claude transcript)
 

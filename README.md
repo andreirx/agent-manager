@@ -63,10 +63,10 @@ npm run relay-target -- <target-path> --shared-prompt /absolute/path/to/system-p
 
 Delivery mechanism:
 
-- Claude receives the file path through `--append-system-prompt-file`.
+- Claude receives the file path through `--system-prompt-file`.
 - Codex receives the file content through `--config developer_instructions=<json-escaped-content>`.
 
-`--append-system-prompt-file` is used for Claude because replacing Claude's system prompt would remove Claude Code's default agentic harness.
+`--system-prompt-file` replaces Claude's default system prompt with `CLAUDE-SYSTEM.txt` (operator preference for coding tasks). Tools remain available; Claude's default dynamic context (cwd/env/git) and target `CLAUDE.md` auto-load are not injected, so the role prompts instruct the agent to read target governance (`CLAUDE.md`/`AGENTS.md`) explicitly. Switch the adapter to `--append-system-prompt-file` if you want the house rules layered on top of Claude's default harness instead.
 
 ### Target repository requirements
 

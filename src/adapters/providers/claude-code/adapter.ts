@@ -37,10 +37,12 @@ export interface ClaudeAdapterConfig {
   /**
    * Absolute path to the shared system-prompt file (e.g. CLAUDE-SYSTEM.txt).
    *
-   * When set, passed to Claude via `--append-system-prompt-file` so the house
-   * rules are layered ON TOP of Claude's default agentic system prompt (tool
-   * scaffolding, dynamic cwd/env/git context, and target CLAUDE.md auto-load
-   * all survive). Absent => no shared-prompt flag (self-host default).
+   * When set, passed to Claude via `--system-prompt-file`, which REPLACES
+   * Claude's default system prompt with this file (operator preference for
+   * coding tasks). Tools remain available; Claude's default dynamic context
+   * (cwd/env/git) and target CLAUDE.md auto-load are NOT injected, so the role
+   * prompts instruct the agent to read target governance explicitly. Absent =>
+   * no shared-prompt flag (self-host default).
    */
   readonly sharedInstructionPath?: string;
 
@@ -232,10 +234,13 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     // affordances into the captured workflow output.
     args.push('--prompt-suggestions', 'false');
 
-    // Shared house-rules layer, APPENDED to (not replacing) the default agentic
-    // system prompt so tool scaffolding + dynamic context survive.
+    // Shared house-rules layer as the system prompt. Per operator preference this
+    // REPLACES Claude's default system prompt (`--system-prompt-file`), not
+    // appends. Tools remain available; target governance (CLAUDE.md / AGENTS.md)
+    // is honored via the explicit "read and obey" instructions in the role
+    // prompts rather than Claude's default auto-load (which replace mode drops).
     if (this.config.sharedInstructionPath) {
-      args.push('--append-system-prompt-file', this.config.sharedInstructionPath);
+      args.push('--system-prompt-file', this.config.sharedInstructionPath);
     }
 
     // Model override

@@ -71,7 +71,7 @@ Each entry should include:
 
 - **ID**: TD-005
 - **Date**: 2026-06-07
-- **What**: The shared system prompt (`CLAUDE-SYSTEM.txt`) is delivered as a system-prompt layer (Claude `--append-system-prompt-file` path; Codex `developer_instructions` content) but is NOT digest-pinned like the role/system prompt assets resolved under `promptRoot`.
+- **What**: The shared system prompt (`CLAUDE-SYSTEM.txt`) is delivered as a system-prompt layer (Claude `--system-prompt-file` path, which replaces the default prompt; Codex `developer_instructions` content) but is NOT digest-pinned like the role/system prompt assets resolved under `promptRoot`.
 - **Why acceptable**: It is an environment-level house-rules layer chosen at the composition root, not a per-slice reproducible asset; pinning it now adds ceremony without a consumer.
 - **Proper solution**: Capture the shared prompt's digest in run records / status for reproducibility, and fail loudly if it changes mid-run.
 - **When to address**: When reproducibility of past runs becomes a requirement, or before PRODUCTION.
