@@ -386,6 +386,53 @@ async function blockSlice(
 // Phases
 // ---------------------------------------------------------------------------
 
+/** Max total attempts for a provider run when it hits a transient infra failure. */
+const TRANSIENT_RETRY_ATTEMPTS = 4;
+
+/**
+ * Backoff (ms) before retry attempts 2..N. Server-side rate limits ("Server is
+ * temporarily limiting requests") can be SUSTAINED — short spacing re-hits the
+ * same throttle window. These escalate so a single run waits out a multi-minute
+ * throttle (~5 min total) before giving up. Crashes tolerate the wait harmlessly.
+ */
+const RETRY_BACKOFF_MS = [30_000, 90_000, 180_000];
+
+/**
+ * A provider run that FAILED or was CANCELLED is a transient infra failure
+ * (process crash, "model at capacity", killed) — distinct from a TIMEOUT (the
+ * work exceeded its budget; retrying the same budget would just time out again)
+ * and from a COMPLETED run (the real outcome). Only transient failures are
+ * auto-retried.
+ */
+function isTransientFailure(status: RunStatus): boolean {
+  return status === RunStatus.FAILED || status === RunStatus.CANCELLED;
+}
+
+/**
+ * Run a provider, auto-retrying transient infra failures in-loop so a blip
+ * (crash / capacity) does not block the slice as if a human decision were
+ * needed. TIMEOUT and COMPLETED are returned as-is. Logs are timestamped per
+ * run, so each attempt's transcript is preserved.
+ */
+async function runWithRetry(
+  runner: ProviderRunnerPort,
+  request: RunRequest,
+  label: string
+): Promise<RunResult> {
+  let result = await runner.run(request);
+  let attempt = 1;
+  while (attempt < TRANSIENT_RETRY_ATTEMPTS && isTransientFailure(result.status)) {
+    const delayMs = RETRY_BACKOFF_MS[attempt - 1] ?? 60_000;
+    console.log(
+      `  [retry] ${label}: transient provider failure (status=${result.status}); backing off ${Math.round(delayMs / 1000)}s, then re-running (attempt ${attempt + 1}/${TRANSIENT_RETRY_ATTEMPTS})`
+    );
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    result = await runner.run(request);
+    attempt += 1;
+  }
+  return result;
+}
+
 /** Run the READ-ONLY select-slice step. */
 async function runSelectSlice(
   input: TargetRelayInput,
@@ -421,7 +468,7 @@ async function runSelectSlice(
     contextText: cwdHeader(input.targetDir),
     inputArtifacts: [],
   };
-  const result = await deps.supervisor.run(request);
+  const result = await runWithRetry(deps.supervisor, request, 'select-slice');
 
   if (result.status !== RunStatus.COMPLETED) {
     return {
@@ -487,7 +534,11 @@ async function runImplement(
     contextText: buildBuilderContext(input.targetDir, packetRaw, status.iteration),
     inputArtifacts: [],
   };
-  const result = await deps.builder.run(request);
+  const result = await runWithRetry(
+    deps.builder,
+    request,
+    `build ${status.sliceId} iter ${status.iteration}`
+  );
 
   await writeRunRecord(
     sliceDir,
@@ -501,7 +552,7 @@ async function runImplement(
       status,
       deps.clock,
       input.builderProvider,
-      `Builder failed at iteration ${status.iteration}: ${result.error ?? 'unknown error'}`
+      `Builder run did not complete (provider ${result.status}) after retries at iteration ${status.iteration}: ${result.error ?? 'unknown error'}. Transient/infra failure or timeout — resume the slice (raise --timeout if it timed out).`
     );
   }
 
@@ -547,7 +598,11 @@ async function runReview(
     contextText: buildReviewerContext(input.targetDir, packetRaw),
     inputArtifacts: [],
   };
-  const result = await deps.supervisor.run(request);
+  const result = await runWithRetry(
+    deps.supervisor,
+    request,
+    `review ${status.sliceId} iter ${status.iteration}`
+  );
 
   await writeRunRecord(
     sliceDir,
@@ -555,12 +610,21 @@ async function runReview(
     makeRunRecord('review-impl', input.supervisorProvider, request, result, input.targetDir)
   );
 
-  const raw =
-    result.status === RunStatus.COMPLETED
-      ? String(result.outputArtifacts[0]?.content ?? '')
-      : `Reviewer run failed: ${result.error ?? 'unknown error'}`;
-  const verdict =
-    result.status === RunStatus.COMPLETED ? parseVerdict(raw) : 'escalate';
+  if (result.status !== RunStatus.COMPLETED) {
+    // Persistent provider-INFRA failure (timeout / crash / capacity) after
+    // retries — NOT a real escalate verdict. Block with a retryable reason so
+    // the operator resumes rather than treating it as a human decision.
+    return blockSlice(
+      sliceDir,
+      status,
+      deps.clock,
+      input.supervisorProvider,
+      `Reviewer run did not complete (provider ${result.status}) after retries: ${result.error ?? 'unknown error'}. Transient/infra failure, not a decision — resume the slice (raise --timeout if it timed out).`
+    );
+  }
+
+  const raw = String(result.outputArtifacts[0]?.content ?? '');
+  const verdict = parseVerdict(raw);
 
   await writeFile(
     join(sliceDir, `review-${status.iteration}.json`),
