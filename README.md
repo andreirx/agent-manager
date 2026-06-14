@@ -110,6 +110,8 @@ The relay does not hardcode how a target is tested, shipped, or cleaned up — *
 4. On approval, the reviewed build is **installed / deployed** — never before, and never with unreviewed code.
 5. The **Cleanup** phase runs, so build artifacts and temp state do not accumulate across slices.
 
+**Deploy safety (blast radius).** The install/deploy phase is gated by blast radius. A **safe, reversible** promotion — a local dev-install, a staging deploy, a pre-release — may be auto-run on approval. A **production or otherwise irreversible / high-blast-radius** one — deploying to live sites, publishing a release, migrating production data — is **NEVER auto-run by the relay**: it is operator-gated (an explicit human action), even for an approved slice. The target declares which class its deploy command is; the relay must never push unattended to production. A target with live deployments is driven with this guard from its first slice — "tread carefully" is the default, not the exception.
+
 **Bootstrapping rule.** The relay should never drive a target it cannot test, ship, and clean up. If a target has not defined any phase of its end-of-slice procedure, defining it is among the **first slices** of work on that target, ahead of feature work — so it is an explicit, tracked slice, not a silent gap discovered later (a stopped daemon, an unexercised CLI, or 70+ GB of stale debug builds are all the same failure: an operational step nobody ran).
 
 ## Installing a shell command

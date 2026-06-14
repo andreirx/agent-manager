@@ -170,7 +170,12 @@ Each entry should include:
 - **Proper solution**: A per-target promote/cleanup command (a `.agent-manager`
   config field or `--promote-cmd`/`--cleanup-cmd` flags) that the relay loop runs
   on `approved` (promote) and at slice end (cleanup), each writing a run record,
-  mirroring the existing run-record pattern.
+  mirroring the existing run-record pattern. The promote command MUST carry a
+  blast-radius class: SAFE/reversible (local install, staging, pre-release) may be
+  auto-run on approval; PRODUCTION/irreversible (live deploy, release publish,
+  prod data migration) is operator-gated and MUST NOT be auto-run — see the README
+  "Deploy safety" note. Defaulting an unclassified deploy to operator-gated is the
+  safe default.
 - **When to address**: Next time the relay drives a code-slice-heavy target;
   until then the operator runs install/deploy + cleanup per the target's defined
   procedure.
