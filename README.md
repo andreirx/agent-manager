@@ -92,6 +92,26 @@ git status --short
 
 Start from a clean or intentionally understood working tree. The reviewer judges the builder's uncommitted changes through `git status` and `git diff`; unrelated local changes make review ambiguous.
 
+### The target's end-of-slice procedure
+
+The relay does not hardcode how a target is tested, shipped, or cleaned up — **the target defines its own end-of-slice procedure**, and the relay requires and runs it. agent-manager owns the *workflow* (build → test → review → promote → clean); the *commands* are the target's, discoverable from its own materials (scripts, a Makefile/justfile/task runner, a test-protocol doc, CI config) or named in the slice packet. The procedure has three phases:
+
+| Phase | What it is | When the relay runs it | If the target has not defined it |
+|-------|------------|------------------------|----------------------------------|
+| **Test** | The target's runnable suite — unit, integration, and **end-to-end / smoke** tests driving the built artifact against real inputs — with an isolated convention (temp dirs, a test-only data root) so runs never touch the operator's real state. | The builder runs it after implementing; the reviewer reads the report and re-runs key end-to-end commands. | Building the test harness is one of the first slices on the target. |
+| **Install / deploy** | The target-specific "ship" step — dev-install a CLI, restart a daemon, deploy a service, publish a library. | **Only after the reviewer approves**, to promote reviewed code. | Writing the install/deploy script is one of the first slices on the target. |
+| **Cleanup** | Reclaiming the slice's transient cost — debug/build artifacts, caches, temp data, stray daemons/processes. | After the slice completes. | Writing the cleanup script is one of the first slices on the target. |
+
+**Per implementation slice** (a green build is not "done"):
+
+1. The builder implements the slice.
+2. The builder runs the **Test** phase against the fresh build, **in isolation**, and writes a test report — the exact commands, pass/fail, key end-to-end output, and any gaps.
+3. The reviewer judges the diff **and** the report, re-running the key end-to-end commands itself. A green diff with no credible end-to-end evidence is not approved.
+4. On approval, the reviewed build is **installed / deployed** — never before, and never with unreviewed code.
+5. The **Cleanup** phase runs, so build artifacts and temp state do not accumulate across slices.
+
+**Bootstrapping rule.** The relay should never drive a target it cannot test, ship, and clean up. If a target has not defined any phase of its end-of-slice procedure, defining it is among the **first slices** of work on that target, ahead of feature work — so it is an explicit, tracked slice, not a silent gap discovered later (a stopped daemon, an unexercised CLI, or 70+ GB of stale debug builds are all the same failure: an operational step nobody ran).
+
 ## Installing a shell command
 
 The current project is a source checkout, not a packaged global CLI. The safest install is a small wrapper script in a directory already on your shell `PATH`.

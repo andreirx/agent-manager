@@ -153,6 +153,31 @@ Each entry should include:
 
 ---
 
+### TD-010
+
+- **ID**: TD-010
+- **Date**: 2026-06-14
+- **What**: The target's end-of-slice procedure (Test -> Install/deploy ->
+  Cleanup) is SPECIFIED in the target-role prompts (`builder-target.md`,
+  `reviewer-target.md`) and the README, and the Test phase is enforced (the
+  builder runs it; the reviewer verifies the report). But the relay LOOP does
+  not yet AUTOMATE the post-approval phases: install/deploy on an `approved`
+  verdict and the cleanup phase are currently run by the OPERATOR, not the loop.
+- **Why acceptable**: The procedure is documented and its highest-value phase
+  (test + reviewer verification of runtime behavior) is in the loop.
+  Install/deploy and cleanup are deterministic operator steps; automating them is
+  additive and blocks nothing in the meantime.
+- **Proper solution**: A per-target promote/cleanup command (a `.agent-manager`
+  config field or `--promote-cmd`/`--cleanup-cmd` flags) that the relay loop runs
+  on `approved` (promote) and at slice end (cleanup), each writing a run record,
+  mirroring the existing run-record pattern.
+- **When to address**: Next time the relay drives a code-slice-heavy target;
+  until then the operator runs install/deploy + cleanup per the target's defined
+  procedure.
+- **Status**: OPEN
+
+---
+
 ## Resolved Entries
 
 (none yet)
