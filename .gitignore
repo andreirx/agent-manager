@@ -33,6 +33,10 @@ inbox/
 artifacts/
 transcripts/
 
+# Relay working state when agent-manager is itself a relay-target (self-build).
+# Local-only run records/artifacts; never committed (matches repo-graph's convention).
+.agent-manager/
+
 # Secrets / local config
 .env
 .env.*
