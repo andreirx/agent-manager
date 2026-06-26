@@ -183,6 +183,73 @@ Each entry should include:
 
 ---
 
+### TD-011
+
+- **ID**: TD-011
+- **Date**: 2026-06-26 (trigger-source item resolved iteration 2; decision-set
+  source resolved iteration 3)
+- **What**: The additive `decision-review` phase (DECISION-REVIEW-MODE-1) computes
+  convergence by regex-parsing the challenger's `DECISION:/ASSESSMENT:` and the
+  rebutter's `DECISION:/RESPONSE:` blocks
+  (`parseChallengerAssessments`/`parseRebutterResponses`/`classifyRatification`),
+  and mines the packet's per-decision recommendation/challenge/rebuttal text by
+  regex (`extractRecommendations`/`extractDecisionTexts`/`extractDecisionIds`).
+  This is text-convention-bound, not schema-enforced. Malformed, absent, or
+  omitted blocks degrade to `contested` (a conservative gate, but it can
+  over-report contested), and an unparseable recommendation renders a placeholder
+  excerpt.
+  - **RESOLVED (iteration 2):** the *trigger source* assumption — originally
+    `hasRatificationDecisions` scanned only `build-<iteration>.md` — is fixed. The
+    detector now scans `build-<iteration>.md` **and** the `SLICE_DOC` spec in the
+    target tree (`readDecisionSources`), so a SPEC slice whose matrix lives only
+    in the committed spec still triggers the phase. The decision-review context
+    and recommendation mining read both sources too.
+  - **RESOLVED (iteration 3):** the *decision-set source* assumption — originally
+    the packet's decision set WAS the challenger's parsed assessments, so a
+    decision the challenger omitted or misformatted silently vanished from the
+    human packet. Fixed: the authoritative set is now the source `DECISION_REQUIRED`
+    matrix (`extractDecisionIds` over spec + build), unioned with any extra ids the
+    roles raised. A surfaced decision with no challenger assessment is reported
+    `missing -> contested` (fail-loud), never dropped.
+- **Why acceptable**: `contested` is the safe default: it routes an ambiguous case
+  to the human, never auto-converges; a missing recommendation excerpt is a
+  cosmetic gap (the raw role outputs are also in the packet). Same
+  parsing-vs-schema class as TD-003.
+- **Proper solution**: Promote the per-decision contract to a committed
+  `schemas/ratification.schema.json` validated at the boundary (paired with
+  TD-003's schema work), so a malformed debate is a composition error rather than
+  a silent `contested`.
+- **When to address**: Alongside TD-003, before unattended production runs.
+- **Status**: OPEN (parse-vs-schema; trigger-source + decision-set items RESOLVED)
+
+---
+
+### TD-012
+
+- **ID**: TD-012
+- **Date**: 2026-06-26
+- **What**: First test harness added for the repo: `jest.config.mjs` (ts-jest ESM
+  preset) plus `src/application/use-cases/relay-target.test.ts`. The config sets
+  `isolatedModules: true` on the ts-jest transform (per-file transpile, no
+  in-jest typecheck) to silence the NodeNext "hybrid module kind" warning;
+  type-checking is delegated to the separate `npm run typecheck` (tsc --noEmit),
+  which covers `src/**/*` including tests. Coverage is currently the
+  decision-review surface only; the rest of `relay-target.ts` / `relay.ts` /
+  adapters remain untested by automation.
+- **Why acceptable**: The slice required tests for the new trigger detector and
+  the converged/contested classifier; standing up jest was the minimal support
+  module to make `npm test` green (it exited 1 with "No tests found" at baseline).
+  Splitting typecheck (whole tree) from jest transpile (changed files) keeps test
+  runs fast without losing type safety.
+- **Proper solution**: Backfill tests for the existing relay phases
+  (select/implement/review-impl, resume/cap logic) and the adapters' arg-mapping;
+  consider a single `isolatedModules` policy if the build ever needs it.
+- **When to address**: When `relay-target.ts` or the adapters are promoted toward
+  MATURE, or when a regression escapes the untested surface.
+- **Status**: OPEN
+
+---
+
 ## Resolved Entries
 
 (none yet)

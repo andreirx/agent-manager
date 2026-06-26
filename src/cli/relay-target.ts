@@ -339,6 +339,10 @@ async function main(): Promise<void> {
     selectPromptPaths: ['prompts/system/base.md', 'prompts/roles/supervisor-select.md'],
     builderPromptPaths: ['prompts/system/base.md', 'prompts/roles/builder-target.md'],
     reviewerPromptPaths: ['prompts/system/base.md', 'prompts/roles/reviewer-target.md'],
+    // Additive decision-review postures (DECISION-REVIEW-MODE-1). Loaded only
+    // when the phase fires; never read for non-DECISION_REQUIRED slices.
+    challengerPromptPaths: ['prompts/system/base.md', 'prompts/roles/decision-challenger.md'],
+    rebutterPromptPaths: ['prompts/system/base.md', 'prompts/roles/decision-rebutter.md'],
     builderProvider: args.builder,
     supervisorProvider: args.supervisor,
     builderModel: builderDef.model,

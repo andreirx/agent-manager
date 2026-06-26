@@ -30,11 +30,22 @@ import type { PromptRef } from '../../core/run-record.js';
 import { RunStatus } from '../../core/run-record.js';
 import { parseVerdict } from './relay-shared.js';
 
-/** Phase in the target-owned relay. */
+/**
+ * Phase in the target-owned relay.
+ *
+ * `decision-review` and `awaiting-ratification` are the ADDITIVE phases for the
+ * two-agent adversarial decision review (DECISION-REVIEW-MODE-1, PROTOTYPE).
+ * They are reachable ONLY after `review-impl` approves a slice whose approved
+ * artifact carries the operator-ratification `DECISION_REQUIRED` marker; the
+ * existing select -> implement -> review-impl -> done|blocked flow is unchanged
+ * for every slice WITHOUT that marker.
+ */
 export type TargetPhase =
   | 'select-slice'
   | 'implement'
   | 'review-impl'
+  | 'decision-review'
+  | 'awaiting-ratification'
   | 'blocked'
   | 'done';
 
@@ -93,6 +104,17 @@ export interface TargetRelayInput {
   builderPromptPaths: readonly string[];
   /** Prompt files (promptRoot-relative) for the review step. */
   reviewerPromptPaths: readonly string[];
+  /**
+   * Prompt files (promptRoot-relative) for the decision-review CHALLENGE step
+   * (supervisor, adversarial decision posture). Read only when the additive
+   * `decision-review` phase fires; never read for non-DECISION_REQUIRED slices.
+   */
+  challengerPromptPaths: readonly string[];
+  /**
+   * Prompt files (promptRoot-relative) for the decision-review REBUTTAL step
+   * (builder, rebuttal posture). Read only when `decision-review` fires.
+   */
+  rebutterPromptPaths: readonly string[];
   /** Which provider plays the builder. */
   builderProvider: TargetActor;
   /** Which provider plays the supervisor (planner + reviewer). */
@@ -267,6 +289,11 @@ async function ensureScaffold(amDir: string): Promise<void> {
       'uncommitted); the reviewer inspects the resulting `git diff`.',
       '',
       'Phase graph: select-slice -> (implement -> review-impl)* -> done | blocked.',
+      'When an approved slice surfaces an operator-ratification DECISION_REQUIRED',
+      'matrix (in build-<n>.md or the SLICE_DOC spec), an additive decision-review',
+      'round runs (supervisor challenge -> builder rebuttal), writes',
+      'ratification-packet.md, and HALTS at awaiting-ratification for the human',
+      '(it never auto-proceeds).',
       'Verdict contract: reviewer first line `STATUS: approved|revise|escalate`.',
       '',
     ].join('\n')
@@ -633,14 +660,36 @@ async function runReview(
   );
 
   if (verdict === 'approved') {
-    const done: TargetRelayStatus = {
+    // ADDITIVE (DECISION-REVIEW-MODE-1): route an approved slice to the
+    // adversarial `decision-review` phase ONLY when it surfaces operator-
+    // ratification-class decisions (the DECISION_REQUIRED marker). The marker
+    // may land in EITHER the builder's approved run summary (build-<n>.md) OR the
+    // slice's committed spec named by SLICE_DOC (a SPEC slice writes the matrix
+    // into the repo file) — review-0 fix: the prior build scanned only
+    // build-<n>.md and missed SLICE_DOC-only matrices.
+    //
+    // Additive parity holds: a slice WITHOUT the marker has it in NEITHER source
+    // (non-decision by definition), so nextPhase === 'done' — the byte-for-byte
+    // original transition, same status shape, same run records. The added
+    // SLICE_DOC read is harmless discarded I/O (missing/markerless -> 'done').
+    const { buildArtifact, specArtifact } = await readDecisionSources(
+      sliceDir,
+      status.iteration,
+      input.targetDir,
+      status.sliceDoc
+    );
+    const nextPhase: TargetPhase =
+      hasRatificationDecisions(buildArtifact) || hasRatificationDecisions(specArtifact)
+        ? 'decision-review'
+        : 'done';
+    const advanced: TargetRelayStatus = {
       ...status,
-      phase: 'done',
+      phase: nextPhase,
       updatedAt: deps.clock.now(),
       lastActor: input.supervisorProvider,
     };
-    await writeStatus(sliceDir, done);
-    return done;
+    await writeStatus(sliceDir, advanced);
+    return advanced;
   }
   if (verdict === 'revise') {
     const revise: TargetRelayStatus = {
@@ -661,6 +710,745 @@ async function runReview(
     input.supervisorProvider,
     `Reviewer verdict '${verdict}' at iteration ${status.iteration}.\n\n${raw}`
   );
+}
+
+// ---------------------------------------------------------------------------
+// Decision review (ADDITIVE phase — DECISION-REVIEW-MODE-1, @maturity PROTOTYPE)
+//
+// After review-impl APPROVES a slice whose approved artifact surfaces
+// operator-ratification-class decisions, both roles debate the DECISIONS (not
+// the artifact) in ONE round: supervisor challenges -> builder rebuts. The
+// result is a ratification-packet for the human; the relay then HALTS at
+// `awaiting-ratification` (it never auto-proceeds). Contracts still shaping.
+// ---------------------------------------------------------------------------
+
+/**
+ * Does an approved artifact surface operator-ratification-class decisions?
+ *
+ * This is the trigger for the additive `decision-review` phase (DR-TRIGGER =
+ * marker convention). Returns true iff some line is a `DECISION_REQUIRED:` block
+ * header — the convention the builder prompt and the non-interactive contract
+ * already use. The marker must START a line (after stripping leading markdown
+ * heading/list/quote decoration) and be immediately followed by a colon, so a
+ * prose mention (e.g. "I hit no DECISION_REQUIRED condition") does NOT trigger.
+ *
+ * Pure; exported for unit tests.
+ */
+export function hasRatificationDecisions(artifactText: string): boolean {
+  for (const line of artifactText.split('\n')) {
+    const stripped = line.replace(/^[\s>#*-]+/, '');
+    if (/^DECISION_REQUIRED\s*:/.test(stripped)) return true;
+  }
+  return false;
+}
+
+/**
+ * The two artifacts that may carry the ratification decision matrix:
+ *  - `buildArtifact`: the builder's approved run summary (`build-<iteration>.md`,
+ *    under the slice dir), and
+ *  - `specArtifact`: the slice's committed spec in the TARGET tree named by
+ *    SLICE_DOC.
+ *
+ * DR-TRIGGER is the marker convention, and the matrix can land in EITHER: a SPEC
+ * slice writes its `DECISION_REQUIRED:` matrix into SLICE_DOC and may only
+ * reference it from the build summary. (review-0 fix: the prior build scanned
+ * only `build-<n>.md`, so a SLICE_DOC-only matrix never triggered the phase.)
+ *
+ * Both are read best-effort: a missing/unnamed file yields ''. SLICE_DOC is
+ * resolved under the target tree; it is read READ-ONLY and discarded when it
+ * carries no marker, so for a non-decision slice this is harmless I/O that cannot
+ * change the existing flow (additive-parity invariant). Never throws.
+ */
+async function readDecisionSources(
+  sliceDir: string,
+  iteration: number,
+  targetDir: string,
+  sliceDoc: string | null
+): Promise<{ buildArtifact: string; specArtifact: string }> {
+  const buildArtifact = await readFile(
+    join(sliceDir, `build-${iteration}.md`),
+    'utf-8'
+  ).catch(() => '');
+  const specArtifact =
+    sliceDoc && sliceDoc.trim()
+      ? await readFile(join(targetDir, sliceDoc), 'utf-8').catch(() => '')
+      : '';
+  return { buildArtifact, specArtifact };
+}
+
+/** Challenger's per-decision stance. */
+export type ChallengeAssessment = 'agree' | 'challenge';
+/** Builder's per-decision response to a challenge. */
+export type RebuttalResponse = 'concede' | 'rebut';
+
+export interface DecisionAssessment {
+  id: string;
+  assessment: ChallengeAssessment;
+}
+export interface DecisionResponse {
+  id: string;
+  response: RebuttalResponse;
+}
+
+/** One decision's resolution in the ratification packet. */
+export type RatificationStatus = 'converged' | 'contested';
+export interface RatificationItem {
+  id: string;
+  /** 'agree'/'challenge' come from the challenger. 'missing' means the decision
+   *  was surfaced by the source DECISION_REQUIRED matrix but the challenger
+   *  emitted NO assessment for it (omitted or misformatted its block) — it is
+   *  still reported (as contested), never silently dropped (review-2 fix). */
+  assessment: ChallengeAssessment | 'missing';
+  /** 'none' when the challenger agreed (no rebuttal needed); 'unknown' when a
+   *  challenge — or a 'missing' assessment — drew no parseable builder response. */
+  response: RebuttalResponse | 'none' | 'unknown';
+  status: RatificationStatus;
+}
+
+/** Read a `FIELD: value` line (tolerating markdown decoration). */
+function parseLabeledField(line: string, field: string): string | undefined {
+  const stripped = line.replace(/^[\s>#*-]+/, '');
+  const m = stripped.match(new RegExp(`^${field}\\s*:\\s*(.+)$`, 'i'));
+  return m && m[1] !== undefined ? m[1].trim() : undefined;
+}
+
+/**
+ * Parse the challenger's per-decision assessments from its structured output:
+ *
+ *   DECISION: <id>
+ *   ASSESSMENT: agree|challenge
+ *
+ * Pure; exported for unit tests.
+ */
+export function parseChallengerAssessments(raw: string): DecisionAssessment[] {
+  const out: DecisionAssessment[] = [];
+  let currentId: string | undefined;
+  for (const line of raw.split('\n')) {
+    const id = parseLabeledField(line, 'DECISION');
+    if (id !== undefined) {
+      currentId = id;
+      continue;
+    }
+    const a = parseLabeledField(line, 'ASSESSMENT');
+    if (a !== undefined && currentId !== undefined) {
+      const v = a.toLowerCase();
+      const norm: ChallengeAssessment | undefined = v.startsWith('agree')
+        ? 'agree'
+        : v.startsWith('challeng')
+          ? 'challenge'
+          : undefined;
+      if (norm) {
+        out.push({ id: currentId, assessment: norm });
+        currentId = undefined;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse the builder's per-decision responses from its structured output:
+ *
+ *   DECISION: <id>
+ *   RESPONSE: concede|rebut
+ *
+ * Pure; exported for unit tests.
+ */
+export function parseRebutterResponses(raw: string): DecisionResponse[] {
+  const out: DecisionResponse[] = [];
+  let currentId: string | undefined;
+  for (const line of raw.split('\n')) {
+    const id = parseLabeledField(line, 'DECISION');
+    if (id !== undefined) {
+      currentId = id;
+      continue;
+    }
+    const r = parseLabeledField(line, 'RESPONSE');
+    if (r !== undefined && currentId !== undefined) {
+      const v = r.toLowerCase();
+      const norm: RebuttalResponse | undefined = v.startsWith('conced')
+        ? 'concede'
+        : v.startsWith('rebut')
+          ? 'rebut'
+          : undefined;
+      if (norm) {
+        out.push({ id: currentId, response: norm });
+        currentId = undefined;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Classify each decision as converged or contested (DR-ROUNDS = one round):
+ *  - challenger AGREES                         -> converged (no dispute)
+ *  - challenger CHALLENGES, builder CONCEDES   -> converged (corrected cell)
+ *  - challenger CHALLENGES, builder REBUTS     -> contested (human adjudicates)
+ *  - challenger CHALLENGES, no parseable reply -> contested (unresolved)
+ *  - challenger emitted NO assessment for a    -> contested (NOT dropped:
+ *    decision present in the source matrix         'missing', fail-loud)
+ *
+ * The AUTHORITATIVE decision set is `sourceDecisionIds` — the ids the source
+ * DECISION_REQUIRED matrix surfaced (spec and/or build summary). Every one of
+ * them appears in the result even if the challenger omitted or misformatted its
+ * `DECISION:` block: that is the safety property the whole phase exists for (a
+ * load-bearing decision must reach the human, never vanish because one model
+ * skipped it — review-2 fix). The set is UNIONed with any extra ids the
+ * challenger or builder raised (so a challenger-found decision absent from the
+ * matrix is also kept — no regression). Order: source first (its raw casing
+ * wins for display), then challenger-only, then builder-only; de-duped by
+ * normalized id. Cross-source id matching is case-insensitive. Pure; exported
+ * for unit tests.
+ */
+export function classifyRatification(
+  sourceDecisionIds: readonly string[],
+  assessments: readonly DecisionAssessment[],
+  responses: readonly DecisionResponse[]
+): RatificationItem[] {
+  const assessmentByNorm = new Map<string, ChallengeAssessment>();
+  for (const a of assessments) {
+    if (!assessmentByNorm.has(normId(a.id))) assessmentByNorm.set(normId(a.id), a.assessment);
+  }
+  const responseByNorm = new Map<string, RebuttalResponse>();
+  for (const r of responses) {
+    if (!responseByNorm.has(normId(r.id))) responseByNorm.set(normId(r.id), r.response);
+  }
+
+  // Build the ordered, de-duplicated id spine: source ids first, then any extra
+  // ids the roles raised. A decision is never dropped because a role omitted it.
+  const orderedRawIds: string[] = [];
+  const seen = new Set<string>();
+  const add = (rawId: string): void => {
+    const key = normId(rawId);
+    if (!seen.has(key)) {
+      seen.add(key);
+      orderedRawIds.push(rawId);
+    }
+  };
+  for (const id of sourceDecisionIds) add(id);
+  for (const a of assessments) add(a.id);
+  for (const r of responses) add(r.id);
+
+  return orderedRawIds.map((rawId): RatificationItem => {
+    const key = normId(rawId);
+    const assessment = assessmentByNorm.get(key);
+    if (assessment === undefined) {
+      // Surfaced by the source matrix but the challenger never assessed it.
+      // Fail-loud: visible to the human, marked contested, gap made explicit.
+      return { id: rawId, assessment: 'missing', response: 'unknown', status: 'contested' };
+    }
+    if (assessment === 'agree') {
+      return { id: rawId, assessment: 'agree', response: 'none', status: 'converged' };
+    }
+    const resp = responseByNorm.get(key);
+    if (resp === 'concede') {
+      return { id: rawId, assessment: 'challenge', response: 'concede', status: 'converged' };
+    }
+    if (resp === 'rebut') {
+      return { id: rawId, assessment: 'challenge', response: 'rebut', status: 'contested' };
+    }
+    return { id: rawId, assessment: 'challenge', response: 'unknown', status: 'contested' };
+  });
+}
+
+/** Normalize a decision id for cross-source matching (spec `ID:` vs role `DECISION:`). */
+function normId(id: string): string {
+  return id.trim().toUpperCase();
+}
+
+/**
+ * Match a DECISION_REQUIRED matrix `ID:` / `- ID:` line (markdown decoration
+ * tolerated) and return the raw id, else undefined. Shared by the two functions
+ * that scan the matrix (`extractDecisionIds`, `extractRecommendations`) so the
+ * id pattern can never drift between "the decision set" and "its text".
+ */
+function parseDecisionIdLine(line: string): string | undefined {
+  const stripped = line.replace(/^[\s>#*-]+/, '');
+  const m = stripped.match(/^ID:\s*([A-Za-z0-9][A-Za-z0-9._-]*)/);
+  return m && m[1] !== undefined ? m[1] : undefined;
+}
+
+/**
+ * The decision ids a DECISION_REQUIRED matrix surfaces, in document order, raw
+ * casing preserved, de-duplicated by normalized id.
+ *
+ * This is the AUTHORITATIVE decision set the ratification packet must cover in
+ * full: `classifyRatification` uses it as the spine so the human sees every
+ * surfaced decision even when the challenger drops one (review-2 fix). Pure;
+ * exported for unit tests.
+ */
+export function extractDecisionIds(artifactText: string): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const line of artifactText.split('\n')) {
+    const id = parseDecisionIdLine(line);
+    if (id !== undefined && !seen.has(normId(id))) {
+      seen.add(normId(id));
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Per-decision reasoning blocks from a role output (challenger OR rebutter),
+ * keyed by normalized decision id. A block is the text AFTER a `DECISION: <id>`
+ * line up to the next `DECISION:` line — it includes the `ASSESSMENT:`/`RESPONSE:`
+ * line and the agent's cites. First block wins on a duplicate id. This is the
+ * per-decision challenge/rebuttal text the ratification packet groups by decision
+ * (review-0 fix). Pure; exported for unit tests.
+ */
+export function extractDecisionTexts(raw: string): Map<string, string> {
+  const out = new Map<string, string>();
+  let curId: string | undefined;
+  let curLines: string[] = [];
+  const flush = (): void => {
+    if (curId !== undefined && !out.has(normId(curId))) {
+      out.set(normId(curId), curLines.join('\n').trim());
+    }
+  };
+  for (const line of raw.split('\n')) {
+    const id = parseLabeledField(line, 'DECISION');
+    if (id !== undefined) {
+      flush();
+      curId = id;
+      curLines = [];
+    } else if (curId !== undefined) {
+      curLines.push(line);
+    }
+  }
+  flush();
+  return out;
+}
+
+/** Cap a recommendation excerpt so a block does not run into the next section. */
+const RECOMMENDATION_EXCERPT_LINES = 12;
+
+/**
+ * Per-decision recommendation excerpts from a spec/artifact that uses the
+ * `DECISION_REQUIRED:` convention (`- ID: <id> … QUESTION/OPTIONS/RECOMMENDED`).
+ * A block runs from an `ID:`/`- ID:` line to the next `ID:` line, capped at
+ * RECOMMENDATION_EXCERPT_LINES. Keyed by normalized id; first block wins. This is
+ * the "recommendation" column the packet pairs with each challenge/rebuttal
+ * (review-0 fix). Best-effort and format-tolerant; pure; exported for unit tests.
+ */
+export function extractRecommendations(artifactText: string): Map<string, string> {
+  const out = new Map<string, string>();
+  let curId: string | undefined;
+  let curLines: string[] = [];
+  const flush = (): void => {
+    if (curId !== undefined && !out.has(normId(curId))) {
+      out.set(
+        normId(curId),
+        curLines.slice(0, RECOMMENDATION_EXCERPT_LINES).join('\n').trim()
+      );
+    }
+  };
+  for (const line of artifactText.split('\n')) {
+    const id = parseDecisionIdLine(line);
+    if (id !== undefined) {
+      flush();
+      curId = id;
+      curLines = [line.replace(/^[\s>#*-]+/, '')];
+    } else if (curId !== undefined) {
+      // A markdown heading ends the block: the DECISION_REQUIRED matrix uses
+      // FIELDS (QUESTION:/RECOMMENDED:/…), never headings, so a heading reliably
+      // marks the start of an unrelated section (e.g. a build summary appended
+      // after the matrix). Stops a trailing-content bleed into the last block.
+      if (/^\s{0,3}#{1,6}\s/.test(line)) {
+        flush();
+        curId = undefined;
+        continue;
+      }
+      curLines.push(line);
+    }
+  }
+  flush();
+  return out;
+}
+
+/** A blockquote-free excerpt, defaulting to a placeholder when empty. */
+function excerptOr(text: string | undefined, placeholder: string): string {
+  return text && text.trim() ? text.trim() : `_${placeholder}_`;
+}
+
+/**
+ * Render the human-facing ratification packet (system of record for the gate).
+ *
+ * Per the slice DoD and review-0, each decision is packaged as a section with its
+ * {recommendation, reviewer challenge, builder rebuttal, status} so the human can
+ * adjudicate a contested decision from one place. The summary table is the index;
+ * the per-decision sections are the substance; the raw role outputs are kept as an
+ * audit appendix (also written verbatim as `decision-challenge.md` /
+ * `decision-rebuttal.md`). `recommendationSources` are the artifacts the
+ * recommendations are mined from (spec first, then build) — mined INDEPENDENTLY
+ * and merged first-wins so a trailing source never bleeds into the prior's last
+ * decision block.
+ */
+function renderRatificationPacket(args: {
+  sliceId: string;
+  generatedAt: string;
+  challenger: TargetActor;
+  rebutter: TargetActor;
+  items: readonly RatificationItem[];
+  recommendationSources: readonly string[];
+  challengeRaw: string;
+  rebuttalRaw: string;
+}): string {
+  const recommendations = new Map<string, string>();
+  for (const source of args.recommendationSources) {
+    for (const [id, rec] of extractRecommendations(source)) {
+      if (!recommendations.has(id)) recommendations.set(id, rec);
+    }
+  }
+  const challengeTexts = extractDecisionTexts(args.challengeRaw);
+  const rebuttalTexts = extractDecisionTexts(args.rebuttalRaw);
+
+  const contested = args.items.filter((i) => i.status === 'contested');
+  const converged = args.items.filter((i) => i.status === 'converged');
+  const overall =
+    args.items.length === 0
+      ? 'no-decisions-parsed'
+      : contested.length === 0
+        ? 'all-converged'
+        : 'contested-present';
+
+  const table =
+    args.items.length === 0
+      ? '_No structured `DECISION:` blocks were parsed from the challenge; read the raw challenge and rebuttal below._'
+      : [
+          '| Decision | Reviewer | Builder | Status |',
+          '|----------|----------|---------|--------|',
+          ...args.items.map(
+            (i) => `| ${i.id} | ${i.assessment} | ${i.response} | **${i.status}** |`
+          ),
+        ].join('\n');
+
+  // Per-decision sections: recommendation × challenge × rebuttal × status.
+  const perDecision =
+    args.items.length === 0
+      ? ['_No structured decisions parsed; see the raw role outputs below._']
+      : args.items.flatMap((i) => {
+          const missing = i.assessment === 'missing';
+          return [
+            `### ${i.id} — ${i.status.toUpperCase()}`,
+            '',
+            `- **Reviewer assessment:** ${
+              missing ? 'missing (challenger emitted no assessment for this decision)' : i.assessment
+            }`,
+            `- **Builder response:** ${i.response}`,
+            '',
+            '**Recommendation (from the spec / build artifact):**',
+            '',
+            excerptOr(
+              recommendations.get(normId(i.id)),
+              'no matching `ID:` block found in the spec or build artifact'
+            ),
+            '',
+            '**Reviewer challenge:**',
+            '',
+            excerptOr(
+              challengeTexts.get(normId(i.id)),
+              missing
+                ? '⚠️ NOT ADDRESSED — the challenger emitted no `DECISION:` block for this surfaced decision. Treated as CONTESTED pending human review (a surfaced decision must never pass unexamined).'
+                : i.assessment === 'agree'
+                  ? 'agreed — no challenge raised'
+                  : 'no parseable challenge text'
+            ),
+            '',
+            '**Builder rebuttal:**',
+            '',
+            excerptOr(
+              rebuttalTexts.get(normId(i.id)),
+              i.response === 'none' ? 'not needed — reviewer agreed' : 'no parseable rebuttal text'
+            ),
+            '',
+          ];
+        });
+
+  return [
+    `# Ratification packet — ${args.sliceId}`,
+    '',
+    '**Maturity: PROTOTYPE** (DECISION-REVIEW-MODE-1)',
+    `**Generated:** ${args.generatedAt}`,
+    `**Challenger (supervisor):** ${args.challenger}  ·  **Rebutter (builder):** ${args.rebutter}`,
+    `**Overall:** ${overall} (${converged.length} converged, ${contested.length} contested)`,
+    '',
+    'This packet is the HUMAN ratification gate. The relay has HALTED at',
+    '`awaiting-ratification`; it will NOT auto-proceed to implementation. Spend',
+    'judgment on the **contested** decisions (both arguments are below); the',
+    '**converged** ones are de-risked (the two agents agree).',
+    '',
+    '## Decision outcomes',
+    '',
+    table,
+    '',
+    '## Per-decision detail (recommendation · challenge · rebuttal · status)',
+    '',
+    ...perDecision,
+    '## Raw role outputs (audit trail)',
+    '',
+    '> Also written verbatim as `decision-challenge.md` and `decision-rebuttal.md`.',
+    '',
+    '### Reviewer challenge (raw)',
+    '',
+    args.challengeRaw.trim() || '_(empty)_',
+    '',
+    '### Builder rebuttal (raw)',
+    '',
+    args.rebuttalRaw.trim() || '_(empty)_',
+    '',
+  ].join('\n');
+}
+
+/** The decision-bearing artifacts injected into both decision-review postures. */
+interface DecisionSources {
+  /** Builder's approved run summary (`build-<n>.md`). */
+  buildArtifact: string;
+  /** Slice spec named by SLICE_DOC (the committed matrix), '' when absent. */
+  specArtifact: string;
+  /** SLICE_DOC path for labeling, or null. */
+  sliceDoc: string | null;
+}
+
+/**
+ * cwd header + selection packet + the decision-bearing artifact(s), shared by
+ * both postures. The spec (SLICE_DOC) is injected when present — the matrix may
+ * live there rather than in the build summary (review-0 fix), and the challenger
+ * must see what it is challenging.
+ */
+function decisionReviewPreamble(
+  targetDir: string,
+  packetRaw: string,
+  sources: DecisionSources
+): string[] {
+  const parts = [
+    cwdHeader(targetDir),
+    '',
+    '# Slice selection packet (names the spec under review: SLICE_DOC, scope)',
+    '',
+    packetRaw,
+  ];
+  if (sources.specArtifact.trim()) {
+    parts.push(
+      '',
+      `# Slice spec under review (${sources.sliceDoc ?? 'SLICE_DOC'}) — carries the DECISION_REQUIRED matrix`,
+      '',
+      sources.specArtifact
+    );
+  }
+  parts.push(
+    '',
+    "# Builder's approved run summary (may restate the recommendations)",
+    '',
+    sources.buildArtifact
+  );
+  return parts;
+}
+
+function buildChallengerContext(
+  targetDir: string,
+  packetRaw: string,
+  sources: DecisionSources
+): string {
+  return [
+    ...decisionReviewPreamble(targetDir, packetRaw, sources),
+    '',
+    '# Your task',
+    '',
+    'The artifact(s) above surface operator-ratification-class decisions (a',
+    'DECISION_REQUIRED matrix). Adversarially review the RECOMMENDATIONS — not the',
+    "prose or formatting (review-impl already cleared the artifact). For EACH",
+    'decision id, verify the recommended option against the ACTUAL source in this',
+    'repository (read the cited files yourself; default to skepticism). Emit, per',
+    'decision, the structured block from your role prompt:',
+    '',
+    '    DECISION: <id>',
+    '    ASSESSMENT: agree|challenge',
+    '',
+    'followed by your reasoning with concrete cites.',
+  ].join('\n');
+}
+
+function buildRebutterContext(
+  targetDir: string,
+  packetRaw: string,
+  sources: DecisionSources,
+  challengeRaw: string
+): string {
+  return [
+    ...decisionReviewPreamble(targetDir, packetRaw, sources),
+    '',
+    "# The reviewer's challenge",
+    '',
+    challengeRaw,
+    '',
+    '# Your task',
+    '',
+    'Respond to EACH challenged decision honestly — convergence, not ego defense.',
+    'For every decision id the reviewer assessed, emit the structured block from',
+    'your role prompt:',
+    '',
+    '    DECISION: <id>',
+    '    RESPONSE: concede|rebut',
+    '',
+    'CONCEDE (state the corrected cell) when the challenge is right; REBUT (cite',
+    'source) when it is wrong.',
+  ].join('\n');
+}
+
+/**
+ * Run the additive decision-review phase: one challenge -> rebuttal round, then
+ * emit the ratification packet and HALT at `awaiting-ratification`. A provider
+ * run that does not COMPLETE (timeout/crash) blocks with a retryable reason,
+ * mirroring runReview's infra-failure handling (never a false escalate).
+ */
+async function runDecisionReview(
+  input: TargetRelayInput,
+  deps: TargetRelayDeps,
+  sliceDir: string,
+  status: TargetRelayStatus,
+  packetRaw: string
+): Promise<TargetRelayStatus> {
+  // The recommended cells live in the build summary and/or the SLICE_DOC spec
+  // (review-0 fix: a SPEC slice's matrix is in SLICE_DOC). Read both; the
+  // challenger/rebutter see both, and recommendations are mined from both.
+  const { buildArtifact, specArtifact } = await readDecisionSources(
+    sliceDir,
+    status.iteration,
+    input.targetDir,
+    status.sliceDoc
+  );
+  const sources: DecisionSources = {
+    buildArtifact,
+    specArtifact,
+    sliceDoc: status.sliceDoc,
+  };
+  // Spec first so its `ID:` blocks win over any restatement in the summary.
+  // Mined independently (NOT concatenated) so the build summary cannot bleed
+  // into the spec's last decision block.
+  const recommendationSources = [specArtifact, buildArtifact].filter((s) => s.trim());
+
+  // --- 1) Supervisor challenges the recommendations (read-only). ---
+  const challengerPrompts = await loadPrompts(
+    input.promptRoot,
+    input.challengerPromptPaths,
+    deps.computeDigest
+  );
+  const challengeRequest: RunRequest = {
+    runId: `decision-challenge-${status.sliceId}-${status.iteration}`,
+    sliceId: status.sliceId,
+    role: 'decision-challenger',
+    mode: 'review',
+    permission: 'read-only',
+    workingDir: input.targetDir,
+    model: input.supervisorModel,
+    effort: input.supervisorEffort,
+    prompts: challengerPrompts,
+    contextText: buildChallengerContext(input.targetDir, packetRaw, sources),
+    inputArtifacts: [],
+  };
+  const challengeResult = await runWithRetry(
+    deps.supervisor,
+    challengeRequest,
+    `decision-challenge ${status.sliceId}`
+  );
+  await writeRunRecord(
+    sliceDir,
+    'decision-challenge',
+    makeRunRecord('decision-review', input.supervisorProvider, challengeRequest, challengeResult, input.targetDir)
+  );
+  if (challengeResult.status !== RunStatus.COMPLETED) {
+    return blockSlice(
+      sliceDir,
+      status,
+      deps.clock,
+      input.supervisorProvider,
+      `Decision-review challenge did not complete (provider ${challengeResult.status}) after retries: ${challengeResult.error ?? 'unknown error'}. Transient/infra failure, not a decision — resume the slice (raise --timeout if it timed out).`
+    );
+  }
+  const challengeRaw = String(challengeResult.outputArtifacts[0]?.content ?? '');
+  await writeFile(join(sliceDir, 'decision-challenge.md'), challengeRaw, 'utf-8');
+
+  // --- 2) Builder rebuts each challenge (read-only). ---
+  const rebutterPrompts = await loadPrompts(
+    input.promptRoot,
+    input.rebutterPromptPaths,
+    deps.computeDigest
+  );
+  const rebutRequest: RunRequest = {
+    runId: `decision-rebuttal-${status.sliceId}-${status.iteration}`,
+    sliceId: status.sliceId,
+    role: 'decision-rebutter',
+    mode: 'review',
+    permission: 'read-only',
+    workingDir: input.targetDir,
+    model: input.builderModel,
+    effort: input.builderEffort,
+    prompts: rebutterPrompts,
+    contextText: buildRebutterContext(input.targetDir, packetRaw, sources, challengeRaw),
+    inputArtifacts: [],
+  };
+  const rebutResult = await runWithRetry(
+    deps.builder,
+    rebutRequest,
+    `decision-rebuttal ${status.sliceId}`
+  );
+  await writeRunRecord(
+    sliceDir,
+    'decision-rebuttal',
+    makeRunRecord('decision-review', input.builderProvider, rebutRequest, rebutResult, input.targetDir)
+  );
+  if (rebutResult.status !== RunStatus.COMPLETED) {
+    return blockSlice(
+      sliceDir,
+      status,
+      deps.clock,
+      input.builderProvider,
+      `Decision-review rebuttal did not complete (provider ${rebutResult.status}) after retries: ${rebutResult.error ?? 'unknown error'}. Transient/infra failure, not a decision — resume the slice (raise --timeout if it timed out).`
+    );
+  }
+  const rebuttalRaw = String(rebutResult.outputArtifacts[0]?.content ?? '');
+  await writeFile(join(sliceDir, 'decision-rebuttal.md'), rebuttalRaw, 'utf-8');
+
+  // --- 3) Classify + emit the ratification packet (system of record). ---
+  // The AUTHORITATIVE decision set is the source DECISION_REQUIRED matrix (spec
+  // and/or build summary), NOT the challenger's output: every surfaced decision
+  // must reach the human even if the challenger dropped one (review-2 fix).
+  // classifyRatification unions these source ids with any extra ids the roles
+  // raised and marks an unaddressed source decision contested ('missing').
+  const sourceDecisionIds = recommendationSources.flatMap((s) => extractDecisionIds(s));
+  const items = classifyRatification(
+    sourceDecisionIds,
+    parseChallengerAssessments(challengeRaw),
+    parseRebutterResponses(rebuttalRaw)
+  );
+  const generatedAt = deps.clock.now();
+  await writeFile(
+    join(sliceDir, 'ratification-packet.md'),
+    renderRatificationPacket({
+      sliceId: status.sliceId,
+      generatedAt,
+      challenger: input.supervisorProvider,
+      rebutter: input.builderProvider,
+      items,
+      recommendationSources,
+      challengeRaw,
+      rebuttalRaw,
+    }),
+    'utf-8'
+  );
+
+  // --- 4) HALT for the human (terminal-ish; NOT done, NOT auto-proceed). ---
+  const halted: TargetRelayStatus = {
+    ...status,
+    phase: 'awaiting-ratification',
+    updatedAt: generatedAt,
+    lastActor: input.builderProvider,
+  };
+  await writeStatus(sliceDir, halted);
+  return halted;
 }
 
 // ---------------------------------------------------------------------------
@@ -847,12 +1635,33 @@ export async function targetRelayLoop(
     () => ''
   );
 
-  // --- Build/review CYCLES. maxIterations bounds the cycle index globally. ---
+  // --- Build/review CYCLES, then (ADDITIVELY) decision-review when earned. ---
+  //
+  // Additive-parity invariant: for a slice WITHOUT the DECISION_REQUIRED marker,
+  // `status.phase` is only ever implement/review-impl/done/blocked, so every
+  // `decision-review`/`awaiting-ratification` clause below is dead and the
+  // condition collapses to the original
+  //   phase !== done && phase !== blocked && iteration < maxIterations.
+  // The review-impl guard is exact: runReview was previously the unconditional
+  // tail of each iteration, and it is reached only with phase === 'review-impl'
+  // (runImplement yields review-impl or breaks on blocked).
   while (
     status.phase !== 'done' &&
     status.phase !== 'blocked' &&
-    status.iteration < maxIterations
+    status.phase !== 'awaiting-ratification' &&
+    (status.iteration < maxIterations || status.phase === 'decision-review')
   ) {
+    // Decision-review is NOT cycle-bounded: it runs once, post-approval, then
+    // halts. (The `|| decision-review` above lets it run even if approval
+    // landed on the final allowed cycle.)
+    if (status.phase === 'decision-review') {
+      console.log(
+        `  [decision-review] adversarial challenge -> rebuttal (one round) for ${status.sliceId}`
+      );
+      status = await runDecisionReview(input, deps, sliceDir, status, packetRaw);
+      continue;
+    }
+
     // Run implement only if this cycle has not built yet (handles resume at
     // review-impl, where the builder already ran).
     if (status.phase === 'implement') {
@@ -863,13 +1672,19 @@ export async function targetRelayLoop(
       if (status.phase === 'blocked') break;
     }
 
-    console.log(
-      `  [cycle ${status.iteration + 1}/${maxIterations}] review-impl supervisor=${input.supervisorProvider}`
-    );
-    status = await runReview(input, deps, sliceDir, status, packetRaw);
+    if (status.phase === 'review-impl') {
+      console.log(
+        `  [cycle ${status.iteration + 1}/${maxIterations}] review-impl supervisor=${input.supervisorProvider}`
+      );
+      status = await runReview(input, deps, sliceDir, status, packetRaw);
+    }
   }
 
-  if (status.phase !== 'done' && status.phase !== 'blocked') {
+  if (
+    status.phase !== 'done' &&
+    status.phase !== 'blocked' &&
+    status.phase !== 'awaiting-ratification'
+  ) {
     status = await blockSlice(
       sliceDir,
       status,
@@ -885,6 +1700,12 @@ export async function targetRelayLoop(
     stopped: true,
   };
   if (status.phase === 'done') return result;
+  if (status.phase === 'awaiting-ratification') {
+    return {
+      ...result,
+      reason: `Decision review complete; human ratification required. See ${join('.agent-manager', 'slices', sliceId, 'ratification-packet.md')}`,
+    };
+  }
   return {
     ...result,
     reason: `See ${join('.agent-manager', 'slices', sliceId, 'notes-for-human.md')}`,

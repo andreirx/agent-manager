@@ -50,14 +50,59 @@ select-slice (supervisor, plan/read-only)
   STATUS: blocked  -> blocked
 implement (builder, edit/write)            -> review-impl
 review-impl (supervisor, review/read-only)
-  approved -> done
+  approved -> done             (NO ratification marker in build-<n>.md OR SLICE_DOC)
+  approved -> decision-review  (DECISION_REQUIRED marker in build-<n>.md OR SLICE_DOC)
   revise   -> implement (iteration + 1)
   escalate -> blocked
   unknown  -> blocked
+decision-review (ADDITIVE, PROTOTYPE — one round)
+  supervisor challenge -> builder rebuttal -> ratification-packet.md
+  -> awaiting-ratification     (HALT for the human; never auto-proceeds)
 ```
 
 `design` / `review-design` are intentionally absent: the target repo's own slice
 docs carry the design.
+
+### Decision review (additive — DECISION-REVIEW-MODE-1, PROTOTYPE)
+
+When `review-impl` **approves** a slice that carries an operator-ratification
+`DECISION_REQUIRED:` block in EITHER the builder's approved summary
+(`build-<n>.md`) OR the committed slice spec named by `SLICE_DOC`, the relay runs
+one adversarial round on the **decisions** (not the artifact) before the human
+sees them. (A SPEC slice writes its matrix into `SLICE_DOC`; scanning both
+sources means a spec-only matrix still triggers the phase.)
+
+1. **decision-challenger** (supervisor, review/read-only) — sees the SLICE_DOC
+   spec (when present) and the build summary; verifies each recommended cell
+   against source; per decision emits `DECISION: <id>` + `ASSESSMENT:
+   agree|challenge`.
+2. **decision-rebutter** (builder, review/read-only) — responds per challenge:
+   `DECISION: <id>` + `RESPONSE: concede|rebut`.
+3. The relay classifies each decision (agree → converged; challenge+concede →
+   converged; challenge+rebut or no reply → contested; **a surfaced decision the
+   challenger never assessed → contested** [`missing`], never dropped), writes
+   `ratification-packet.md`, and transitions to **`awaiting-ratification`** — a
+   terminal-ish HALT distinct from `done`. The relay never auto-proceeds; the
+   human ratifies.
+
+The authoritative decision set is the **source `DECISION_REQUIRED` matrix**
+(`extractDecisionIds` over the SLICE_DOC spec and/or the build summary), unioned
+with any extra ids the roles raise — NOT the challenger's output. So a
+load-bearing decision the challenger omits or misformats still reaches the human
+(marked `missing`/contested) instead of silently disappearing — the safety
+property the phase exists for.
+
+The packet is **per-decision**: each decision is a section pairing its
+recommendation excerpt (mined from the spec/build artifact), the reviewer
+challenge, the builder rebuttal, and the converged|contested status — plus a
+summary table and the raw role outputs as an audit appendix.
+
+This is **purely additive**: a slice WITHOUT the marker takes the original
+`approved -> done` transition unchanged (proven by `--dry-run` parity, which is
+byte-for-byte identical since the standard planned invocations are untouched).
+The new postures are PROMPTS (`prompts/roles/decision-challenger.md`,
+`decision-rebutter.md`) reusing the existing adapters, run-record, and
+prompt-loading machinery — no new adapter.
 
 ## Provider flag mapping (mechanism)
 
@@ -119,6 +164,11 @@ TD-008).
   slices/<id>/runs/select.json         committed (run record -> log path)
   slices/<id>/runs/build-<n>.json      committed (run record -> log path)
   slices/<id>/runs/review-<n>.json     committed (run record -> log path)
+  slices/<id>/decision-challenge.md    committed (decision-review only, when it fires)
+  slices/<id>/decision-rebuttal.md     committed (decision-review only, when it fires)
+  slices/<id>/ratification-packet.md   committed (the human ratification gate)
+  slices/<id>/runs/decision-challenge.json committed (run record -> log path)
+  slices/<id>/runs/decision-rebuttal.json  committed (run record -> log path)
   slices/<id>/notes-for-human.md       committed (only when blocked)
   logs/<ts>__<role>__<provider>__slice-<id>.txt   gitignored
   pending-selection.md                 gitignored
