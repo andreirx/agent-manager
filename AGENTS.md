@@ -140,17 +140,64 @@ Distinct from self-host relay: `promptRoot` (agent-manager prompts) and
 tree; the reviewer reads the resulting `git diff`; either role can be Claude or
 Codex.
 
-Phase graph: `select-slice` → (`implement` → `review-impl`)* → `done` | `blocked`.
+Phase graph: `select-slice` → (`implement` → `review-impl`)* →
+[`decision-review` → `awaiting-ratification`] → `done` | `blocked`.
 Selection is **read-only** (supervisor only picks a slice; AM writes
 `selection.json`). `--max-iter` bounds build/review **cycles**. The active slice
 is tracked in `current.json`, so `--until select-slice` then a plain run resume
 the same slice (`--slice <id>` / `--reselect` to override). Each provider call
 writes a `runs/*.json` run record referencing its log path.
 
+Per-slice files (relay-target): `<target>/.agent-manager/slices/<ID>/` holds
+`selection.md` (the operator's brief — the builder packet), `selection.json`,
+`status.json`, `build-<n>.md`, `review-<n>.json`, `runs/`, and — when blocked —
+`notes-for-human.md`. The operator **bootstraps a slice** by writing `selection.md`
++ `selection.json` + `status.json` (phase `implement`) then running `--slice <ID>`.
+
 The target is **always** the `<target-path>` argument; no repo is hardcoded
 (`../repo-graph` is only an example). The relay provisions
-`<target>/.agent-manager/` (committed artifacts + run records; `logs/` ignored)
-on first run for any target.
+`<target>/.agent-manager/` on first run for any target. **`.agent-manager/` is
+gitignored / local-only working state** — run records + artifacts are NOT committed
+(the spec/code the builder writes in the target's tracked tree is the deliverable;
+the operator commits that after review approval). The relay NEVER self-commits.
 
 Run: `npm run relay-target -- <target-path>` (add `--dry-run` first to inspect
 the exact provider invocations). Full contract: `docs/contracts/target-owned-relay.md`.
+
+### Decision-review (two-agent adversarial review before human ratification — PROTOTYPE)
+
+The relay's `review-impl` reviews the **artifact** (well-formed? in-scope?); it does
+NOT review the **decisions** a spec surfaces. The `decision-review` phase closes that:
+after `review-impl` approves a slice **that surfaced new ratification-class decisions**,
+the supervisor (Codex) adversarially **challenges** each recommendation against source,
+the builder (Claude) **rebuts** (one round), and the relay emits a `ratification-packet.md`
+(per decision: recommendation / challenge / rebuttal / converged|contested) then **halts
+at `awaiting-ratification`** for the human — it never auto-proceeds. This is the encoded
+form of the manual pass that caught real foundational errors before code (e.g. a cross-store
+split-brain). **Trigger:** the decision marker appears in this slice's `build-<n>.md`, OR in
+a `SLICE_DOC` **this slice's build created/modified** (a SPEC slice writing its spec) — NOT
+when an IMPL slice merely references a pre-ratified spec. Spec + decisions:
+`docs/slices/decision-review-mode-1.md`.
+
+### agent-manager self-build
+
+To build a capability INTO agent-manager, run **`relay-target` pointed at the agent-manager
+repo itself** (the proven mechanism; the self-host `npm run relay` / `relay.ts` path is
+UNPROVEN — AM-001 never completed). Changes to the running relay (`relay-target.ts`) must be
+ADDITIVE and gated on `typecheck` + tests + a `relay-target --dry-run` parity check (the
+existing flow unchanged) before the next run relies on them; the running process loaded its
+code at start, so mid-run edits do not affect it.
+
+### Operator practices (this way of working)
+
+- **Drive the queue; the relays do the work.** The operator bootstraps slices, watches the
+  gate, does an operator review (earned-abstraction / scope / honesty), commits on approval,
+  advances. Surface only genuine blast-radius decisions to the human.
+- **On a builder timeout, READ the build log's edit distribution (and the partial tree) to
+  STEER before discarding** — do not blind `git checkout`. The partial work is steering (where
+  a too-big slice should split) and a potential resume base. (Relay improvement pending — see
+  `docs/TECH-DEBT.md`.)
+- **Smaller slices converge; mega-slices block.** When a slice can't converge or times out,
+  SPLIT it (informed by the build log) rather than retry/raise-timeout.
+- **Infra blocks (provider auth/quota lapse, transient timeout) → resume**; real `escalate` →
+  surface the DECISION_REQUIRED to the human.
