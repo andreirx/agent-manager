@@ -280,6 +280,35 @@ packet and commits the `review-impl`-approved IMPL (the decisions are already ra
 
 ---
 
+## TD: relay discards partial work on builder timeout (no checkpoint / no steering)
+
+**Found:** 2026-06-27 (W-B-EPOCH-IMPL-2 builder timed out at 75min with ~75min of real edits
+in the working tree; the operator blind-discarded them via `git checkout` without inspecting).
+**Severity:** P2 — loses work + steering signal on every timeout.
+
+**Problem:** when a builder run times out, the relay leaves the partial edits in the target
+working tree and blocks, but (a) gives no signal to inspect them before discarding, and (b)
+does not preserve them — a `git checkout`/clean wipes them irrecoverably. The partial work is
+valuable TWICE: as **steering** (which files/handlers got done → how to split a too-big slice)
+and potentially as a **resume base** (continue rather than redo). On W-B-EPOCH-IMPL-2 the edits
+were lost, but the builder LOG (`logPath` in the run record) still showed the edit distribution
+(56 edits in `livegraph_feed.rs` → the build-then-peek cluster was the bottleneck → informed the
+2A/2B split). The log saved the steering; the code was lost.
+
+**Fix options (refinement slice):**
+- (a) On timeout, the relay **commits the partial as a WIP checkpoint** (e.g. `wip(slice): build
+  timeout iter N`) on a slice branch / with a clear marker — inspectable + resumable, never
+  blind-wiped. RECOMMENDED.
+- (b) At minimum, the `notes-for-human.md` on timeout says "partial work is in the working tree —
+  INSPECT (and the build log) before discarding; consider splitting based on edit distribution."
+- (c) Surface the build log's edit-distribution summary in the block notes (the steering, ready-made).
+
+**Operator practice until fixed:** on a timeout, READ the build log's edit distribution (and the
+tree) to steer the split BEFORE discarding — do not blind `git checkout`.
+**Status:** OPEN
+
+---
+
 ## Resolved Entries
 
 (none yet)
