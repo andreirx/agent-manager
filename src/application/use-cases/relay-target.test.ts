@@ -27,6 +27,7 @@ import { RunStatus } from '../../core/run-record.js';
 import {
   targetRelayLoop,
   hasRatificationDecisions,
+  shouldEnterDecisionReview,
   parseChallengerAssessments,
   parseRebutterResponses,
   classifyRatification,
@@ -66,6 +67,84 @@ describe('hasRatificationDecisions (DR trigger detector)', () => {
   it('does NOT trigger on empty or marker-free artifacts', () => {
     expect(hasRatificationDecisions('')).toBe(false);
     expect(hasRatificationDecisions('# Build summary\nDid the work.')).toBe(false);
+  });
+});
+
+describe('shouldEnterDecisionReview (DR trigger predicate — TRIGGER-FIX-1)', () => {
+  // The marker is a real `DECISION_REQUIRED:` block header; NO_MARKER is a plain
+  // build summary. A SLICE_DOC is "build-authored" iff its path is in changedPaths.
+  const MARKER = ['DECISION_REQUIRED:', '- ID: D1', '  QUESTION: ...'].join('\n');
+  const NO_MARKER = '# Build summary\nImplemented the slice. No decisions surfaced.';
+
+  // CASE 1 — the regression the bug created.
+  it('IMPL-shape: marker in a pre-existing SLICE_DOC the build did NOT touch -> FALSE', () => {
+    expect(
+      shouldEnterDecisionReview({
+        buildArtifact: NO_MARKER,
+        specArtifact: MARKER, // ratified spec legitimately carries the §8 matrix
+        sliceDoc: 'docs/slices/IMPL-1.md',
+        changedPaths: ['src/foo.ts', 'src/foo.test.ts'], // SLICE_DOC absent => not build-authored
+      })
+    ).toBe(false);
+  });
+
+  // CASE 2 — a SPEC slice whose deliverable IS the marker-bearing spec.
+  it('SPEC-shape: build created/modified the marker-bearing SLICE_DOC -> TRUE', () => {
+    expect(
+      shouldEnterDecisionReview({
+        buildArtifact: NO_MARKER,
+        specArtifact: MARKER,
+        sliceDoc: 'docs/slices/SPEC-1.md',
+        changedPaths: ['docs/slices/SPEC-1.md', 'docs/ROADMAP.md'], // build wrote the spec
+      })
+    ).toBe(true);
+  });
+
+  // CASE 3 — preserved behavior: the build's own summary surfaced the decisions.
+  it('build-artifact case: marker in build-<n>.md -> TRUE (preserved)', () => {
+    expect(
+      shouldEnterDecisionReview({
+        buildArtifact: MARKER,
+        specArtifact: '',
+        sliceDoc: null,
+        changedPaths: [],
+      })
+    ).toBe(true);
+  });
+
+  // CASE 4 — preserved behavior: no marker anywhere is a non-decision slice.
+  it('marker-absent case: no marker in build OR spec -> FALSE (preserved)', () => {
+    expect(
+      shouldEnterDecisionReview({
+        buildArtifact: NO_MARKER,
+        specArtifact: '# spec\nno matrix here',
+        sliceDoc: 'docs/slices/X.md',
+        changedPaths: ['docs/slices/X.md'], // build touched it, but there's no marker to gate
+      })
+    ).toBe(false);
+  });
+
+  // Guards on the two trigger arms.
+  it('SPEC path match tolerates ./ and backslash decoration', () => {
+    expect(
+      shouldEnterDecisionReview({
+        buildArtifact: NO_MARKER,
+        specArtifact: MARKER,
+        sliceDoc: 'docs/slices/SPEC-2.md',
+        changedPaths: ['./docs/slices/SPEC-2.md'],
+      })
+    ).toBe(true);
+  });
+
+  it('build-artifact marker fires independently of whether the SLICE_DOC was touched', () => {
+    expect(
+      shouldEnterDecisionReview({
+        buildArtifact: MARKER,
+        specArtifact: MARKER,
+        sliceDoc: 'docs/slices/Y.md',
+        changedPaths: [], // SLICE_DOC untouched, but the build artifact carries the marker
+      })
+    ).toBe(true);
   });
 });
 
@@ -271,6 +350,27 @@ function computeDigest(content: string): string {
   return `sha256:${createHash('sha256').update(content).digest('hex')}`;
 }
 
+/**
+ * Build TargetRelayDeps for the integration exercises. `changedPaths` is the
+ * stub for the target's uncommitted changed-file set the decision-review trigger
+ * reads: pass the SLICE_DOC path to model a SPEC slice (this build wrote the
+ * spec), or [] / unrelated paths to model an IMPL slice (the build never touched
+ * the pre-ratified spec). The real wiring runs `git status --porcelain`.
+ */
+function makeDeps(
+  builder: ProviderRunnerPort,
+  supervisor: ProviderRunnerPort,
+  changedPaths: readonly string[] = []
+): TargetRelayDeps {
+  return {
+    clock: new FixedClock(),
+    builder,
+    supervisor,
+    computeDigest,
+    changedPaths: async () => changedPaths,
+  };
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -454,12 +554,8 @@ describe('targetRelayLoop decision-review (integration, stub providers)', () => 
       req.role === 'decision-rebutter' ? REBUTTAL_OUTPUT : 'built'
     );
 
-    const deps: TargetRelayDeps = {
-      clock: new FixedClock(),
-      builder,
-      supervisor,
-      computeDigest,
-    };
+    // Build-artifact marker path: changedPaths is irrelevant to the trigger here.
+    const deps = makeDeps(builder, supervisor);
 
     const result = await targetRelayLoop(makeInput(target), deps);
 
@@ -520,12 +616,8 @@ describe('targetRelayLoop decision-review (integration, stub providers)', () => 
       req.role === 'decision-rebutter' ? REBUTTAL_DC_ONLY : 'built'
     );
 
-    const deps: TargetRelayDeps = {
-      clock: new FixedClock(),
-      builder,
-      supervisor,
-      computeDigest,
-    };
+    // Build-artifact marker path: changedPaths is irrelevant to the trigger here.
+    const deps = makeDeps(builder, supervisor);
 
     const result = await targetRelayLoop(makeInput(target), deps);
     expect(result.phase).toBe('awaiting-ratification');
@@ -541,9 +633,11 @@ describe('targetRelayLoop decision-review (integration, stub providers)', () => 
     expect(packet).toMatch(/\|\s*D-B\s*\|\s*missing\s*\|/);
   });
 
-  it('marker ONLY in SLICE_DOC: approval -> decision-review (trigger reads the spec; review-0 fix)', async () => {
+  it('SPEC-shape: marker in a SLICE_DOC this build WROTE -> decision-review (TRIGGER-FIX-1)', async () => {
     target = await mkdtemp(join(tmpdir(), 'am-dr-slicedoc-'));
-    // The build summary carries NO marker; the decision matrix lives in SLICE_DOC.
+    // The build summary carries NO marker; the decision matrix lives in SLICE_DOC,
+    // and this slice's build CREATED/MODIFIED that SLICE_DOC (it is in changedPaths)
+    // — a SPEC slice whose deliverable is the marker-bearing spec.
     const sliceDir = await seedSlice(target, 'SPEC-2', NO_MARKER_ARTIFACT, MARKER_SPEC);
 
     const supervisor = new StubRunner((req) =>
@@ -553,16 +647,13 @@ describe('targetRelayLoop decision-review (integration, stub providers)', () => 
       req.role === 'decision-rebutter' ? REBUTTAL_OUTPUT : 'built'
     );
 
-    const deps: TargetRelayDeps = {
-      clock: new FixedClock(),
-      builder,
-      supervisor,
-      computeDigest,
-    };
+    // The build touched the SLICE_DOC -> it is in the changed-file set.
+    const deps = makeDeps(builder, supervisor, ['docs/slices/SPEC-2.md']);
 
     const result = await targetRelayLoop(makeInput(target), deps);
 
-    // The phase fired even though build-0.md had NO marker — SLICE_DOC did.
+    // The phase fired even though build-0.md had NO marker — the build-authored
+    // SLICE_DOC did.
     expect(result.phase).toBe('awaiting-ratification');
     expect(supervisor.rolesCalled()).toEqual(['reviewer', 'decision-challenger']);
     expect(builder.rolesCalled()).toEqual(['decision-rebutter']);
@@ -574,6 +665,36 @@ describe('targetRelayLoop decision-review (integration, stub providers)', () => 
     expect(packet).toContain('### D-C — CONTESTED');
   });
 
+  it('IMPL-shape: marker in a pre-ratified SLICE_DOC the build did NOT touch -> done (the regression fix)', async () => {
+    target = await mkdtemp(join(tmpdir(), 'am-dr-impl-'));
+    // Build summary has NO marker; the SLICE_DOC (a frozen spec) DOES carry the
+    // §8 matrix — but this slice is an IMPLEMENTATION: its build edited code, not
+    // the spec, so the SLICE_DOC is NOT in the changed-file set. Pre-fix this
+    // false-fired decision-review on every impl slice; it must now reach `done`.
+    const sliceDir = await seedSlice(target, 'IMPL-2', NO_MARKER_ARTIFACT, MARKER_SPEC);
+
+    const supervisor = new StubRunner(() => 'STATUS: approved\nGood.');
+    const builder = new StubRunner(() => 'built');
+
+    // The build changed CODE, not the pre-ratified SLICE_DOC.
+    const deps = makeDeps(builder, supervisor, ['src/some-impl.ts', 'src/some-impl.test.ts']);
+
+    const result = await targetRelayLoop(makeInput(target), deps);
+
+    // The bug fix: an IMPL slice referencing a ratified spec reaches done, no halt.
+    expect(result.phase).toBe('done');
+    // Decision-review did NOT fire: only the reviewer ran; the builder never did.
+    expect(supervisor.rolesCalled()).toEqual(['reviewer']);
+    expect(builder.rolesCalled()).toEqual([]);
+    expect(await exists(join(sliceDir, 'ratification-packet.md'))).toBe(false);
+    expect(await exists(join(sliceDir, 'decision-challenge.md'))).toBe(false);
+
+    const status = JSON.parse(
+      await readFile(join(sliceDir, 'status.json'), 'utf-8')
+    ) as { phase: string };
+    expect(status.phase).toBe('done');
+  });
+
   it('marker absent: approval -> done (no decision-review fired; additive parity)', async () => {
     target = await mkdtemp(join(tmpdir(), 'am-dr-absent-'));
     const sliceDir = await seedSlice(target, 'IMPL-1', NO_MARKER_ARTIFACT);
@@ -581,12 +702,7 @@ describe('targetRelayLoop decision-review (integration, stub providers)', () => 
     const supervisor = new StubRunner(() => 'STATUS: approved\nGood.');
     const builder = new StubRunner(() => 'built');
 
-    const deps: TargetRelayDeps = {
-      clock: new FixedClock(),
-      builder,
-      supervisor,
-      computeDigest,
-    };
+    const deps = makeDeps(builder, supervisor);
 
     const result = await targetRelayLoop(makeInput(target), deps);
 

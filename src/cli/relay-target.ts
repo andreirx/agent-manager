@@ -26,10 +26,12 @@
  * @maturity PROTOTYPE
  */
 
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { SystemClock } from '../adapters/clock/index.js';
 import { FilesystemArtifactStore } from '../adapters/filesystem/index.js';
@@ -58,6 +60,41 @@ function providerDefaults(name: TargetActor): { model: string; effort: string } 
 
 function computeDigest(content: string): string {
   return `sha256:${createHash('sha256').update(content).digest('hex')}`;
+}
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Concrete `TargetRelayDeps.changedPaths`: the target tree's UNCOMMITTED
+ * changed-file set (target-relative, forward-slash paths) via
+ * `git status --porcelain`. Feeds the decision-review trigger — a SLICE_DOC this
+ * build created or modified appears here because the builder leaves changes
+ * uncommitted. `--no-renames` keeps each line `XY <path>`, so the path is always
+ * the substring after the 2 status columns + 1 space (slice(3)); a created
+ * (untracked `??`) and a modified (` M`) SLICE_DOC both surface.
+ *
+ * Best-effort by design: a non-repo target or any git failure yields [], so the
+ * trigger simply never treats the spec as build-authored (no false
+ * decision-review — fail toward the original select/implement/review flow).
+ *
+ * PROTOTYPE assumption: targetDir is the git repo root (the relay already
+ * provisions `.agent-manager/` and runs every provider there), so porcelain
+ * paths and SLICE_DOC are both repo-root-relative and compare directly.
+ */
+async function gitChangedPaths(targetDir: string): Promise<readonly string[]> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', targetDir, 'status', '--porcelain', '--no-renames'],
+      { maxBuffer: 16 * 1024 * 1024 }
+    );
+    return stdout
+      .split('\n')
+      .map((line) => line.slice(3).trim())
+      .filter((p) => p.length > 0);
+  } catch {
+    return [];
+  }
 }
 
 type RawAdapter = ClaudeAdapter | CodexAdapter;
@@ -363,6 +400,7 @@ async function main(): Promise<void> {
       builder: builderRaw,
       supervisor: supervisorRaw,
       computeDigest,
+      changedPaths: gitChangedPaths,
     });
 
     console.log(`\nRelay completed.`);

@@ -35,10 +35,11 @@ import { parseVerdict } from './relay-shared.js';
  *
  * `decision-review` and `awaiting-ratification` are the ADDITIVE phases for the
  * two-agent adversarial decision review (DECISION-REVIEW-MODE-1, PROTOTYPE).
- * They are reachable ONLY after `review-impl` approves a slice whose approved
- * artifact carries the operator-ratification `DECISION_REQUIRED` marker; the
- * existing select -> implement -> review-impl -> done|blocked flow is unchanged
- * for every slice WITHOUT that marker.
+ * They are reachable ONLY after `review-impl` approves a slice whose BUILD
+ * surfaced operator-ratification decisions — the `DECISION_REQUIRED` marker in
+ * the build artifact, or in a SLICE_DOC this slice's build wrote (see
+ * shouldEnterDecisionReview). The existing select -> implement -> review-impl ->
+ * done|blocked flow is unchanged for every slice that did NOT surface them.
  */
 export type TargetPhase =
   | 'select-slice'
@@ -148,6 +149,17 @@ export interface TargetRelayDeps {
   builder: ProviderRunnerPort;
   supervisor: ProviderRunnerPort;
   computeDigest: (content: string) => string;
+  /**
+   * The target working tree's UNCOMMITTED changed-file set (target-relative
+   * paths). Sole consumer is the decision-review trigger: it tells whether THIS
+   * slice's build created/modified the SLICE_DOC (the builder leaves changes
+   * uncommitted, so a written SLICE_DOC shows up here). Injected as a plain
+   * function — exactly like `computeDigest` — NOT a port: the use case stays
+   * git-agnostic and headlessly testable (composition root wires real
+   * `git status --porcelain`; tests pass a deterministic stub). Best-effort: an
+   * implementation that cannot determine the set returns [] (no false trigger).
+   */
+  changedPaths: (targetDir: string) => Promise<readonly string[]>;
 }
 
 /** Result of a full target relay run. */
@@ -290,8 +302,9 @@ async function ensureScaffold(amDir: string): Promise<void> {
       '',
       'Phase graph: select-slice -> (implement -> review-impl)* -> done | blocked.',
       'When an approved slice surfaces an operator-ratification DECISION_REQUIRED',
-      'matrix (in build-<n>.md or the SLICE_DOC spec), an additive decision-review',
-      'round runs (supervisor challenge -> builder rebuttal), writes',
+      'matrix in its OWN build output (build-<n>.md, or a SLICE_DOC this build',
+      'created/modified — not a pre-ratified spec it only references), an additive',
+      'decision-review round runs (supervisor challenge -> builder rebuttal), writes',
       'ratification-packet.md, and HALTS at awaiting-ratification for the human',
       '(it never auto-proceeds).',
       'Verdict contract: reviewer first line `STATUS: approved|revise|escalate`.',
@@ -660,28 +673,37 @@ async function runReview(
   );
 
   if (verdict === 'approved') {
-    // ADDITIVE (DECISION-REVIEW-MODE-1): route an approved slice to the
-    // adversarial `decision-review` phase ONLY when it surfaces operator-
-    // ratification-class decisions (the DECISION_REQUIRED marker). The marker
-    // may land in EITHER the builder's approved run summary (build-<n>.md) OR the
-    // slice's committed spec named by SLICE_DOC (a SPEC slice writes the matrix
-    // into the repo file) — review-0 fix: the prior build scanned only
-    // build-<n>.md and missed SLICE_DOC-only matrices.
+    // ADDITIVE (DECISION-REVIEW-MODE-1; trigger fixed by
+    // DECISION-REVIEW-TRIGGER-FIX-1): route an approved slice to the adversarial
+    // `decision-review` phase ONLY when THIS slice's BUILD surfaced operator-
+    // ratification-class decisions — the `DECISION_REQUIRED:` marker is in the
+    // builder's approved run summary (build-<n>.md), OR in the SLICE_DOC spec that
+    // this build itself created/modified (a SPEC slice writing its matrix). A
+    // pre-ratified SLICE_DOC the build did NOT touch (an IMPL slice referencing a
+    // frozen spec whose §8 matrices are legitimately present) does NOT fire — that
+    // systematic false-fire on every impl slice was the bug. "Build touched the
+    // SLICE_DOC" is read from the target's uncommitted changed-file set
+    // (deps.changedPaths); the builder leaves changes uncommitted, so a SLICE_DOC
+    // it wrote appears there. See shouldEnterDecisionReview for the predicate.
     //
-    // Additive parity holds: a slice WITHOUT the marker has it in NEITHER source
-    // (non-decision by definition), so nextPhase === 'done' — the byte-for-byte
-    // original transition, same status shape, same run records. The added
-    // SLICE_DOC read is harmless discarded I/O (missing/markerless -> 'done').
+    // Additive parity holds: a slice WITHOUT the marker in EITHER source is a
+    // non-decision by definition, so nextPhase === 'done' — the byte-for-byte
+    // original transition, same status shape, same run records.
     const { buildArtifact, specArtifact } = await readDecisionSources(
       sliceDir,
       status.iteration,
       input.targetDir,
       status.sliceDoc
     );
-    const nextPhase: TargetPhase =
-      hasRatificationDecisions(buildArtifact) || hasRatificationDecisions(specArtifact)
-        ? 'decision-review'
-        : 'done';
+    const changedPaths = await deps.changedPaths(input.targetDir);
+    const nextPhase: TargetPhase = shouldEnterDecisionReview({
+      buildArtifact,
+      specArtifact,
+      sliceDoc: status.sliceDoc,
+      changedPaths,
+    })
+      ? 'decision-review'
+      : 'done';
     const advanced: TargetRelayStatus = {
       ...status,
       phase: nextPhase,
@@ -738,6 +760,62 @@ export function hasRatificationDecisions(artifactText: string): boolean {
   for (const line of artifactText.split('\n')) {
     const stripped = line.replace(/^[\s>#*-]+/, '');
     if (/^DECISION_REQUIRED\s*:/.test(stripped)) return true;
+  }
+  return false;
+}
+
+/**
+ * Normalize a repo-relative path for set membership: trim, unify separators,
+ * drop a leading `./`. `git status --porcelain` emits forward-slash,
+ * repo-root-relative paths and the supervisor writes SLICE_DOC the same way, so
+ * this only absorbs incidental decoration before an exact compare.
+ */
+function normalizeRepoPath(p: string): string {
+  return p.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+/** Is the SLICE_DOC among the build's changed-file set? (null/blank doc => no). */
+function sliceDocInChangedSet(
+  sliceDoc: string | null,
+  changedPaths: readonly string[]
+): boolean {
+  if (!sliceDoc || !sliceDoc.trim()) return false;
+  const target = normalizeRepoPath(sliceDoc);
+  return changedPaths.some((p) => normalizeRepoPath(p) === target);
+}
+
+/**
+ * Trigger predicate for the additive `decision-review` phase (DR-TRIGGER, fixed
+ * by DECISION-REVIEW-TRIGGER-FIX-1). Fires IFF THIS slice's BUILD surfaced the
+ * operator-ratification-class decisions — never on a pre-ratified spec the build
+ * merely references:
+ *
+ *  - the `DECISION_REQUIRED:` marker is in the BUILD ARTIFACT (`build-<n>.md`):
+ *    the build itself surfaced the decisions; OR
+ *  - the marker is in the SLICE_DOC spec AND this build CREATED/MODIFIED that
+ *    SLICE_DOC (its path is in the build's changed-file set): a SPEC slice whose
+ *    deliverable IS the marker-bearing spec.
+ *
+ * Does NOT fire when the SLICE_DOC carries the marker but the build did not touch
+ * it — an IMPLEMENTATION slice referencing an already-ratified spec whose §8
+ * decision matrices are legitimately present. That systematic false-fire on every
+ * impl slice (a wasted supervisor challenge + a spurious `awaiting-ratification`
+ * halt) was the bug (TD: DECISION-REVIEW-MODE-1 trigger over-fires; recorded P2).
+ *
+ * Pure; exported for unit tests (the four acceptance cases).
+ */
+export function shouldEnterDecisionReview(args: {
+  buildArtifact: string;
+  specArtifact: string;
+  sliceDoc: string | null;
+  changedPaths: readonly string[];
+}): boolean {
+  if (hasRatificationDecisions(args.buildArtifact)) return true;
+  if (
+    hasRatificationDecisions(args.specArtifact) &&
+    sliceDocInChangedSet(args.sliceDoc, args.changedPaths)
+  ) {
+    return true;
   }
   return false;
 }
