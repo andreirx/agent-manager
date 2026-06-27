@@ -250,6 +250,36 @@ Each entry should include:
 
 ---
 
+## TD: DECISION-REVIEW-MODE-1 trigger over-fires on IMPL slices
+
+**Found:** 2026-06-27 (DECISION-REVIEW-MODE-1's 2nd live run, on W-B-EPOCH-IMPL-1).
+**Severity:** P2 — non-harmful but wastes a supervisor (codex) challenge+rebuttal and halts
+every IMPL slice spuriously.
+
+**Bug:** the `decision-review` trigger fires when `DECISION_REQUIRED:` appears in `build-<n>.md`
+OR the `SLICE_DOC`. For an IMPL slice the `SLICE_DOC` is the **already-ratified spec** (which
+legitimately contains the §8 `DECISION_REQUIRED` matrices), so decision-review fires on an
+implementation that surfaces NO new decisions — producing a vacuous packet + an
+`awaiting-ratification` halt the operator must bypass. Observed on W-B-EPOCH-IMPL-1: the IMPL
+passed `review-impl` (approved), then decision-review false-triggered (its SLICE_DOC is the
+ratified `daemon-w-b-epoch-1.md`).
+
+**Root cause:** "DECISION_REQUIRED present in SLICE_DOC" is the wrong signal. Decision-review
+should fire when **THIS slice surfaces NEW, unratified decisions** — not when it references a
+pre-ratified spec.
+
+**Fix options (pick at the refinement slice):**
+- (a) Fire on SLICE_DOC only if THIS slice's build CREATED/MODIFIED it (the spec is the slice's
+  deliverable) — auto-distinguishes SPEC from IMPL via the build diff. RECOMMENDED (no new flag).
+- (b) Explicit opt-in: `selection.json` `surfacesDecisions: true` for SPEC slices; absent for IMPL.
+- (c) Skip if the SLICE_DOC has a recorded ratification section (fuzzy; rejected).
+
+**Interim handling:** for IMPL slices that false-trigger, the operator bypasses the vacuous
+packet and commits the `review-impl`-approved IMPL (the decisions are already ratified).
+**Status:** OPEN
+
+---
+
 ## Resolved Entries
 
 (none yet)
