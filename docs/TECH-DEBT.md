@@ -309,6 +309,37 @@ tree) to steer the split BEFORE discarding — do not blind `git checkout`.
 
 ---
 
+## TD: `.agent-manager/` artifact disposition — contract says committed, operator convention gitignored
+
+**Found:** 2026-06-28 (Codex review of the way-of-working doc update, commit `b72d020`).
+**Severity:** P2 — a ratified-contract divergence; affects whether the relay audit trail (decision
+artifacts, ratification packets, run records, review verdicts) is traceable in git.
+
+**Conflict:** The contract (`docs/contracts/target-owned-relay.md`), the README, and the relay's
+**scaffolded** `<target>/.agent-manager/.gitignore` say the workflow **artifacts ARE committed**
+(only `logs/` + `pending-selection.md` ignored) — the audit-trail-in-git intent. But this session's
+**operator convention gitignored `.agent-manager/` entirely** in both repo-graph and agent-manager
+(rationale: keep the builder/reviewer review diff clean; keep relay process bookkeeping out of the
+target repo's product history). CLAUDE.md/AGENTS.md briefly asserted the local-only convention as
+rule — now softened to flag this as OPEN. The relay never self-commits either way (verified).
+
+**Decision needed (operator):**
+- (A) **Align convention to contract** — un-gitignore `.agent-manager/` (keep only `logs/` +
+  `pending-selection.md` ignored) in both repos; the operator commits the audit trail. Pro: the
+  decision-review packets + review verdicts are traceable in git ("files are the system of record").
+  Con: relay bookkeeping enters the target's history.
+- (B) **Amend contract to local-only** — update the contract + README + scaffold to gitignore
+  `.agent-manager/`. Pro: clean target history + review diffs; the DURABLE decisions already live in
+  committed `docs/slices/*.md` (with §-ratifications). Con: the run-level audit trail is not in git.
+- (C) **Split** — commit the decision artifacts (ratification packets, key reviews) to the target's
+  tracked docs; keep noisy run-records local. More nuance; more machinery.
+
+**Until decided:** the local-only convention is in force (the `.gitignore` entries exist); CLAUDE.md
+flags it as OPEN. Do not treat either as settled.
+**Status:** OPEN
+
+---
+
 ## Resolved Entries
 
 (none yet)

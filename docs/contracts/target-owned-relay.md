@@ -50,8 +50,8 @@ select-slice (supervisor, plan/read-only)
   STATUS: blocked  -> blocked
 implement (builder, edit/write)            -> review-impl
 review-impl (supervisor, review/read-only)
-  approved -> done             (NO ratification marker in build-<n>.md OR SLICE_DOC)
-  approved -> decision-review  (DECISION_REQUIRED marker in build-<n>.md OR SLICE_DOC)
+  approved -> done             (no decision surfaced by THIS slice — see trigger rule below)
+  approved -> decision-review  (THIS slice surfaced a DECISION_REQUIRED — see trigger rule below)
   revise   -> implement (iteration + 1)
   escalate -> blocked
   unknown  -> blocked
@@ -65,12 +65,14 @@ docs carry the design.
 
 ### Decision review (additive — DECISION-REVIEW-MODE-1, PROTOTYPE)
 
-When `review-impl` **approves** a slice that carries an operator-ratification
-`DECISION_REQUIRED:` block in EITHER the builder's approved summary
-(`build-<n>.md`) OR the committed slice spec named by `SLICE_DOC`, the relay runs
-one adversarial round on the **decisions** (not the artifact) before the human
-sees them. (A SPEC slice writes its matrix into `SLICE_DOC`; scanning both
-sources means a spec-only matrix still triggers the phase.)
+When `review-impl` **approves** a slice that **surfaced** an operator-ratification
+`DECISION_REQUIRED:` block — i.e. the marker is in the builder's approved summary
+(`build-<n>.md`), OR in the `SLICE_DOC` **AND this slice's build created/modified that
+SLICE_DOC** (a SPEC slice writing its matrix) — the relay runs one adversarial round on the
+**decisions** (not the artifact) before the human sees them. An IMPL slice that merely
+references a **pre-ratified** `SLICE_DOC` it did NOT modify does **not** trigger the phase
+(corrected by DECISION-REVIEW-TRIGGER-FIX-1; the earlier "marker in build OR SLICE_DOC"
+over-fired on every IMPL slice).
 
 1. **decision-challenger** (supervisor, review/read-only) — sees the SLICE_DOC
    spec (when present) and the build summary; verifies each recommended cell

@@ -156,10 +156,18 @@ Per-slice files (relay-target): `<target>/.agent-manager/slices/<ID>/` holds
 
 The target is **always** the `<target-path>` argument; no repo is hardcoded
 (`../repo-graph` is only an example). The relay provisions
-`<target>/.agent-manager/` on first run for any target. **`.agent-manager/` is
-gitignored / local-only working state** — run records + artifacts are NOT committed
-(the spec/code the builder writes in the target's tracked tree is the deliverable;
-the operator commits that after review approval). The relay NEVER self-commits.
+`<target>/.agent-manager/` on first run for any target. **The relay NEVER
+self-commits** (verified: the builder context says "Do NOT commit"); the operator commits
+the **deliverable** (the spec/code in the target's tracked tree) after review approval.
+
+> **OPEN — `.agent-manager/` artifact disposition (decision pending).** The ratified contract
+> (`docs/contracts/target-owned-relay.md`) + README + the relay's scaffolded `.gitignore` say the
+> workflow **artifacts ARE committed** (run records, selection, status, ratification packets — the
+> audit trail; only `logs/` + `pending-selection.md` ignored). This session's **operator convention
+> diverged** — `.agent-manager/` was gitignored entirely in both repo-graph and agent-manager (clean
+> review diffs; target history not cluttered with relay bookkeeping). These conflict. Resolve before
+> relying on either: align the convention to the contract (commit the audit trail) OR amend the
+> contract+README+scaffold to local-only. See TECH-DEBT.
 
 Run: `npm run relay-target -- <target-path>` (add `--dry-run` first to inspect
 the exact provider invocations). Full contract: `docs/contracts/target-owned-relay.md`.
