@@ -302,9 +302,13 @@ Agent Manager provisions this directory in the target repository at runtime:
   slices/<id>/notes-for-human.md       # only when blocked
 ```
 
-Tracked artifacts are the workflow system of record. Logs are operational evidence and are ignored by git.
+`.agent-manager/` is **gitignored / local-only** working state (ratified 2026-06-28) — the relay's
+process trail, NOT the system of record. The durable record of decisions is the **target's own
+committed** slice/spec docs (e.g. `docs/slices/*.md` with their ratification sections) + the
+operator's commits + commit messages. See `docs/contracts/target-owned-relay.md`.
 
-Agent Manager does not commit target repository changes. Code edits and `.agent-manager/` artifacts are left for the operator to inspect, stage, and commit.
+Agent Manager never commits the target repository. The operator commits the **deliverable** (code /
+spec edits) after review approval; the `.agent-manager/` process artifacts stay local (gitignored).
 
 ## Provider permission posture
 

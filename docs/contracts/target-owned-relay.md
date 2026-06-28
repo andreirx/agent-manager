@@ -158,34 +158,37 @@ TD-008).
 <target>/.agent-manager/
   .gitignore                           created at runtime (any target)
   README.md                            created at runtime (any target)
-  current.json                         active-slice pointer (committed)
-  slices/<id>/selection.json|md        committed (system of record)
-  slices/<id>/status.json              committed (phase, iteration, providers)
-  slices/<id>/build-<n>.md             committed (builder summary per cycle)
-  slices/<id>/review-<n>.json          committed (verdict per cycle)
-  slices/<id>/runs/select.json         committed (run record -> log path)
-  slices/<id>/runs/build-<n>.json      committed (run record -> log path)
-  slices/<id>/runs/review-<n>.json     committed (run record -> log path)
-  slices/<id>/decision-challenge.md    committed (decision-review only, when it fires)
-  slices/<id>/decision-rebuttal.md     committed (decision-review only, when it fires)
-  slices/<id>/ratification-packet.md   committed (the human ratification gate)
-  slices/<id>/runs/decision-challenge.json committed (run record -> log path)
-  slices/<id>/runs/decision-rebuttal.json  committed (run record -> log path)
-  slices/<id>/notes-for-human.md       committed (only when blocked)
-  logs/<ts>__<role>__<provider>__slice-<id>.txt   gitignored
-  pending-selection.md                 gitignored
+  current.json                         active-slice pointer
+  slices/<id>/selection.json|md        the operator's brief / builder packet
+  slices/<id>/status.json              phase, iteration, providers
+  slices/<id>/build-<n>.md             builder summary per cycle
+  slices/<id>/review-<n>.json          verdict per cycle
+  slices/<id>/runs/*.json              run records (-> log path)
+  slices/<id>/decision-challenge.md    decision-review only, when it fires
+  slices/<id>/decision-rebuttal.md     decision-review only, when it fires
+  slices/<id>/ratification-packet.md   the human ratification gate
+  slices/<id>/notes-for-human.md       only when blocked
+  logs/<ts>__<role>__<provider>__slice-<id>.txt   provider transcripts
+  pending-selection.md
 ```
 
-Run records restore the traceability model (run -> log path): each provider call
-writes a `runs/*.json` capturing `runId`, provider, model, effort, mode,
-permission, status, timestamps, the (target-relative) `logPath`, and the pinned
-prompt digests.
+**`.agent-manager/` is gitignored / local-only working state** (ratified 2026-06-28; it was
+previously specified here as "committed (system of record)" — superseded, see TECH-DEBT
+"artifact disposition"). It is the relay's **process trail**, not the system of record. The
+DURABLE record of decisions lives in the **target's own committed artifacts** — the slice/spec
+docs (e.g. `docs/slices/*.md` with their ratification sections) + the operator's commits of the
+deliverable + the commit messages. Run records (`runs/*.json` → log path) restore per-call
+traceability **locally** (`runId`, provider, model, effort, mode, permission, status, timestamps,
+the target-relative `logPath`, pinned prompt digests).
 
-The scaffold (`.gitignore`, `README.md`) is provisioned by the relay on first
-run for **whatever target** is passed; no repository is pre-seeded or hardcoded.
+The scaffold (`.gitignore`, `README.md`) is provisioned by the relay on first run for **whatever
+target** is passed; no repository is pre-seeded or hardcoded. **Scaffold follow-up (TECH-DEBT):**
+the scaffold must gitignore `.agent-manager/` for a NEW target by default (existing targets carry
+a manual root `.gitignore` entry).
 
-The relay does **not** commit the target repo (neither code changes nor these
-artifacts). Committing/branching is currently out of scope (see TECH-DEBT).
+The relay does **not** commit the target repo (neither code changes nor these artifacts); the
+operator commits the **deliverable** after review approval. Committing/branching by the relay is
+out of scope.
 
 ## Verdict contract
 

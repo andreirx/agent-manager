@@ -334,8 +334,23 @@ rule — now softened to flag this as OPEN. The relay never self-commits either 
 - (C) **Split** — commit the decision artifacts (ratification packets, key reviews) to the target's
   tracked docs; keep noisy run-records local. More nuance; more machinery.
 
-**Until decided:** the local-only convention is in force (the `.gitignore` entries exist); CLAUDE.md
-flags it as OPEN. Do not treat either as settled.
+**DECIDED 2026-06-28 — option (B), local-only.** Operator ratified: `.agent-manager/` is gitignored /
+local-only working state; the durable decision record is the target's committed `docs/slices/*.md`
+(with ratification sections) + the operator's commits. The contract (`target-owned-relay.md`), README,
+and CLAUDE.md/AGENTS.md were updated to match (the earlier "artifacts committed" spec retired).
+**Status:** RESOLVED (disposition) — but see the follow-up below.
+
+## TD: relay scaffold must gitignore `.agent-manager/` for NEW targets
+
+**Found:** 2026-06-28 (follow-up of the disposition decision above).
+**Severity:** P3 — code; existing targets are covered by a manual root `.gitignore` entry.
+
+Given the ratified local-only convention, the relay's scaffold (`relay-target.ts`, the
+`.agent-manager/.gitignore` + provisioning) should make `.agent-manager/` gitignored by default for a
+**new** target — either add `.agent-manager/` to the target's root `.gitignore` on first provision, or
+scaffold the inner `.agent-manager/.gitignore` to ignore everything (not just `logs/` +
+`pending-selection.md`). Today a new target would TRACK the artifacts until the operator adds the root
+entry manually (as was done for repo-graph + agent-manager this session). Small code slice.
 **Status:** OPEN
 
 ---
