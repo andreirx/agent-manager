@@ -355,6 +355,35 @@ entry manually (as was done for repo-graph + agent-manager this session). Small 
 
 ---
 
+## TD: standalone Codex review (usefulness gate) loops on web search without a self-contained prompt
+
+**Found:** 2026-06-29 (the two-agent E2E usefulness gate's first STANDALONE Codex run — outside the
+relay's diff-review flow — during the v0.3.1 checkpoint on repo-graph).
+**Severity:** P2 — wastes the reviewer pass (one run burned ~3h in a reconnect/web-search loop and
+produced nothing) and blocks the gate's second-agent verdict until re-run with a fixed prompt.
+
+**Problem:** the relay's in-loop codex reviews are reliable because they judge a self-contained
+`git diff` — they never need external facts. But a STANDALONE usefulness-gate review (e.g. "assess this
+smoke output vs the VISION") pointed codex at a repo to evaluate; codex tried to fetch external
+ground-truth (`web search:` + `node_repl/js_add_node_module_dir` MCP calls), failed, and looped on
+`ERROR: Reconnecting... 1/5..5/5` indefinitely. The prompt INVITED external verification (it asked codex
+to assess nginx) without forbidding tools or inlining the evidence.
+
+**Fix (applied this session):** a reusable self-contained review template, `prompts/standalone-review.md`:
+(1) run read-only — `codex exec --sandbox read-only -C <dir> - < prompt`; (2) INLINE the evidence in the
+prompt; (3) explicitly forbid web search / node_repl / any tool, and state "judge OUTPUT quality, you do
+NOT need external ground-truth." With that, the same review completed cleanly (gpt-5.5, high effort).
+
+**Proper solution (future hardening):**
+- (a) a thin `codex-review` helper (use-case/CLI) wrapping the read-only invocation + injecting the
+  no-web-search developer-instruction, so the discipline is enforced not remembered. RECOMMENDED.
+- (b) confirm + set a codex `--config` web-search-disable for review invocations (belt-and-suspenders).
+**When to address:** when the standalone gate review is run often enough to deserve a command (today it
+is operator-driven via the template), or when promoting the E2E gate beyond PROTOTYPE.
+**Status:** OPEN (mitigated by `prompts/standalone-review.md`)
+
+---
+
 ## Resolved Entries
 
 (none yet)

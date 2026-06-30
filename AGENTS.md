@@ -207,3 +207,10 @@ code at start, so mid-run edits do not affect it.
   SPLIT it (informed by the build log) rather than retry/raise-timeout.
 - **Infra blocks (provider auth/quota lapse, transient timeout) → resume**; real `escalate` →
   surface the DECISION_REQUIRED to the human.
+- **A big smoke run gets a usefulness GATE: an agent analyzing the outputs against the VISION, the
+  current architecture, and the net tech-debt balance — plus the reviewer model's take** (the two-agent
+  gate; `repo-graph/docs/testing/end-to-end-usefulness-protocol.md`). The reviewer pass runs the model
+  STANDALONE (outside the relay), so use a **self-contained prompt**: inline the evidence, forbid web
+  search / tools, read-only sandbox (`prompts/standalone-review.md`). A standalone review that asks the
+  model to *assess a subject* without inlined evidence loops on web search (a 3h dead loop, 2026-06-29);
+  the relay's in-loop reviews are safe because they judge a self-contained `git diff`.
