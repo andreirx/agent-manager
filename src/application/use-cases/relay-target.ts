@@ -254,20 +254,48 @@ function buildBuilderContext(
   return parts.join('\n');
 }
 
-function buildReviewerContext(targetDir: string, packetRaw: string): string {
-  return [
+function buildReviewerContext(
+  targetDir: string,
+  packetRaw: string,
+  buildReport?: string
+): string {
+  const sections = [
     cwdHeader(targetDir),
     '',
     '# Slice selection packet (authoritative acceptance criteria)',
     '',
     packetRaw,
+  ];
+  // Evidence transport: `.agent-manager/` is gitignored in targets, so the
+  // builder's run report (build-<n>.md) NEVER appears in `git diff`/`git
+  // status`. Without inlining it here, a read-only reviewer sandbox (no
+  // compilers, no network, no mktemp) can neither run the heavy gates nor see
+  // the builder's executed transcripts — slices grind through revise cycles
+  // on evidence the builder already produced (observed twice, 2026-07-03).
+  if (buildReport && buildReport.trim().length > 0) {
+    sections.push(
+      '',
+      "# Builder's run report for THIS iteration (build-<n>.md)",
+      '',
+      'This file is a gitignored operational artifact — it does NOT appear in',
+      '`git diff`/`git status`. Transcripts labeled EXECUTED are the',
+      "builder's executed evidence for gates your sandbox cannot run",
+      '(compilers, network, temp dirs). Verify every CODE claim against the',
+      'diff yourself; weigh EXECUTED transcripts as evidence, and say so when',
+      'you rely on one (label it BUILDER-EXECUTED).',
+      '',
+      buildReport
+    );
+  }
+  sections.push(
     '',
     '# Your task',
     '',
     "Review the builder's UNCOMMITTED changes in the target working tree. Inspect them yourself with `git diff` and `git status`.",
     'Judge strictly against DEFINITION_OF_DONE and the declared scope. Label every claim OBSERVED or INFERRED.',
-    'Respond with the verdict line FIRST: `STATUS: approved|revise|escalate`, then the rationale.',
-  ].join('\n');
+    'Respond with the verdict line FIRST: `STATUS: approved|revise|escalate`, then the rationale.'
+  );
+  return sections.join('\n');
 }
 
 /** Idempotently provision the .agent-manager scaffold in ANY target repo. */
@@ -625,6 +653,17 @@ async function runReview(
     input.reviewerPromptPaths,
     deps.computeDigest
   );
+  // Inline this iteration's build report (gitignored — invisible to the
+  // reviewer's git-based inspection). Absent file (e.g. legacy resume) is fine.
+  let buildReport: string | undefined;
+  try {
+    buildReport = await readFile(
+      join(sliceDir, `build-${status.iteration}.md`),
+      'utf-8'
+    );
+  } catch {
+    buildReport = undefined;
+  }
   const request: RunRequest = {
     runId: `review-${status.sliceId}-${status.iteration}`,
     sliceId: status.sliceId,
@@ -635,7 +674,7 @@ async function runReview(
     model: input.supervisorModel,
     effort: input.supervisorEffort,
     prompts,
-    contextText: buildReviewerContext(input.targetDir, packetRaw),
+    contextText: buildReviewerContext(input.targetDir, packetRaw, buildReport),
     inputArtifacts: [],
   };
   const result = await runWithRetry(

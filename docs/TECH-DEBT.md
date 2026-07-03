@@ -415,7 +415,13 @@ iteration 7 with `--max-iter 6` blocks instantly with a misleading "max iteratio
 - (c) reviewer prompt: state which gates are environment-blocked for the reviewer and that the
   attached transcript is the authoritative evidence for them.
 **When to address:** before the next heavy-validation slice batch (DAEMON-VISIBILITY-1 qualifies).
-**Status:** OPEN (mitigated by selection.md inline-evidence language + operator close-out pattern)
+**Status:** MITIGATED (2026-07-03) — (a) shipped in reduced form: `buildReviewerContext` now inlines
+the current iteration's `build-<n>.md` into the reviewer context with weighing guidance
+(BUILDER-EXECUTED labeling). Root cause was sharper than first recorded: `.agent-manager/` is
+gitignored in targets, so the builder's report was INVISIBLE to the reviewer's git-based inspection
+by construction (the INSTALL-ROBUSTNESS-2 builder proved it via `git check-ignore`). Gated: typecheck
++ 26 tests + `--dry-run` parity. Remaining open: (b) --max-iter resume semantics; (c) a true
+relay-run validation step.
 
 ---
 
