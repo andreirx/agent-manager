@@ -384,6 +384,41 @@ is operator-driven via the template), or when promoting the E2E gate beyond PROT
 
 ---
 
+## TD: Reviewer-sandbox evidence deadlock — validation the reviewer can neither run nor see
+
+**Date:** 2026-07-03
+
+**What happened:** METRIC-LANG-COVERAGE-1 (repo-graph) converged on CODE by iteration ~6 but ran to
+the 12-iteration cap without approval. The reviewer's read-only sandbox cannot execute the heavy
+end-of-slice gates (`cargo build`/`clippy` fail on `target/.cargo-lock`; dogfood cannot create
+`/private/tmp` dirs), and it correctly refuses to approve on claims. The builder's evidence kept
+missing the reviewer: pointed at `/private/tmp` artifact paths the reviewer cannot read, or was cut
+off by per-run timeouts / provider rate limits before the full inlined TEST REPORT landed. Cost:
+~6 wasted cycles re-confirming already-converged code.
+
+**Resolution used (operator close-out):** the operator executed the gates locally (fmt/build/
+clippy/full test + dogfood-isolated — all green), did the structure review, committed with the
+evidence chain in the message, and marked the slice done. Legitimate, but manual.
+
+**Also learned:** (a) `--max-iter` is a TOTAL-iteration bound, not "N more" — resuming a slice at
+iteration 7 with `--max-iter 6` blocks instantly with a misleading "max iterations reached";
+(b) heavy-validation slices need the builder instructed to INLINE transcripts in `build-<n>.md`
+(now standard selection.md language); (c) per-run timeout must fit validation, not just editing
+(20m default vs ~60-90m real for a cargo-workspace gate sweep on this machine).
+
+**Proper solution:**
+- (a) relay-run validation: an explicit relay step (or builder sub-phase) that runs the named gate
+  commands OUTSIDE the reviewer sandbox and attaches the transcript to the packet the reviewer
+  judges — evidence transport by construction, not by prompt discipline. RECOMMENDED.
+- (b) `--max-iter` semantics: interpret as additional cycles on resume (or warn when
+  iteration >= max-iter at start).
+- (c) reviewer prompt: state which gates are environment-blocked for the reviewer and that the
+  attached transcript is the authoritative evidence for them.
+**When to address:** before the next heavy-validation slice batch (DAEMON-VISIBILITY-1 qualifies).
+**Status:** OPEN (mitigated by selection.md inline-evidence language + operator close-out pattern)
+
+---
+
 ## Resolved Entries
 
 (none yet)
