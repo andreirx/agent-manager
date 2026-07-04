@@ -199,6 +199,14 @@ code at start, so mid-run edits do not affect it.
 - **Drive the queue; the relays do the work.** The operator bootstraps slices, watches the
   gate, does an operator review (earned-abstraction / scope / honesty), commits on approval,
   advances. Surface only genuine blast-radius decisions to the human.
+- **Checkpoint every 2-3 cycles — never let a loop run long unattended** (ratified
+  2026-07-04). Launch relays with `--max-iter <current_iteration + 3>` so the relay STOPS at
+  the checkpoint by design; the operator reads the newest review/build report + tree shape,
+  then continues (on track) or steers via OPERATOR_NOTE (in the weeds). Reviewers judge the
+  CONTRACT; only the operator/human judge PRODUCT SENSE — the field bugs (client timeout
+  aborting live indexes; success-only registry persistence) all passed green review cycles.
+  Corollary: when a review round's only pending input is the operator's own ratification,
+  close out HERE (operator review + commit) instead of buying another round.
 - **On a builder timeout, READ the build log's edit distribution (and the partial tree) to
   STEER before discarding** — do not blind `git checkout`. The partial work is steering (where
   a too-big slice should split) and a potential resume base. (Relay improvement pending — see
