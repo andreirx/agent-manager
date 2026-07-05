@@ -13,7 +13,8 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, isAbsolute } from 'node:path';
 
 import type { ClockPort, ArtifactStorePort } from '../../../application/ports/index.js';
@@ -180,8 +181,22 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     // Ensure logs directory exists
     await mkdir(dirname(logPath), { recursive: true });
 
-    // Execute Claude
-    const execResult = await this.execute(invocation, request.timeout, fullPrompt);
+    // Execute Claude. Stream raw provider output to `<logPath>.live` AS IT
+    // ARRIVES so a mid-run operator can `tail -f` liveness (the formatted log
+    // below is end-written and proves nothing mid-run — 2026-07-05 incident:
+    // a stalled builder was indistinguishable from a thinking one).
+    const livePath = `${logPath}.live`;
+    const liveStream = createWriteStream(livePath, { flags: 'a' });
+    let execResult: ExecResult;
+    try {
+      execResult = await this.execute(invocation, request.timeout, fullPrompt, (chunk) => {
+        liveStream.write(chunk);
+      });
+    } finally {
+      liveStream.end();
+    }
+    // The formatted log below supersedes the live tail; remove the temp file.
+    await rm(livePath, { force: true }).catch(() => {});
 
     const completedAt = this.clock.now();
 
@@ -284,7 +299,8 @@ export class ClaudeAdapter implements ProviderRunnerPort {
   private async execute(
     invocation: { command: string; args: string[]; cwd: string },
     timeout: number | undefined,
-    stdinContent: string
+    stdinContent: string,
+    onChunk?: (chunk: Buffer) => void
   ): Promise<ExecResult> {
     const effectiveTimeout = timeout ?? this.config.defaultTimeout;
 
@@ -295,6 +311,10 @@ export class ClaudeAdapter implements ProviderRunnerPort {
         proc = spawn(invocation.command, invocation.args, {
           stdio: ['pipe', 'pipe', 'pipe'],
           cwd: invocation.cwd,
+          // Own process group so kills reach the provider's OWN children
+          // (shell tools, cargo, …) — a direct-child signal leaves those
+          // grandchildren running with inherited fds.
+          detached: true,
         });
       } catch (err) {
         // spawn itself threw (very rare, e.g., invalid options)
@@ -310,21 +330,58 @@ export class ClaudeAdapter implements ProviderRunnerPort {
       let stdout = '';
       let stderr = '';
       let timedOut = false;
+      let stalled = false;
       let processExited = false;
       let killTimer: ReturnType<typeof setTimeout> | undefined;
 
-      // Timeout handling with SIGTERM -> SIGKILL escalation
+      // Kill the WHOLE process group (detached spawn above), falling back to
+      // the direct child if the group is already gone.
+      const killTree = (sig: NodeJS.Signals) => {
+        if (processExited) return;
+        try {
+          if (proc.pid !== undefined) process.kill(-proc.pid, sig);
+          else proc.kill(sig);
+        } catch {
+          try {
+            proc.kill(sig);
+          } catch {
+            /* already dead */
+          }
+        }
+      };
+
+      const escalate = () => {
+        killTree('SIGTERM');
+        killTimer = setTimeout(() => {
+          if (!processExited) killTree('SIGKILL');
+        }, this.config.killGracePeriod);
+      };
+
+      // Timeout handling with SIGTERM -> SIGKILL escalation (group-wide)
       const termTimer = setTimeout(() => {
         timedOut = true;
-        proc.kill('SIGTERM');
-
-        // Escalate to SIGKILL after grace period
-        killTimer = setTimeout(() => {
-          if (!processExited) {
-            proc.kill('SIGKILL');
-          }
-        }, this.config.killGracePeriod);
+        escalate();
       }, effectiveTimeout);
+
+      // Output-liveness watchdog: a healthy provider run streams events
+      // continuously; ZERO bytes for the stall window means the run is hung
+      // at startup or mid-flight (observed 2026-07-05: a builder with no log
+      // file and 0% CPU for 25 minutes). Any stdout/stderr data resets it.
+      // Configurable via RELAY_STALL_MINUTES; 0 disables.
+      const stallMinutes = Number.parseInt(process.env['RELAY_STALL_MINUTES'] ?? '15', 10);
+      const stallMs = Number.isFinite(stallMinutes) && stallMinutes > 0 ? stallMinutes * 60_000 : 0;
+      let stallTimer: ReturnType<typeof setTimeout> | undefined;
+      const armStallTimer = () => {
+        if (stallMs === 0) return;
+        if (stallTimer !== undefined) clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          stalled = true;
+          timedOut = true; // surfaces through the existing timeout result path
+          stderr += `\n[relay watchdog] no output for ${stallMinutes} minutes — killing stalled provider process group\n`;
+          escalate();
+        }, stallMs);
+      };
+      armStallTimer();
 
       const cleanup = () => {
         processExited = true;
@@ -332,14 +389,21 @@ export class ClaudeAdapter implements ProviderRunnerPort {
         if (killTimer !== undefined) {
           clearTimeout(killTimer);
         }
+        if (stallTimer !== undefined) {
+          clearTimeout(stallTimer);
+        }
       };
 
       proc.stdout?.on('data', (data: Buffer) => {
         stdout += data.toString();
+        armStallTimer();
+        onChunk?.(data);
       });
 
       proc.stderr?.on('data', (data: Buffer) => {
         stderr += data.toString();
+        armStallTimer();
+        onChunk?.(data);
       });
 
       proc.on('close', (code) => {
