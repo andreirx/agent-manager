@@ -213,6 +213,12 @@ code at start, so mid-run edits do not affect it.
   `docs/TECH-DEBT.md`.)
 - **Smaller slices converge; mega-slices block.** When a slice can't converge or times out,
   SPLIT it (informed by the build log) rather than retry/raise-timeout.
+- **Deep vertical slices — no dormant capability** (operator directive 2026-07-11). Whatever
+  support a slice delivers must be WIRED through and REFLECTED IN THE OUTPUT somewhere, in the
+  same slice. A capability that exists but never runs or never renders is the field-bug factory
+  (retention shipped-but-never-ran; enrichment opt-in-never-invocable; resolutions computed but
+  promoted=0). Slice packets must name the output surface where the delivered support becomes
+  visible, and validation must prove it renders there.
 - **Infra blocks (provider auth/quota lapse, transient timeout) → resume**; real `escalate` →
   surface the DECISION_REQUIRED to the human.
 - **A big smoke run gets a usefulness GATE: an agent analyzing the outputs against the VISION, the
