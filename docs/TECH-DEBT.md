@@ -428,3 +428,23 @@ relay-run validation step.
 ## Resolved Entries
 
 (none yet)
+
+## TD — Builder runs are not checkpointable; the fuse kills finished work at the report stage (2026-07-14)
+
+**What happened:** across RELIABILITY-REFRAME-1's 8 iterations, THREE builder runs were
+killed (rate limit or 90-min fuse) while AWAITING the workspace test suite or assembling
+the final report — with the code complete and green. Each kill cost a full re-iteration
+whose only real work was re-running gates + re-writing the report; review rounds then
+bounced on "report missing" rather than substance. The same happened on MODULE-MODEL-2
+(fuse at the finish line) and CARGO-WORKSPACE-INHERITANCE-1.
+
+**Why acceptable:** the operator close-out pattern (run gates + assemble evidence from the
+recorded live logs + ratified acceptance) recovers each case; deliveries stayed sound.
+
+**Proper solution:** checkpointable builder runs — the builder writes its report
+INCREMENTALLY (gates section as each gate lands, transcripts as captured) so a kill leaves
+a resumable artifact, and/or the relay detects "code-complete, gates pending" and resumes
+into a gates-only continuation instead of a fresh iteration.
+
+**When to address:** before the next multi-hour slice family (post current queue).
+**Status:** OPEN.
