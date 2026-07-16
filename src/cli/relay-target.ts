@@ -11,6 +11,9 @@
  *
  * Options:
  *   --builder    claude|codex   provider that implements      (default: claude)
+ *   --builder-model <id>       override builder model         (default: per provider;
+ *                              operator picks by slice complexity, e.g. claude-fable-5)
+ *   --supervisor-model <id>    override supervisor model
  *   --supervisor claude|codex   provider that selects+reviews (default: codex)
  *   --shared-prompt <path>      shared system-prompt file
  *                               (default: /Users/apple/CLAUDE-SYSTEM.txt)
@@ -56,6 +59,18 @@ function providerDefaults(name: TargetActor): { model: string; effort: string } 
   return name === 'claude'
     ? { model: 'claude-opus-4-8', effort: 'max' }
     : { model: 'gpt-5.6-sol', effort: 'high' };
+}
+
+/** Defaults with the operator's per-run model overrides applied (one seam for
+ * BOTH the dry-run printer and the live loop — they cannot diverge). */
+function resolvedDefaults(
+  name: TargetActor,
+  role: 'builder' | 'supervisor',
+  args: Pick<Args, 'builderModel' | 'supervisorModel'>
+): { model: string; effort: string } {
+  const def = providerDefaults(name);
+  const override = role === 'builder' ? args.builderModel : args.supervisorModel;
+  return override !== undefined ? { ...def, model: override } : def;
 }
 
 function computeDigest(content: string): string {
@@ -129,6 +144,10 @@ interface Args {
   reselect: boolean;
   until?: TargetPhase;
   dryRun: boolean;
+  /** Optional per-run model overrides (operator picks by slice complexity —
+   * e.g. claude-fable-5 for complex/long-converging slices, opus-4-8 default). */
+  builderModel?: string;
+  supervisorModel?: string;
 }
 
 function parseProvider(value: string, flag: string): TargetActor {
@@ -151,6 +170,8 @@ function parseArgs(argv: string[]): Args {
   let reselect = false;
   let until: TargetPhase | undefined;
   let dryRun = false;
+  let builderModel: string | undefined;
+  let supervisorModel: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -174,6 +195,12 @@ function parseArgs(argv: string[]): Args {
         break;
       case '--supervisor':
         supervisor = parseProvider(value('--supervisor'), '--supervisor');
+        break;
+      case '--builder-model':
+        builderModel = value('--builder-model');
+        break;
+      case '--supervisor-model':
+        supervisorModel = value('--supervisor-model');
         break;
       case '--shared-prompt':
         sharedPrompt = value('--shared-prompt');
@@ -237,7 +264,9 @@ function parseArgs(argv: string[]): Args {
   // exactOptionalPropertyTypes: include optionals only when present.
   const base: Args = { target, builder, supervisor, sharedPrompt, maxIter, timeoutMs, reviewerWrite, reselect, dryRun };
   const withSlice = slice !== undefined ? { ...base, slice } : base;
-  return until !== undefined ? { ...withSlice, until } : withSlice;
+  const withUntil = until !== undefined ? { ...withSlice, until } : withSlice;
+  const withBM = builderModel !== undefined ? { ...withUntil, builderModel } : withUntil;
+  return supervisorModel !== undefined ? { ...withBM, supervisorModel } : withBM;
 }
 
 /** Elide the long developer_instructions value so dry-run stays readable. */
@@ -298,7 +327,7 @@ async function printDryRun(
 
   console.log('=== DRY RUN: planned provider invocations (no processes spawned) ===\n');
   for (const p of phases) {
-    const def = providerDefaults(p.provider);
+    const def = resolvedDefaults(p.provider, p.role === 'implement' || p.role === 'builder' ? 'builder' : 'supervisor', args);
     const inv = p.adapter.buildInvocation({
       runId: 'dry-run',
       sliceId: '<slice-id>',
@@ -367,8 +396,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const builderDef = providerDefaults(args.builder);
-  const supervisorDef = providerDefaults(args.supervisor);
+  const builderDef = resolvedDefaults(args.builder, 'builder', args);
+  const supervisorDef = resolvedDefaults(args.supervisor, 'supervisor', args);
 
   const base: TargetRelayInput = {
     targetDir,
