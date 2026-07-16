@@ -448,3 +448,20 @@ into a gates-only continuation instead of a fresh iteration.
 
 **When to address:** before the next multi-hour slice family (post current queue).
 **Status:** OPEN.
+
+## TD — No per-slice relay lock: concurrent relay runs can race one slice (2026-07-16)
+
+**What happened:** the operator relaunched TS-PROTOTYPE-RETIREMENT-1 (verdict run) while
+the prior relay task was still alive mid-builder; both processes read/wrote the same
+status.json. The old run's fuse handler clobbered the new run's phase flip; a parallel
+builder iteration ran unsupervised; the working tree became the union of two work streams.
+
+**Why acceptable:** operator discipline (verify the prior task exited before relaunch —
+TaskList/ps) prevents it; the union tree was reconciled by operator gates.
+
+**Proper solution:** relay-target takes an exclusive per-slice lockfile
+(.agent-manager/slices/<ID>/.lock with PID; stale-lock detection) and refuses to start
+while another live run holds it.
+
+**When to address:** with the checkpointable-builder work (same relay-robustness batch).
+**Status:** OPEN.
