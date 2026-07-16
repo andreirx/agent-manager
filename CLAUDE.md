@@ -213,6 +213,12 @@ code at start, so mid-run edits do not affect it.
   `docs/TECH-DEBT.md`.)
 - **Smaller slices converge; mega-slices block.** When a slice can't converge or times out,
   SPLIT it (informed by the build log) rather than retry/raise-timeout.
+- **Pick the builder model by slice complexity** (operator directive 2026-07-16). Default
+  `claude-opus-4-8`; escalate to `claude-fable-5` (`--builder-model claude-fable-5`) when the
+  slice is complex up front (multi-crate scope, subtle honesty/contract semantics, big
+  refactor/deletion surface) OR when the loop shows strain (>2 revise rounds on substance,
+  repeated fuse kills mid-work). Judge at bootstrap AND at each checkpoint — a resume is a
+  free upgrade point. Codex reviewer model stays per its own default.
 - **Deep vertical slices — no dormant capability** (operator directive 2026-07-11). Whatever
   support a slice delivers must be WIRED through and REFLECTED IN THE OUTPUT somewhere, in the
   same slice. A capability that exists but never runs or never renders is the field-bug factory
