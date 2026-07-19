@@ -465,3 +465,20 @@ while another live run holds it.
 
 **When to address:** with the checkpointable-builder work (same relay-robustness batch).
 **Status:** OPEN.
+
+## TD-012: Builder background-waiter pause ends the provider turn — build report truncated
+
+- **Date:** 2026-07-19
+- **What was done:** Nothing yet (recorded from the field). Twice observed (EC-M3A round 1,
+  RECON-M-R3A round 3): the builder arms background waiters for long gate runs and pauses;
+  the claude CLI treats the pause as final output, so the relay captures a one-line "waiters
+  armed" note as build-N.md and advances to review-impl. The reviewer then must revise for
+  missing evidence — one full cycle burned each time.
+- **Why acceptable:** The loop self-heals (reviewer catches it; next round re-runs gates), and
+  packets now mandate SYNCHRONOUS validation + incremental reports, which mitigates when
+  builders comply.
+- **Proper solution:** relay-target detects a trivially short build report (< N bytes) while
+  builder-side background tasks are pending, and either re-prompts the builder to wait
+  synchronously or polls until the report is substantive before flipping to review-impl.
+- **When to address:** Next relay-infrastructure slice.
+- **Status:** OPEN
