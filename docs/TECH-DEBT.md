@@ -482,3 +482,20 @@ while another live run holds it.
   synchronously or polls until the report is substantive before flipping to review-impl.
 - **When to address:** Next relay-infrastructure slice.
 - **Status:** OPEN
+
+## TD-013 — Retry classifier treats permanent provider 400s as transient
+
+- **Date:** 2026-07-26
+- **What was done:** During the amodx CACHE-1 run, the reviewer invocation failed with
+  HTTP 400 `invalid_request_error` ("The 'gpt-5-6-sol' model is not supported when using
+  Codex with a ChatGPT account"). The relay classified it as "transient provider failure"
+  and retried 3 times with 30/90/180s backoff before blocking — ~5 wasted minutes and a
+  misleading "transient/infra failure, resume the slice" hint in the final output.
+- **Why acceptable:** The run still terminated in `blocked` with the real error preserved
+  in `runs/review-0.json`; no artifact corruption.
+- **Proper solution:** Classify provider errors before retrying: HTTP 400/401/403
+  `invalid_request_error` / auth errors are permanent — fail fast with the provider
+  message surfaced in notes-for-human.md; retry only timeouts/5xx/rate-limits.
+- **When to address:** Before the next multi-slice unattended run (wasted retries
+  compound per cycle).
+- **Status:** OPEN
