@@ -57,7 +57,7 @@ const DEFAULT_SHARED_PROMPT = '/Users/apple/CLAUDE-SYSTEM.txt';
 /** Provider-appropriate model + effort defaults (provider is volatile). */
 function providerDefaults(name: TargetActor): { model: string; effort: string } {
   return name === 'claude'
-    ? { model: 'claude-opus-4-8', effort: 'max' }
+    ? { model: 'claude-opus-4-8', effort: 'high' } // effort high (human directive 2026-07-26; was max)
     : { model: 'gpt-5.6-sol', effort: 'high' };
 }
 

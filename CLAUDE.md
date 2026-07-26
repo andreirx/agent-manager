@@ -214,8 +214,11 @@ code at start, so mid-run edits do not affect it.
 - **Smaller slices converge; mega-slices block.** When a slice can't converge or times out,
   SPLIT it (informed by the build log) rather than retry/raise-timeout.
 - **Builder model is `claude-opus-4-8` — always — unless the human explicitly instructs
-  `claude-fable-5`** (operator directive 2026-07-20, superseding the 2026-07-16
+  otherwise** (operator directive 2026-07-20, superseding the 2026-07-16
   judge-by-complexity policy: the escalation decision is the HUMAN's, not the operator's).
+  Standing human overrides: glamCRM builders run `claude-opus-5` (2026-07-25). **Builder
+  effort is `high`, not `max`** (human directive 2026-07-26; default changed in
+  `relay-target.ts`).
   When strain appears (>2 substantive revise rounds, repeated fuse kills), SURFACE the
   strain and the escalation option to the human instead of escalating. Codex reviewer
   model stays per its own default.
