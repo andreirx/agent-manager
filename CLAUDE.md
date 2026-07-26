@@ -148,6 +148,12 @@ is tracked in `current.json`, so `--until select-slice` then a plain run resume
 the same slice (`--slice <id>` / `--reselect` to override). Each provider call
 writes a `runs/*.json` run record referencing its log path.
 
+**Bootstrap rule for SPEC slices:** `sliceDoc` in `selection.json`/`status.json` must point at the
+spec document the slice CREATES (e.g. `docs/slices/<name>.md`), NOT at `docs/ROADMAP.md` — the
+decision-review trigger reads the marker from `status.sliceDoc`; a wrong pointer silently skips the
+adversarial decision pass (bitten 2026-07-27, GC-SPEC-ETAPE-1: 30+ decisions went straight to
+`done`; caught by the operator, pass re-run manually).
+
 Per-slice files (relay-target): `<target>/.agent-manager/slices/<ID>/` holds
 `selection.md` (the operator's brief — the builder packet), `selection.json`,
 `status.json`, `build-<n>.md`, `review-<n>.json`, `runs/`, and — when blocked —
