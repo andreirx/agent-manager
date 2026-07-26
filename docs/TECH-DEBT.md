@@ -499,3 +499,19 @@ while another live run holds it.
 - **When to address:** Before the next multi-slice unattended run (wasted retries
   compound per cycle).
 - **Status:** OPEN
+
+## TD-013 — decision-review trigger blind to unregistered build-created slice docs
+
+- **Date:** 2026-07-27
+- **What was done:** Nothing in code; operator practice added to CLAUDE.md (SPEC-slice bootstraps
+  must set `sliceDoc` to the doc the slice creates) and sibling bootstraps repaired.
+- **Why acceptable:** The practice rule closes the hole procedurally; relay changes must be
+  additive + gated, and the current need is met.
+- **Defect:** `relay-target.ts` trigger comment claims it fires on "a SLICE_DOC this build
+  created/modified", but `readDecisionSources` only reads `status.sliceDoc` — a build-created
+  `docs/slices/*.md` not registered there is never scanned for `DECISION_REQUIRED:`.
+  GC-SPEC-ETAPE-1 (30+ decisions) went straight to `done`.
+- **Proper solution:** scan `changedPaths` for created/modified `docs/slices/*.md` and read those
+  as decision sources too (matching the comment), or fix the comment to state the real contract.
+- **When to address:** next relay-target hardening slice.
+- **Status:** OPEN
