@@ -223,7 +223,9 @@ code at start, so mid-run edits do not affect it.
   baked into `relay-target.ts`; superseding the 2026-07-20 opus-4-8 default and the
   2026-07-16 judge-by-complexity policy). Model/effort changes remain the HUMAN's decision,
   not the operator's — per-run overrides via `--builder-model`; when strain appears, SURFACE
-  it and the escalation option to the human instead of escalating.
+  it and the escalation option to the human instead of escalating. **Codex reviewer model
+  default is `gpt-5.6-terra`** (human directive 2026-07-27, after the gpt-5.6-sol quota
+  lockout; quota was reset same day).
   When strain appears (>2 substantive revise rounds, repeated fuse kills), SURFACE the
   strain and the escalation option to the human instead of escalating. Codex reviewer
   model stays per its own default.
