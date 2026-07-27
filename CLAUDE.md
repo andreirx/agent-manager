@@ -244,3 +244,8 @@ code at start, so mid-run edits do not affect it.
   search / tools, read-only sandbox (`prompts/standalone-review.md`). A standalone review that asks the
   model to *assess a subject* without inlined evidence loops on web search (a 3h dead loop, 2026-06-29);
   the relay's in-loop reviews are safe because they judge a self-contained `git diff`.
+
+- **Decision-surfacing format (human directive 2026-07-27):** when presenting the human a
+  decision, FIRST explain the problem in detail (what is broken/at stake, how we got here),
+  THEN present each option in explicit RISK vs REWARD terms. No option lists without the
+  problem statement; no labels without consequences.
