@@ -515,3 +515,19 @@ while another live run holds it.
   as decision sources too (matching the comment), or fix the comment to state the real contract.
 - **When to address:** next relay-target hardening slice.
 - **Status:** OPEN
+
+## TD-014 — Resume at iteration ceiling runs zero cycles, reports "max iterations reached"
+
+- **Date:** 2026-07-30
+- **What was done:** EMAIL-1 blocked at max-iter 3 (iteration=2 in status.json). Operator
+  reset phase to implement and relaunched with the same --max-iter 3; the relay exited
+  immediately with "Max iterations (3 cycles) reached" without running a single cycle —
+  stale review artifacts on disk made it look like the reviewer had re-rejected fixes
+  it never saw. Workaround: relaunch with a higher --max-iter.
+- **Why acceptable:** no artifact corruption; correct behavior once max-iter raised.
+- **Proper solution:** on launch, if status.iteration already >= max-iter, either
+  (a) error out with an explicit "raise --max-iter or reset iteration" message, or
+  (b) treat --max-iter as ADDITIONAL cycles for a resumed slice. Never print the
+  ambiguous max-reached message for a zero-cycle run.
+- **When to address:** with TD-013 (both are resume-path ergonomics).
+- **Status:** OPEN
