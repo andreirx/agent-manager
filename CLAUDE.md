@@ -249,3 +249,11 @@ code at start, so mid-run edits do not affect it.
   decision, FIRST explain the problem in detail (what is broken/at stake, how we got here),
   THEN present each option in explicit RISK vs REWARD terms. No option lists without the
   problem statement; no labels without consequences.
+
+- **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
+  away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
+  `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
+  Gradle run (colima socket switch) was committed as green; code happened to be sound, process
+  was not. Also: the Docker runtime is COLIMA — `~/.testcontainers.properties` pins
+  `docker.host` to colima's socket; if Testcontainers fails with DockerClientProviderStrategy,
+  check `docker context ls` before blaming code.
