@@ -30,8 +30,14 @@ Roles are stable; providers are volatile and chosen per session:
 - **builder** — implements the slice (agentic file edits).
 - **supervisor** — selects the slice (planner) and reviews the result (reviewer).
 
-Either role may be played by either provider:
-`--builder claude|codex`, `--supervisor claude|codex` (defaults `claude`/`codex`).
+Either role may be played by any provider:
+`--builder claude|codex|copilot`, `--supervisor claude|codex|copilot`
+(defaults `claude`/`codex`). `copilot` (GitHub Copilot CLI, batch mode) is
+PROTOTYPE: its default model is empty (pin one with `--builder-model` /
+`--supervisor-model`), `--effort` is dropped (no Copilot effort flag), and the
+read-only reviewer posture is `--deny-tool write` only (weaker than Codex's
+`--sandbox read-only`; shell stays open for `git diff`). The Copilot argv mapping
+is doc-grounded, not yet probed against an installed CLI — see TECH-DEBT TD-016.
 
 `RunRequest` carries provider-neutral policy fields; adapters map them to flags:
 
@@ -228,7 +234,8 @@ Claude is invoked with `--print`, stdin/stdout pipes, and
 
 ```
 npm run relay-target -- <target-path> \
-  [--builder claude|codex] [--supervisor claude|codex] \
+  [--builder claude|codex|copilot] [--supervisor claude|codex|copilot] \
+  [--builder-model <id>] [--supervisor-model <id>] \
   [--shared-prompt <path>] [--max-iter <n>] \
   [--slice <id>] [--reselect] [--until select-slice] [--dry-run]
 ```

@@ -10,11 +10,12 @@
  *   npm run relay-target -- <target-path> [options]
  *
  * Options:
- *   --builder    claude|codex   provider that implements      (default: claude)
+ *   --builder    claude|codex|copilot  provider that implements (default: claude)
  *   --builder-model <id>       override builder model         (default: per provider;
- *                              operator picks by slice complexity, e.g. claude-fable-5)
+ *                              operator picks by slice complexity, e.g. claude-fable-5;
+ *                              REQUIRED for copilot to pin a model — its default is empty)
  *   --supervisor-model <id>    override supervisor model
- *   --supervisor claude|codex   provider that selects+reviews (default: codex)
+ *   --supervisor claude|codex|copilot  provider that selects+reviews (default: codex)
  *   --shared-prompt <path>      shared system-prompt file
  *                               (default: /Users/apple/CLAUDE-SYSTEM.txt)
  *   --max-iter <n>             max build/review CYCLES         (default: 10)
@@ -40,6 +41,7 @@ import { SystemClock } from '../adapters/clock/index.js';
 import { FilesystemArtifactStore } from '../adapters/filesystem/index.js';
 import { ClaudeAdapter } from '../adapters/providers/claude-code/index.js';
 import { CodexAdapter } from '../adapters/providers/codex/index.js';
+import { CopilotAdapter } from '../adapters/providers/copilot/index.js';
 import {
   targetRelayLoop,
   type TargetActor,
@@ -56,9 +58,21 @@ const DEFAULT_SHARED_PROMPT = '/Users/apple/CLAUDE-SYSTEM.txt';
 
 /** Provider-appropriate model + effort defaults (provider is volatile). */
 function providerDefaults(name: TargetActor): { model: string; effort: string } {
-  return name === 'claude'
-    ? { model: 'claude-opus-4-8', effort: 'high' } // model per human directive 2026-07-31 (back from opus-5); effort high per 2026-07-26
-    : { model: 'gpt-5.6-terra', effort: 'high' }; // reviewer model per human directive 2026-07-27 (was gpt-5.6-sol)
+  switch (name) {
+    case 'claude':
+      return { model: 'claude-opus-4-8', effort: 'high' }; // model per human directive 2026-07-31 (back from opus-5); effort high per 2026-07-26
+    case 'copilot':
+      // Empty model => the adapter emits NO --model flag, so Copilot uses its
+      // OWN default model. We do not hardcode a Copilot model id (the exact
+      // `--model` spelling is unverified against the installed CLI); the
+      // operator selects one per run via --builder-model / --supervisor-model.
+      // Effort is ignored by the Copilot adapter (no effort flag exists).
+      return { model: '', effort: 'high' };
+    case 'codex':
+    case 'human':
+    default:
+      return { model: 'gpt-5.6-terra', effort: 'high' }; // reviewer model per human directive 2026-07-27 (was gpt-5.6-sol)
+  }
 }
 
 /** Defaults with the operator's per-run model overrides applied (one seam for
@@ -112,7 +126,7 @@ async function gitChangedPaths(targetDir: string): Promise<readonly string[]> {
   }
 }
 
-type RawAdapter = ClaudeAdapter | CodexAdapter;
+type RawAdapter = ClaudeAdapter | CodexAdapter | CopilotAdapter;
 
 function makeAdapter(
   name: TargetActor,
@@ -125,9 +139,15 @@ function makeAdapter(
   store: FilesystemArtifactStore,
   clock: SystemClock
 ): RawAdapter {
-  return name === 'claude'
-    ? new ClaudeAdapter(config, store, clock)
-    : new CodexAdapter(config, store, clock);
+  switch (name) {
+    case 'claude':
+      return new ClaudeAdapter(config, store, clock);
+    case 'copilot':
+      return new CopilotAdapter(config, store, clock);
+    default:
+      // 'codex' (and 'human', which is never selected as builder/supervisor).
+      return new CodexAdapter(config, store, clock);
+  }
 }
 
 interface Args {
@@ -151,8 +171,8 @@ interface Args {
 }
 
 function parseProvider(value: string, flag: string): TargetActor {
-  if (value !== 'claude' && value !== 'codex') {
-    console.error(`Invalid ${flag}: '${value}'. Expected 'claude' or 'codex'.`);
+  if (value !== 'claude' && value !== 'codex' && value !== 'copilot') {
+    console.error(`Invalid ${flag}: '${value}'. Expected 'claude', 'codex', or 'copilot'.`);
     process.exit(1);
   }
   return value;

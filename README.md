@@ -38,14 +38,26 @@ The default target-owned binding is:
 | Builder | Claude | `claude-opus-4-8` | `max` |
 | Supervisor/reviewer | Codex | `gpt-5.5` | `high` |
 
-Both roles can be rebound:
+Both roles can be rebound to `claude`, `codex`, or `copilot`:
 
 ```bash
 npm run relay-target -- <target-path> --builder claude --supervisor codex
 npm run relay-target -- <target-path> --builder claude --supervisor claude
 npm run relay-target -- <target-path> --builder codex --supervisor codex
 npm run relay-target -- <target-path> --builder codex --supervisor claude
+# GitHub Copilot CLI (batch mode) as either role — PROTOTYPE, see note below:
+npm run relay-target -- <target-path> --builder copilot --builder-model <id>
+npm run relay-target -- <target-path> --supervisor copilot
 ```
+
+> **Copilot (PROTOTYPE).** The Copilot adapter runs the `copilot` CLI in batch
+> mode (`copilot -p -`). Its default model is **empty**, so pin one explicitly
+> with `--builder-model <id>` / `--supervisor-model <id>`. `--effort` is ignored
+> (Copilot has no effort flag), and the read-only reviewer posture is a weaker
+> approximation than Codex's sandbox (`--deny-tool write`; shell stays open for
+> `git diff`). The argv mapping is grounded in GitHub's docs, not yet probed
+> against an installed binary — run one live smoke test per role before trusting
+> it in a loop. See `docs/TECH-DEBT.md` **TD-016**.
 
 ### Shared system prompt
 

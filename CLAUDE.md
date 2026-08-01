@@ -93,7 +93,8 @@ When creating technical debt, add an entry to `docs/TECH-DEBT.md` with:
 | `npm run human` | Record a human intervention |
 | `npm run typecheck` | `tsc --noEmit` |
 
-`relay-target` options: `--builder claude|codex`, `--supervisor claude|codex`,
+`relay-target` options: `--builder claude|codex|copilot`, `--supervisor claude|codex|copilot`
+(copilot is PROTOTYPE — batch mode, empty default model so pass `--builder-model`; see TD-016),
 `--shared-prompt <path>`, `--max-iter <n>`, `--until <phase>`, `--dry-run`.
 See `docs/contracts/target-owned-relay.md`.
 

@@ -543,3 +543,37 @@ while another live run holds it.
 - **Proper solution:** the trigger should detect a RATIFIED marker per decision ID and
   challenge only NEW or AMENDED decision blocks, not re-litigate ratified cells.
 - **Status:** OPEN
+
+## TD-016 — Copilot adapter argv is grounded in docs, not probed against the installed CLI
+
+- **Date:** 2026-08-01
+- **What:** Added `src/adapters/providers/copilot/adapter.ts` (GitHub Copilot CLI,
+  batch mode) selectable as builder or supervisor via `--builder copilot` /
+  `--supervisor copilot`. The `copilot` binary was NOT installed on the authoring
+  machine, so the RunRequest→argv mapping is grounded in GitHub's published CLI
+  docs, not an empirical probe. Unverified assumptions, each isolated in
+  `buildArgs`/`buildInvocation` and marked `ASSUMPTION:`:
+  (1) `copilot -p -` reads a single non-interactive prompt from stdin;
+  (2) `--model <id>` selects the model;
+  (3) `--allow-all-tools` grants write autonomy;
+  (4) read-only is approximated by `--deny-tool write` only (shell left open so the
+      reviewer can run `git diff`) — a WEAKER guarantee than Codex's `--sandbox
+      read-only`; shell mutation (`rm`, `>`) is not blocked;
+  (5) Copilot honors the spawned process cwd for repo context (no `-C`/`--add-dir`);
+  (6) `-p` prints the final assistant text to stdout for capture.
+  Also: `effort` is intentionally dropped (Copilot has no effort flag), and the
+  shared house-rules prompt is PREPENDED to stdin (no `--system-prompt-file`).
+- **Why acceptable:** Purely additive — Claude/Codex invocations are byte-identical
+  post-change (verified by `relay-target --dry-run` parity) and no core/use-case
+  logic branches on provider name. typecheck green. The adapter is PROTOTYPE and is
+  not yet trusted in an unattended loop.
+- **Proper solution:** Install `copilot`, run a single live smoke test as builder
+  AND as reviewer against a throwaway slice, and correct each `ASSUMPTION:` line
+  (prompt delivery, deny/allow tool grammar for a functional read-only reviewer,
+  model-id spelling, cwd handling). Then set a Copilot default model id in
+  `providerDefaults` (currently empty => operator must pass `--builder-model`).
+  Consider consolidating the duplicated Codex/Copilot `execute()` once a third
+  process-runner exists (deferred to avoid editing the in-use Codex adapter).
+- **When to address:** Before the first real relay run that uses Copilot in either
+  role; certainly before promoting the Copilot adapter beyond PROTOTYPE.
+- **Status:** OPEN

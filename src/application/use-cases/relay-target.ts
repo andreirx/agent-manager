@@ -51,7 +51,7 @@ export type TargetPhase =
   | 'done';
 
 /** Actor identity (provider playing a role, or a human). */
-export type TargetActor = 'claude' | 'codex' | 'human';
+export type TargetActor = 'claude' | 'codex' | 'copilot' | 'human';
 
 /** Status persisted to <target>/.agent-manager/slices/<id>/status.json. */
 export interface TargetRelayStatus {
