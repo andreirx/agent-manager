@@ -531,3 +531,15 @@ while another live run holds it.
   ambiguous max-reached message for a zero-cycle run.
 - **When to address:** with TD-013 (both are resume-path ergonomics).
 - **Status:** OPEN
+
+## TD-015 — Decision-review re-fires on already-ratified decisions
+
+- **Date:** 2026-08-01
+- **What:** EMAIL-HOTFIX-1 modified the ratified plan doc (its sliceDoc), so the
+  decision-review trigger re-ran the full adversarial pass over all six ALREADY
+  HUMAN-RATIFIED D-EMAIL decisions and halted at awaiting-ratification again. Cost:
+  one redundant challenge/rebuttal round + an operator close-out; benefit this time:
+  it caught a factual count error (6 send sites, not 5) — so the pass is not pure waste.
+- **Proper solution:** the trigger should detect a RATIFIED marker per decision ID and
+  challenge only NEW or AMENDED decision blocks, not re-litigate ratified cells.
+- **Status:** OPEN
