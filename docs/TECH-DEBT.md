@@ -577,3 +577,15 @@ while another live run holds it.
 - **When to address:** Before the first real relay run that uses Copilot in either
   role; certainly before promoting the Copilot adapter beyond PROTOTYPE.
 - **Status:** OPEN
+
+## TD-016 — Builders may stash foreign artifacts and never restore them
+
+- **Date:** 2026-08-07
+- **What:** The CACHE-7 builder ran `git stash -u` to route the (untracked) REV-1 plan
+  doc out of its review diff. The stash was never popped; the human-ratified plan
+  existed only in a stash for 6 days and my `git add -A` commits could not see it.
+  Recovered via the stash message's own instruction.
+- **Proper solution:** builder prompts: FORBID `git stash` in the target repo (foreign
+  working-tree state belongs to the operator); relay post-run check: warn if
+  `git stash list` is non-empty.
+- **Status:** OPEN
