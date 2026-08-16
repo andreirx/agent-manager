@@ -251,6 +251,13 @@ code at start, so mid-run edits do not affect it.
   THEN present each option in explicit RISK vs REWARD terms. No option lists without the
   problem statement; no labels without consequences.
 
+- **Kill the whole relay family, then verify (operator lesson 2026-08-16):** `pkill -f relay-target`
+  kills the wrapper but can ORPHAN the spawned provider child (claude/codex), which keeps
+  editing the target tree — a ghost builder wrote files DURING the next cycle's review and the
+  reviewer correctly escalated on a moving diff. After any relay kill: `pgrep -f "claude.*stream-json|codex exec"`
+  and kill survivors, then confirm tree stability (two `git status` hashes apart in time).
+  Related: launches get their OWN command — never chained/backgrounded behind other commands
+  (orphaned twice: GS-2 2026-08-12, TZ-4 2026-08-16).
 - **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
   away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
   `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
