@@ -258,6 +258,11 @@ code at start, so mid-run edits do not affect it.
   and kill survivors, then confirm tree stability (two `git status` hashes apart in time).
   Related: launches get their OWN command — never chained/backgrounded behind other commands
   (orphaned twice: GS-2 2026-08-12, TZ-4 2026-08-16).
+- **Rust slices on opus-4-8/high need `--timeout 60` (operator lesson 2026-08-23):** the relay's 20-min
+  per-provider default killed FORGET-REPO-1's builder mid-implementation (605 partial lines, no
+  build report). Launch code slices on repo-graph with `--timeout 60`; on a timeout, keep the partial
+  tree, add a RESUME NOTE to `selection.md` (build ON the diff, write build-N.md incrementally), and
+  re-run `--slice <ID>` (the relay unblocks and retries at the next cycle).
 - **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
   away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
   `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
