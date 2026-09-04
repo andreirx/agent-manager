@@ -270,6 +270,15 @@ code at start, so mid-run edits do not affect it.
   tracked, out-of-scope edit the reviewer must reject. The path is
   `<target>/.agent-manager/slices/<ID>/build-progress.md` (now in `builder-target.md` and every
   packet); on a timeout, READ it before writing the RESUME NOTE.
+- **Warm the debug build cache after a release cut (operator lesson 2026-09-04, two hours lost):**
+  `cut_release_minor.sh` cleans `rust/target/` ("next build will be slower"); the next relay
+  builder's cold `cargo test --workspace` then eats the whole 60-min timeout — twice in a row
+  on HONESTY-GATE-1, with the code fix already complete. After any release cut, run
+  `cargo build --workspace --tests` (debug) in its own background call BEFORE launching a
+  relay, or run the operator gate script once (it compiles the same targets). When a builder
+  times out with a complete fix and only gates pending, run `/tmp/ch1-gates.sh` yourself,
+  write `build-<n>.md` from its `build-progress.md` + the gate verdict, set phase
+  `review-impl`, and relaunch — do not buy another cold hour.
 - **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
   away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
   `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
