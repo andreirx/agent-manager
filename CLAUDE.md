@@ -270,6 +270,13 @@ code at start, so mid-run edits do not affect it.
   tracked, out-of-scope edit the reviewer must reject. The path is
   `<target>/.agent-manager/slices/<ID>/build-progress.md` (now in `builder-target.md` and every
   packet); on a timeout, READ it before writing the RESUME NOTE.
+- **Codex CLI is the Homebrew cask, upgraded 0.144.1 → 0.153.2 (human directive 2026-09-04):** the
+  recurring `models_cache.json` corruption ("missing field `base_instructions`", 4× — codex
+  self-quarantines to `.corrupt-<date>`) was the OLD client failing to parse the newer models
+  schema; gone on 0.153.2 (verified: relay flag shape `exec --model … -c model_reasoning_effort=…
+  -c developer_instructions=… --sandbox read-only -C <dir> -` runs, zero ERROR lines). Upgrade path
+  `brew upgrade --cask codex`; verify with the same minimal real `exec` smoke BEFORE a relay reaches
+  its review phase. Reviewer MODEL stays `gpt-5.6-terra` (human's knob).
 - **The codex reviewer at high effort needs ~2h on a 10-file Rust diff (measured 2026-09-04):**
   two HONESTY-GATE-1 review runs were killed at 60 and 90 min while AT THE VERDICT STEP — a
   linear 36-read review (no loop, no incident; distinguish by exec count + zero
