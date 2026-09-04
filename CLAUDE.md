@@ -299,6 +299,16 @@ code at start, so mid-run edits do not affect it.
   anchor drifted, and the commit message then claims a record that was never written (ROADMAP:
   HONESTY-GATE-1 shipped + JAVA-RESOLVER-IDENTITY-1 both missing until b5cacbb). Always
   `assert anchor in s` (or grep-verify after) before committing a record edit.
+- **A retention pass that never finishes is a store that must be REBUILT, not waited on (production
+  incident 2026-09-04):** repo-graph's store hit 4.8 GB / 29 snapshots because every daemon restart
+  killed the multi-hour prune (15 FK child tables unindexed on `snapshot_uid`, 2 MB page cache) and it
+  restarted from zero; after 5h it had committed NOTHING. Recovery (human-ratified): `launchctl
+  bootout` → `bootstrap` → `rmap repo remove <path>` (retry every 3 s until the startup readers
+  release the coordinator — it refuses with "being read right now") → `rmap index` (blocks; run it
+  in a background call — macOS has no `timeout`). Watch `rmap doctor` before `repo remove`: if a
+  detached index is already persisting into the old store, bootout again first. The fix is
+  DAEMON-RESIDUALS-1 (a)+(b) + the prevention set (snapshot cap, prune-on-commit, time budget →
+  rebuild, cache sizing, doctor visibility, benchmark gate).
 - **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
   away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
   `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
