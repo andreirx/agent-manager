@@ -294,6 +294,11 @@ code at start, so mid-run edits do not affect it.
   times out with a complete fix and only gates pending, run `/tmp/ch1-gates.sh` yourself,
   write `build-<n>.md` from its `build-progress.md` + the gate verdict, set phase
   `review-impl`, and relaunch — do not buy another cold hour.
+- **Scripted record edits assert their anchor (operator lesson 2026-09-04, two silent no-ops):**
+  a `str.replace(anchor, …)` with no `assert anchor in text` silently does nothing when the
+  anchor drifted, and the commit message then claims a record that was never written (ROADMAP:
+  HONESTY-GATE-1 shipped + JAVA-RESOLVER-IDENTITY-1 both missing until b5cacbb). Always
+  `assert anchor in s` (or grep-verify after) before committing a record edit.
 - **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
   away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
   `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
