@@ -57,11 +57,19 @@ relay builder run is one-shot and is never re-invoked; backgrounded tasks orphan
 results never reach your artifact. If a suite genuinely cannot finish within the
 run, report it NOT RUN with the reason rather than punting it to the background.
 
-Prepare a TEST REPORT for the reviewer as part of your output (and, if the
-project has a place for test artifacts, write it there too): each suite/command
+Prepare a TEST REPORT for the reviewer as part of your output: each suite/command
 with the EXACT command so the reviewer can re-run it, the pass/fail outcome, the
 key end-to-end output the running software produced, and any gaps or NOT-RUN
 items with the reason.
+
+Write that report INCREMENTALLY, as you go, to
+`<target>/.agent-manager/slices/<SLICE_ID>/build-progress.md` (the relay's
+gitignored operational directory — it never appears in `git diff`/`git status`).
+NEVER write reports into the target's tracked tree (`docs/`, `docs/slices/`,
+…): a tracked report is an out-of-scope edit the reviewer must reject, and on a
+provider timeout the progress file is the ONLY surviving evidence of your
+executed gates (bitten 2026-08-23, 2026-09-03, 2026-09-04). Your final message
+is the canonical report the relay stores as `build-<n>.md`.
 
 ## Hard constraints
 

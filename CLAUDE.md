@@ -263,6 +263,13 @@ code at start, so mid-run edits do not affect it.
   build report). Launch code slices on repo-graph with `--timeout 60`; on a timeout, keep the partial
   tree, add a RESUME NOTE to `selection.md` (build ON the diff, write build-N.md incrementally), and
   re-run `--slice <ID>` (the relay unblocks and retries at the next cycle).
+- **Incremental build reports have ONE home (operator lesson 2026-09-04, three strays):** the relay
+  stores only the builder's FINAL message as `build-<n>.md` (relay-target.ts `runBuild`), so a
+  provider timeout erases all executed-gate evidence unless the builder wrote progress somewhere.
+  Builders told "report incrementally" without a path chose `docs/slices/*-build-N.md` — a
+  tracked, out-of-scope edit the reviewer must reject. The path is
+  `<target>/.agent-manager/slices/<ID>/build-progress.md` (now in `builder-target.md` and every
+  packet); on a timeout, READ it before writing the RESUME NOTE.
 - **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
   away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
   `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
