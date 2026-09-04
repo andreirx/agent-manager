@@ -73,6 +73,13 @@ is the canonical report the relay stores as `build-<n>.md`.
 
 ## Hard constraints
 
+- EVERY invocation of the product under test — including exploratory "let me see
+  what this command prints" probes — runs against the ISOLATED state the packet
+  names (`RMAP_STATE_ROOT`/`RMAP_SOCKET_PATH` or the project's equivalent). A bare
+  invocation hits the operator's real daemon and mutates operator-owned state
+  (bitten 2026-09-04: a bare `rmap index` while "probing CLI usage" re-indexed
+  the operator's registry). If you are unsure whether a command is isolated, do
+  not run it.
 - Do NOT commit. Leave all changes uncommitted in the working tree; the reviewer
   inspects them via `git diff`.
 - Honor every STOP_CONDITION in the selection packet. If you hit one, stop and
