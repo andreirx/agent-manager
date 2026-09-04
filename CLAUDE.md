@@ -270,6 +270,14 @@ code at start, so mid-run edits do not affect it.
   tracked, out-of-scope edit the reviewer must reject. The path is
   `<target>/.agent-manager/slices/<ID>/build-progress.md` (now in `builder-target.md` and every
   packet); on a timeout, READ it before writing the RESUME NOTE.
+- **The codex reviewer at high effort needs ~2h on a 10-file Rust diff (measured 2026-09-04):**
+  two HONESTY-GATE-1 review runs were killed at 60 and 90 min while AT THE VERDICT STEP — a
+  linear 36-read review (no loop, no incident; distinguish by exec count + zero
+  `Reconnecting` lines + last commands being `git diff --check`/build-report reads). Launch
+  code slices with `--timeout 120`. When a kill lands at the verdict step on a diff an earlier
+  review already judged code-sound and the only pending items are operator rulings, close out
+  operator-side (write `review-<n>.json` naming who approved and why). Reviewer EFFORT is the
+  human's knob (not the operator's) — surface it if the 2h pace becomes the bottleneck.
 - **Warm the debug build cache after a release cut (operator lesson 2026-09-04, two hours lost):**
   `cut_release_minor.sh` cleans `rust/target/` ("next build will be slower"); the next relay
   builder's cold `cargo test --workspace` then eats the whole 60-min timeout — twice in a row
