@@ -294,6 +294,12 @@ code at start, so mid-run edits do not affect it.
   times out with a complete fix and only gates pending, run `/tmp/ch1-gates.sh` yourself,
   write `build-<n>.md` from its `build-progress.md` + the gate verdict, set phase
   `review-impl`, and relaunch — do not buy another cold hour.
+- **A record script's git step must be CONDITIONAL on the script succeeding (operator lesson
+  2026-09-05, third slip):** `python3 - <<EOF … EOF` followed by `git add … && git commit` on a
+  NEW line commits whatever the script wrote before its first failed assert — half-applied
+  records with a message claiming the whole. Put the commit inside the script, or chain the
+  heredoc's exit into the git step with `&&` on the same logical line, and print an explicit
+  "all edits applied" line the commit message can be trusted against.
 - **Scripted record edits assert their anchor (operator lesson 2026-09-04, two silent no-ops):**
   a `str.replace(anchor, …)` with no `assert anchor in text` silently does nothing when the
   anchor drifted, and the commit message then claims a record that was never written (ROADMAP:
