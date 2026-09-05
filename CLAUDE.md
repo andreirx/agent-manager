@@ -313,6 +313,12 @@ code at start, so mid-run edits do not affect it.
   caught it. Before a mechanism claim enters a spec: `PRAGMA index_list(<table>)` +
   `PRAGMA index_info` + `EXPLAIN QUERY PLAN <the actual statement>` on a read-only copy. Tool output
   is a claim; a partial file glob is not evidence.
+- **A measured target in a spec names its EXACT measure (operator lesson 2026-09-05):** "≤15% cursor
+  bytes" let a builder report success on "repeated boilerplate only" (3.5–6.8%) while whole cursor
+  lines stayed ~31%; the reviewer blocked the redefinition. Write targets as "≤N% of <output> bytes
+  spent on <precisely which bytes>, measured by <how>", and say what is excluded. If the literal
+  target is hard, fix the DESIGN (here: rows already carry the cursor's identity, so per-row cursor
+  lines became one header pattern) — never let the metric drift to meet the code.
 - **Scripted record edits assert their anchor (operator lesson 2026-09-04, two silent no-ops):**
   a `str.replace(anchor, …)` with no `assert anchor in text` silently does nothing when the
   anchor drifted, and the commit message then claims a record that was never written (ROADMAP:
