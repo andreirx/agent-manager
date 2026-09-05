@@ -339,6 +339,11 @@ code at start, so mid-run edits do not affect it.
   already fixed and the gates unrecorded. Packets name the proof corpus (leveldb, a fixture, the
   retained seeded root served read-only) and order the round: gates recorded FIRST, then the
   small proof, then hand-off. A "before" binary comes from `git worktree` and is built once.
+- **Audit smoke runs skip linux (`SMOKE_SKIP=linux ./scripts/smoke-validation-repos.sh --retain <task>`)
+  until the per-repo index timeout override lands (carried protocol item):** the kernel index never
+  fits the 300 s client window, blocks the serial daemon for the rest of the batch (the v0.16.0
+  round's assess/orient bounces), and only yields a known failure. Re-enable it when the override
+  ships; it stays the S-1..S-3 deployment-scale corpus for M-R2's union-flip evidence.
 - **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
   away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
   `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
