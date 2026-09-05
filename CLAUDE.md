@@ -306,6 +306,13 @@ code at start, so mid-run edits do not affect it.
   records with a message claiming the whole. Put the commit inside the script, or chain the
   heredoc's exit into the git step with `&&` on the same logical line, and print an explicit
   "all edits applied" line the commit message can be trusted against.
+- **A schema/index claim is verified on the LIVE database, never grepped from migration sources
+  (operator lesson 2026-09-05):** the "15 FK child tables unindexed on snapshot_uid" premise went
+  into a ratified spec from a grep of `migrations/*.rs` that never saw `001-initial.sql` or the
+  `sqlite_autoindex` entries UNIQUE/PK constraints create — every table was indexed; the builder
+  caught it. Before a mechanism claim enters a spec: `PRAGMA index_list(<table>)` +
+  `PRAGMA index_info` + `EXPLAIN QUERY PLAN <the actual statement>` on a read-only copy. Tool output
+  is a claim; a partial file glob is not evidence.
 - **Scripted record edits assert their anchor (operator lesson 2026-09-04, two silent no-ops):**
   a `str.replace(anchor, …)` with no `assert anchor in text` silently does nothing when the
   anchor drifted, and the commit message then claims a record that was never written (ROADMAP:
