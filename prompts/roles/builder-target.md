@@ -46,6 +46,10 @@ build is not enough — exercise the running software and report it:
   instance, a test-only data root) where one exists. Promotion of the build to
   the operator's real environment happens only AFTER the reviewer approves — not
   in this step.
+- Scope live proofs to the SMALLEST input that demonstrates the contract (a fixture, the
+  smallest corpus repo, a retained read-only state root). Record gates BEFORE running
+  proofs. Never rebuild a large repo twice for a before/after — a proof harness that
+  outlives the provider budget leaves the slice unreviewable (bitten 2026-09-05).
 - If the changed surface has no end-to-end coverage, say so explicitly and note
   whether the change warrants adding one. Do not silently skip; do not fabricate
   output.

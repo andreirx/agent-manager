@@ -314,6 +314,12 @@ code at start, so mid-run edits do not affect it.
   before-baseline; the timeout hit first). Before writing a RESUME NOTE on a clean tree: `git
   stash list` → if a `<slice>-wip…` stash exists, `git stash pop` it on the same HEAD and verify the
   file count. The builder prompt now forbids stashing (baselines via `git worktree`).
+- **Live proofs are scoped to the SMALLEST corpus that demonstrates the contract (operator lesson
+  2026-09-05, two 120-min kills on SEED-CHUNK-2):** a before/after proof that rebuilds a large
+  repo twice (two full indexes + embedding passes) eats the whole builder budget with the code
+  already fixed and the gates unrecorded. Packets name the proof corpus (leveldb, a fixture, the
+  retained seeded root served read-only) and order the round: gates recorded FIRST, then the
+  small proof, then hand-off. A "before" binary comes from `git worktree` and is built once.
 - **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
   away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
   `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
