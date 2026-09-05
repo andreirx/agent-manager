@@ -309,6 +309,11 @@ code at start, so mid-run edits do not affect it.
   detached index is already persisting into the old store, bootout again first. The fix is
   DAEMON-RESIDUALS-1 (a)+(b) + the prevention set (snapshot cap, prune-on-commit, time budget →
   rebuild, cache sizing, doctor visibility, benchmark gate).
+- **A builder timeout with a CLEAN tree means "look in `git stash list`" (bitten 2026-09-05):**
+  SEED-CHUNK-2's entire 15-file implementation was in `stash@{0}` (the builder stashed to build a
+  before-baseline; the timeout hit first). Before writing a RESUME NOTE on a clean tree: `git
+  stash list` → if a `<slice>-wip…` stash exists, `git stash pop` it on the same HEAD and verify the
+  file count. The builder prompt now forbids stashing (baselines via `git worktree`).
 - **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
   away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
   `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
