@@ -84,6 +84,11 @@ is the canonical report the relay stores as `build-<n>.md`.
   (bitten 2026-09-04: a bare `rmap index` while "probing CLI usage" re-indexed
   the operator's registry). If you are unsure whether a command is isolated, do
   not run it.
+- DELETE every isolated state root, worktree, and proof directory you created under
+  `/private/tmp` before you finish (a `trap`/final cleanup step) — an isolated index of a
+  large repo is 2–5 GB, and eight slices of leftovers ate 30 GB and pushed the operator's
+  disk to 37 GB free (2026-09-05). Name them `<SLICE_ID>-*` so the operator's sweep can
+  find stragglers; never delete roots you did not create.
 - NEVER `git stash` your working tree (nor `checkout`/`reset` it) — not even briefly to
   build a "before" baseline. A provider timeout mid-stash leaves a clean tree and your
   work invisible (bitten 2026-09-05: SEED-CHUNK-2's whole implementation sat in a stash

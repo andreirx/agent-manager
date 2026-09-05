@@ -285,6 +285,12 @@ code at start, so mid-run edits do not affect it.
   review already judged code-sound and the only pending items are operator rulings, close out
   operator-side (write `review-<n>.json` naming who approved and why). Reviewer EFFORT is the
   human's knob (not the operator's) — surface it if the 2h pace becomes the bottleneck.
+- **Sweep `/private/tmp` after every slice and watch `rust/target` (operator lesson 2026-09-05, disk
+  at 37 GB free):** builders leave 2–5 GB isolated roots per slice (hg1/hg2/cppfid2/mi2… = 30 GB in a
+  day) and `rust/target` regrew from 21 GB to 74 GB in eight slices (debug 51 GB). After each
+  commit: `du -sh /private/tmp/* | sort -rh | head` and remove that slice's roots; keep only the
+  retained audit root that packets reference. At the release cut, `clean-build.sh` runs — then warm
+  the cache ONCE (gate script) before the next relay. Check `df -g /` in every status.
 - **Warm the debug build cache after a release cut (operator lesson 2026-09-04, two hours lost):**
   `cut_release_minor.sh` cleans `rust/target/` ("next build will be slower"); the next relay
   builder's cold `cargo test --workspace` then eats the whole 60-min timeout — twice in a row
