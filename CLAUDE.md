@@ -376,3 +376,6 @@ code at start, so mid-run edits do not affect it.
   footnote, a posture line about an internal in-memory graph, a confidence label's provenance are
   instrument navel-gazing and are NOT surfaced as decisions (bitten: G1/G2 of audit round five). A
   line that reads the same on every repo answers nothing — remove it, don't ratify it.
+  Refinement (human, same day): an internal-method decision MAY be surfaced when it is MAPPED to
+  the outward surface it changes — name the command/output a user of the product sees and the
+  question about a repo it answers differently under each option. No mapping → no decision.
