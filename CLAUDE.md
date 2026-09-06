@@ -365,3 +365,14 @@ code at start, so mid-run edits do not affect it.
   a packet that says "fix D1" is hand-waving at the builder (bitten: audit round five's first
   queue was withdrawn on this ground). Read-only investigators may run while a relay builds
   (no `rmap`, no `cargo`, no edits in the target tree).
+- **Rewards are product outcomes, never implementation convenience (human directive 2026-09-06):**
+  "no reindex", "render-only", "small" are COSTS avoided, not rewards, and a root-caused defect is
+  addressed at its cause — a zero-state wording fix or a query-time gate over a known index-time
+  defect is papering over. Present options in terms of what the USER of the product gains; if an
+  option's only reward is that it is cheaper, it is not an option.
+- **The map is not the territory (human directive 2026-09-06):** rmap answers HIGH-LEVEL QUESTIONS
+  ABOUT REPOS, directionally correct — not absolute truth, and never pedantry about its own methods.
+  A defect is only a defect if a user asking about a repo is misled or unhelped; a verdict token's
+  footnote, a posture line about an internal in-memory graph, a confidence label's provenance are
+  instrument navel-gazing and are NOT surfaced as decisions (bitten: G1/G2 of audit round five). A
+  line that reads the same on every repo answers nothing — remove it, don't ratify it.
