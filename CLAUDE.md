@@ -257,7 +257,11 @@ code at start, so mid-run edits do not affect it.
   reviewer correctly escalated on a moving diff. After any relay kill: `pgrep -f "claude.*stream-json|codex exec"`
   and kill survivors, then confirm tree stability (two `git status` hashes apart in time).
   Related: launches get their OWN command — never chained/backgrounded behind other commands
-  (orphaned twice: GS-2 2026-08-12, TZ-4 2026-08-16).
+  (orphaned twice: GS-2 2026-08-12, TZ-4 2026-08-16). A Claude Code SESSION EXIT does the same: the
+  relay wrapper dies with the session but the `claude --print … stream-json` builder survives
+  (bitten 2026-09-06, DAEMON-RESIDUALS-2C cycle 3) — on resume, FIRST `pgrep -fl "claude.*stream-json|codex exec"`,
+  kill survivors, confirm two `git status` hashes apart in time, read `build-progress.md`'s mtime,
+  then relaunch (the relay resumes at the interrupted cycle).
 - **Rust slices on opus-4-8/high need `--timeout 60` (operator lesson 2026-08-23):** the relay's 20-min
   per-provider default killed FORGET-REPO-1's builder mid-implementation (605 partial lines, no
   build report). Launch code slices on repo-graph with `--timeout 60`; on a timeout, keep the partial
