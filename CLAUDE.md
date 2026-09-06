@@ -357,3 +357,11 @@ code at start, so mid-run edits do not affect it.
   was not. Also: the Docker runtime is COLIMA — `~/.testcontainers.properties` pins
   `docker.host` to colima's socket; if Testcontainers fails with DockerClientProviderStrategy,
   check `docker context ls` before blaming code.
+- **Root-cause before packeting (human directive 2026-09-06):** an audit's defect list is NOT a
+  fix queue. Before any packet is written or a queue proposed, every defect/regression gets a
+  code-level root cause — render site (file:line), data path (table/query/struct), the exact
+  predicate that produces the wrong output, regression-or-never-worked via `git log -S`/blame,
+  smallest fix shape, verification. Slices are cut along SHARED ROOT CAUSES, not symptom labels;
+  a packet that says "fix D1" is hand-waving at the builder (bitten: audit round five's first
+  queue was withdrawn on this ground). Read-only investigators may run while a relay builds
+  (no `rmap`, no `cargo`, no edits in the target tree).
