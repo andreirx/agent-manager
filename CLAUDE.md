@@ -343,6 +343,12 @@ code at start, so mid-run edits do not affect it.
   before-baseline; the timeout hit first). Before writing a RESUME NOTE on a clean tree: `git
   stash list` → if a `<slice>-wip…` stash exists, `git stash pop` it on the same HEAD and verify the
   file count. The builder prompt now forbids stashing (baselines via `git worktree`).
+- **A retained "read-only" state root is NOT read-only under a serving daemon (bitten 2026-09-07,
+  CPP-DECLARATORS-1):** querying the retained audit root with `rmap` started a daemon whose chained
+  enrichment/WAL side-writes CHANGED the retained leveldb + vcmi DBs — the "before" baseline is
+  no longer pristine for those repos. A baseline is a COPY (`cp -R` the root to an isolated
+  location, served with RMAP_AUTO_ENRICH=off RMAP_AUTO_RETENTION=off) or a `git worktree` "before"
+  binary on a fresh isolated index — never the retained root itself. Packets must say so.
 - **Live proofs are scoped to the SMALLEST corpus that demonstrates the contract (operator lesson
   2026-09-05, two 120-min kills on SEED-CHUNK-2):** a before/after proof that rebuilds a large
   repo twice (two full indexes + embedding passes) eats the whole builder budget with the code
