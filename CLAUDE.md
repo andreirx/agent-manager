@@ -226,6 +226,11 @@ code at start, so mid-run edits do not affect it.
   default, gpt-5.6-sol on escalation). The baked default below stays opus-4-8 until the human ends
   the trial; record per-slice which builder model built it. Compare cycle counts / strain against the
   opus-4-8 slices in the ROADMAP ship lines.
+  DELEGATED (human 2026-09-07): "if you determine you work better with claude-opus-4-8 as builder,
+  you can go back to it" — the operator decides after ≥2 trial slices, on: cycles to approval,
+  standing-honesty-rule misses (`unwrap_or(0)`-class, silent non-reconciliation), skipped DoD items,
+  substitution of fixtures for the packet's ordered corpus proofs, and strain. Record the decision and
+  its evidence in the ROADMAP; the builder model remains a per-launch flag either way.
 - **Builder model default is `claude-opus-4-8`, effort `high`** (human directive 2026-07-31, back from the 2026-07-26 opus-5 period;
   baked into `relay-target.ts`; superseding the 2026-07-20 opus-4-8 default and the
   2026-07-16 judge-by-complexity policy). Model/effort changes remain the HUMAN's decision,
