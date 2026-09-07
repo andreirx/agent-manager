@@ -589,3 +589,15 @@ while another live run holds it.
   working-tree state belongs to the operator); relay post-run check: warn if
   `git stash list` is non-empty.
 - **Status:** OPEN
+
+## TD-017 — relay verdict parser requires STATUS on the first line
+
+- Date: 2026-09-07
+- What was done: a Claude reviewer (interim, claude-opus-4-6) emitted a stray plan-mode/skill preamble before its
+  `STATUS: approved` line; `relay-target` parsed the verdict as `unknown` and blocked a fully-approved slice
+  (SYMBOL-IDENTITY-1). The operator corrected `review-1.json` by hand.
+- Why acceptable: one occurrence; the review content was intact; the operator checkpoint caught it.
+- Proper solution: parse `^STATUS: (approved|revise|escalate)` anywhere in the reviewer output (first match),
+  and strip a leading non-review preamble; add a unit test with the captured preamble.
+- When to address: before the next reviewer-provider switch, or if it recurs once more.
+- Status: OPEN
