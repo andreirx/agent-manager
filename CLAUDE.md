@@ -230,6 +230,10 @@ code at start, so mid-run edits do not affect it.
   When strain appears (>2 substantive revise rounds, repeated fuse kills), SURFACE the
   strain and the escalation option to the human instead of escalating. Codex reviewer
   model stays per its own default.
+  INTERIM (human directive 2026-09-07): the Codex account hit its usage limit ("try again at
+  Sep 10th, 2026 6:39 PM"); until it returns, launch with `--supervisor claude
+  --supervisor-model claude-opus-4-6`. Same-vendor gate: mark every interim review record and
+  commit message "reviewed by claude-opus-4-6 (Codex quota interim)"; revert to Codex on Sep 10.
 - **Deep vertical slices — no dormant capability** (operator directive 2026-07-11). Whatever
   support a slice delivers must be WIRED through and REFLECTED IN THE OUTPUT somewhere, in the
   same slice. A capability that exists but never runs or never renders is the field-bug factory
