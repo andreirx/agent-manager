@@ -237,6 +237,11 @@ code at start, so mid-run edits do not affect it.
   ENDED 2026-09-07 ~10:15Z (human: "codex is back — switch to the terra reviewer"; a `codex exec` smoke
   returned before the announced date): default supervisor codex / gpt-5.6-terra restored; two slices
   (SYMBOL-IDENTITY-1, DEPS-CLASSIFIER-1 inc 1) carry the interim marking.
+  ESCALATION MODEL (human delegation 2026-09-07: "you can even use GPT-5.6-sol as reviewer on
+  escalations"): the operator MAY relaunch a slice's review with `--supervisor-model gpt-5.6-sol`
+  when (a) a review escalates on a design/invariant question the operator cannot settle from the
+  spec, or (b) strain appears (>2 substantive revise rounds on one slice). Default stays
+  gpt-5.6-terra; the review record names the model used. Builder model/effort remain the human's knob.
 - **Deep vertical slices — no dormant capability** (operator directive 2026-07-11). Whatever
   support a slice delivers must be WIRED through and REFLECTED IN THE OUTPUT somewhere, in the
   same slice. A capability that exists but never runs or never renders is the field-bug factory
