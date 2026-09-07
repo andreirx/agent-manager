@@ -234,6 +234,9 @@ code at start, so mid-run edits do not affect it.
   Sep 10th, 2026 6:39 PM"); until it returns, launch with `--supervisor claude
   --supervisor-model claude-opus-4-6`. Same-vendor gate: mark every interim review record and
   commit message "reviewed by claude-opus-4-6 (Codex quota interim)"; revert to Codex on Sep 10.
+  ENDED 2026-09-07 ~10:15Z (human: "codex is back — switch to the terra reviewer"; a `codex exec` smoke
+  returned before the announced date): default supervisor codex / gpt-5.6-terra restored; two slices
+  (SYMBOL-IDENTITY-1, DEPS-CLASSIFIER-1 inc 1) carry the interim marking.
 - **Deep vertical slices — no dormant capability** (operator directive 2026-07-11). Whatever
   support a slice delivers must be WIRED through and REFLECTED IN THE OUTPUT somewhere, in the
   same slice. A capability that exists but never runs or never renders is the field-bug factory
