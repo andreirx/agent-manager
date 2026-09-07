@@ -349,6 +349,15 @@ code at start, so mid-run edits do not affect it.
   no longer pristine for those repos. A baseline is a COPY (`cp -R` the root to an isolated
   location, served with RMAP_AUTO_ENRICH=off RMAP_AUTO_RETENTION=off) or a `git worktree` "before"
   binary on a fresh isolated index — never the retained root itself. Packets must say so.
+- **An evidence round is ORDERED, and "nothing else" must not forbid the smallest fix a ratified
+  DoD needs (operator lesson 2026-09-07, CPP-DECLARATORS-1 — three cycles burned):** a packet that lists
+  a workspace test + dogfood + five corpus proofs inside one 120-min window ends every cycle with
+  "incomplete/running". Write the round as an ORDER: (1) the one honesty/code fix, (2) chunked per-crate
+  gates (never `cargo test --workspace` — the operator's suite runs it after approval), (3) proofs on the
+  smallest corpora with a `git worktree` before-binary on the SAME tiny isolated index, (4) cleanup —
+  with `build-progress.md` written after EACH step. And a "nothing else" note is about SCOPE, not about
+  the smallest change that makes a ratified behaviour hold end-to-end (the decorator forwarding the live
+  proof exposed) — say "beyond the ratified DoD" so the reviewer does not escalate on governance alone.
 - **Live proofs are scoped to the SMALLEST corpus that demonstrates the contract (operator lesson
   2026-09-05, two 120-min kills on SEED-CHUNK-2):** a before/after proof that rebuilds a large
   repo twice (two full indexes + embedding passes) eats the whole builder budget with the code
