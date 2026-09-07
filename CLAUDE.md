@@ -220,6 +220,12 @@ code at start, so mid-run edits do not affect it.
   `docs/TECH-DEBT.md`.)
 - **Smaller slices converge; mega-slices block.** When a slice can't converge or times out,
   SPLIT it (informed by the build log) rather than retry/raise-timeout.
+- **BUILDER TRIAL (human directive 2026-09-07): `claude-opus-4-6` "for a while"** — launch every
+  slice with `--builder-model claude-opus-4-6` (effort unchanged, `high`) starting with the launch
+  AFTER DEPS-CLASSIFIER-1B (which was already mid-build on opus-4-8); reviews stay GPT (gpt-5.6-terra
+  default, gpt-5.6-sol on escalation). The baked default below stays opus-4-8 until the human ends
+  the trial; record per-slice which builder model built it. Compare cycle counts / strain against the
+  opus-4-8 slices in the ROADMAP ship lines.
 - **Builder model default is `claude-opus-4-8`, effort `high`** (human directive 2026-07-31, back from the 2026-07-26 opus-5 period;
   baked into `relay-target.ts`; superseding the 2026-07-20 opus-4-8 default and the
   2026-07-16 judge-by-complexity policy). Model/effort changes remain the HUMAN's decision,
