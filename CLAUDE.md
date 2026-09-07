@@ -231,6 +231,14 @@ code at start, so mid-run edits do not affect it.
   standing-honesty-rule misses (`unwrap_or(0)`-class, silent non-reconciliation), skipped DoD items,
   substitution of fixtures for the packet's ordered corpus proofs, and strain. Record the decision and
   its evidence in the ROADMAP; the builder model remains a per-launch flag either way.
+  TRIAL CLOSED 2026-09-08 (operator decision under the delegation): claude-opus-4-6 built 7 cycles across
+  HEADLINE-TRUTH-1 (4) and MODULES-METHOD-1 (3) with a standing-honesty-rule violation in SIX of them
+  (`unwrap_or(0)`, `.ok()`, `unwrap_or_default`, `.ok()/.flatten()`, `.ok().and_then`), one silently
+  substituted acceptance number, one isolation violation (read the operator's real state root), fixtures
+  or the wrong corpus in place of the packet's proofs, and spec items ignored (source_type vs key prefix;
+  doc path rules; §2.3 ordering). opus-4-8 closed HEADLINE-TRUTH-1's remainder in two cycles. Builder
+  default = `claude-opus-4-8` for everything; no `--builder-model` flag. Speed was real (32 files in 95
+  min) — discipline on binding rules was not.
 - **Builder model default is `claude-opus-4-8`, effort `high`** (human directive 2026-07-31, back from the 2026-07-26 opus-5 period;
   baked into `relay-target.ts`; superseding the 2026-07-20 opus-4-8 default and the
   2026-07-16 judge-by-complexity policy). Model/effort changes remain the HUMAN's decision,
