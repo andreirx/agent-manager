@@ -244,6 +244,14 @@ code at start, so mid-run edits do not affect it.
   claude --supervisor-model claude-opus-4-8` so the gate stays two-vendor (a Codex `sol` escalation
   review is then same-vendor — say so in the record). `--dry-run` the first launch to inspect the codex
   builder invocation (sandbox mode, working dir, prompt) before a real run; ship lines record both models.
+  CODEX BUILDER LIMITS (observed 2026-09-08, EXIT-CODES-1): `codex exec --sandbox workspace-write` CANNOT
+  bind a Unix socket ("Operation not permitted") — any live proof that needs a socket daemon fails
+  environmentally. Packets for a Codex builder must route live proofs through `RMAP_TRANSPORT=stdio`
+  (the daemon as a subprocess, no socket) or mark the socket proof as OPERATOR-RUN; the builder also
+  wrote no incremental progress for 90 minutes before a timeout — the packet must require
+  `build-progress.md` after each step explicitly (it did; the builder ignored it — repeat it in the
+  RESUME NOTE). It did produce a correct spec-contradiction finding at cycle 1 and a statically
+  complete 62-file diff by cycle 3.
 - **Builder model default is `claude-opus-4-8`, effort `high`** (human directive 2026-07-31, back from the 2026-07-26 opus-5 period;
   baked into `relay-target.ts`; superseding the 2026-07-20 opus-4-8 default and the
   2026-07-16 judge-by-complexity policy). Model/effort changes remain the HUMAN's decision,
