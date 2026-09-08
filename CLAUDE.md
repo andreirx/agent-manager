@@ -425,7 +425,8 @@ code at start, so mid-run edits do not affect it.
   --soft`. Run the suite to a LOG FILE (`scripts/repo-graph-gates.sh > /private/tmp/<slice>-gates.out
   2>&1`), then assert `grep -c ALL-GATES-GREEN` == 1 AND the fail-grep == 0 in a SEPARATE command
   BEFORE any commit — never `echo …; git commit` in one chain. The retained state roots under
-  /private/tmp are exposed to the same purge: relocate them at the release cut.
+  /private/tmp were exposed to the same purge: RELOCATED 2026-09-08 to `~/repo-graph-retained/`
+  (`audit-v0.17.0`, `HT1-retained`; registries rewritten) — new retained roots go there, never /private/tmp.
 - **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
   away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
   `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
