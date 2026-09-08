@@ -293,6 +293,11 @@ code at start, so mid-run edits do not affect it.
   (bitten 2026-09-06, DAEMON-RESIDUALS-2C cycle 3) — on resume, FIRST `pgrep -fl "claude.*stream-json|codex exec"`,
   kill survivors, confirm two `git status` hashes apart in time, read `build-progress.md`'s mtime,
   then relaunch (the relay resumes at the interrupted cycle).
+  A provider TIMEOUT orphans the builder's CARGO children too (bitten 2026-09-08, AUDIT5-MINORS-1: a
+  `cargo build --release` + two rustc kept compiling in rust/target after the builder died — the next
+  builder would have blocked on the lock): before any relaunch, `pgrep -fl "cargo|rustc"` (note
+  `pgrep -fl rmapd` ALSO matches `cargo build -p rmapd` — read the whole line), kill survivors, and
+  confirm `lsof rust/target/release/.cargo-lock` has no holders.
 - **Rust slices on opus-4-8/high need `--timeout 60` (operator lesson 2026-08-23):** the relay's 20-min
   per-provider default killed FORGET-REPO-1's builder mid-implementation (605 partial lines, no
   build report). Launch code slices on repo-graph with `--timeout 60`; on a timeout, keep the partial
