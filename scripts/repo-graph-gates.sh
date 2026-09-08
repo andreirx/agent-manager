@@ -12,5 +12,6 @@ for p in rgr agent daemon-runtime module-queries repo-index storage; do
   e=${PIPESTATUS[0]}; [ $e -ne 0 ] && { echo "GATE-FAIL test-$p $e"; exit 3; }
 done
 echo "== witness =="; cargo test -p repo-graph-daemon-runtime --test consolidation_witness -q >/dev/null 2>&1; e=$?; [ $e -ne 0 ] && { echo "GATE-FAIL witness $e"; exit 4; }; echo "witness ok"
+echo "== release bins =="; cargo build --release --bin rmap --bin rmapd 2>&1 | tail -1; e=${PIPESTATUS[0]}; [ $e -ne 0 ] && { echo "GATE-FAIL release-build $e"; exit 6; }
 echo "== dogfood =="; cd .. && ./scripts/dogfood-isolated.sh >/tmp/ch1-dogfood.out 2>&1; e=$?; [ $e -ne 0 ] && { echo "GATE-FAIL dogfood $e"; tail -5 /tmp/ch1-dogfood.out; exit 5; }; echo "dogfood ok"
 echo "ALL-GATES-GREEN"
