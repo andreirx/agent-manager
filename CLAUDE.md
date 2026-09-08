@@ -239,6 +239,11 @@ code at start, so mid-run edits do not affect it.
   doc path rules; §2.3 ordering). opus-4-8 closed HEADLINE-TRUTH-1's remainder in two cycles. Builder
   default = `claude-opus-4-8` for everything; no `--builder-model` flag. Speed was real (32 files in 95
   min) — discipline on binding rules was not.
+  BUILDER SWITCH (human directive 2026-09-08, "next slices we are switching the builder to gpt-5.6-sol"):
+  from EXIT-CODES-1 launch with `--builder codex --builder-model gpt-5.6-sol`; reviewer `--supervisor
+  claude --supervisor-model claude-opus-4-8` so the gate stays two-vendor (a Codex `sol` escalation
+  review is then same-vendor — say so in the record). `--dry-run` the first launch to inspect the codex
+  builder invocation (sandbox mode, working dir, prompt) before a real run; ship lines record both models.
 - **Builder model default is `claude-opus-4-8`, effort `high`** (human directive 2026-07-31, back from the 2026-07-26 opus-5 period;
   baked into `relay-target.ts`; superseding the 2026-07-20 opus-4-8 default and the
   2026-07-16 judge-by-complexity policy). Model/effort changes remain the HUMAN's decision,
