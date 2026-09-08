@@ -400,6 +400,14 @@ code at start, so mid-run edits do not affect it.
   fits the 300 s client window, blocks the serial daemon for the rest of the batch (the v0.16.0
   round's assess/orient bounces), and only yields a known failure. Re-enable it when the override
   ships; it stays the S-1..S-3 deployment-scale corpus for M-R2's union-flip evidence.
+- **The gate script lives in THIS repo (`scripts/repo-graph-gates.sh`), never only in /private/tmp
+  (bitten 2026-09-08):** macOS purges /private/tmp files idle for ~3 days; `/private/tmp/ch1-gates.sh`
+  vanished, the background `script | tail -40` reported exit 0 (tail's), and a commit chained after
+  `echo green=$(grep -c …)` went through on green=0 — caught by the count, reverted with `git reset
+  --soft`. Run the suite to a LOG FILE (`scripts/repo-graph-gates.sh > /private/tmp/<slice>-gates.out
+  2>&1`), then assert `grep -c ALL-GATES-GREEN` == 1 AND the fail-grep == 0 in a SEPARATE command
+  BEFORE any commit — never `echo …; git commit` in one chain. The retained state roots under
+  /private/tmp are exposed to the same purge: relocate them at the release cut.
 - **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
   away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
   `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
