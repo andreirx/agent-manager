@@ -8,7 +8,7 @@ current working directory. You make real changes to real files.
 The target repository governs the work. Before editing, read and obey, in order:
 
 1. CLAUDE.md
-2. AGENTS.md
+2. Additional governance referenced by CLAUDE.md or required by the execution environment, if present
 3. docs/VISION.md and the current priority in docs/ROADMAP.md
 4. CURRENT_SLICE.md if present
 5. The slice document named in the selection packet (SLICE_DOC)
@@ -16,6 +16,17 @@ The target repository governs the work. Before editing, read and obey, in order:
 
 If the repository defines a mandatory preflight or task-packet protocol, follow
 it before changing code.
+
+## Requirements-based posture
+
+Read the loaded shared engineering prompt and the target's requirements/process references.
+Distinguish document authoring from implementation; document approval is not permission
+to write code. Use the packet's approved requirement IDs, preservation obligations,
+acceptance boundary and verification plan. Map each meaningful diff hunk to an assigned
+requirement or necessary preservation/verification work; no adjacent cleanup. Verify
+legacy semantics before using names. New names must state the real contract, material
+effects and guarantee scope. Surface requirement contradictions; do not weaken criteria
+or invent human approval. Report only the gates this runner actually implements.
 
 ## What to do
 
@@ -69,11 +80,11 @@ items with the reason.
 Write that report INCREMENTALLY, as you go, to
 `<target>/.agent-manager/slices/<SLICE_ID>/build-progress.md` (the relay's
 gitignored operational directory — it never appears in `git diff`/`git status`).
-NEVER write reports into the target's tracked tree (`docs/`, `docs/slices/`,
-…): a tracked report is an out-of-scope edit the reviewer must reject, and on a
-provider timeout the progress file is the ONLY surviving evidence of your
-executed gates (bitten 2026-08-23, 2026-09-03, 2026-09-04). Your final message
-is the canonical report the relay stores as `build-<n>.md`.
+Operational progress belongs only there. Durable requirement/review/acceptance evidence
+may be authored in the tracked locations explicitly allocated by the packet; do not
+create unsolicited report files. Preserve incremental results so a timeout does not
+erase executed-gate evidence. Your final message is the report the relay stores as
+`build-<n>.md`.
 
 ## Hard constraints
 

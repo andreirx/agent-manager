@@ -1,0 +1,71 @@
+{
+  "kind": "manual-bootstrap-approved-draft-identities",
+  "date": "2026-09-11",
+  "meaning": "Exact draft bytes at user approval, before manager status/prompt bootstrap edits. Not a runtime baseline contract.",
+  "files": [
+    {
+      "path": "SYSTEM.txt",
+      "sha256": "f73705c9bace20403586b61b0d247cdb974dc62f7e60eb5309b234a22c42e966"
+    },
+    {
+      "path": "CLAUDE.md",
+      "sha256": "4ab8c8646064e31c3efed7cd1e7462ac891392d5b1a67b59b33a8254a7420f69"
+    },
+    {
+      "path": "docs/PROCESS.md",
+      "sha256": "11812efe7d53b7b9d94bac67b101ea250a115d0a1aae79a950ccf7670b827916"
+    },
+    {
+      "path": "docs/MANAGER.md",
+      "sha256": "bb6de2bc2a73fbc551d51d1019356d8a5928bdc60a64eeafe8b940defaed6a37"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "sha256": "5718b626372931bf2a61bcdbc9ef5db9a820b53bc115888b9a0d3fbf82ec3760"
+    },
+    {
+      "path": "docs/slices/requirements-assurance-rollout.md",
+      "sha256": "70a3bf83074ae9dad32e8cfae21f581f02b0949ab6e4e24f6c1a53d74c51a750"
+    },
+    {
+      "path": "docs/requirements/README.md",
+      "sha256": "e59152e7b1e91308f143604458daff432c3f2b8d7f5faee28fd08bf906c31840"
+    },
+    {
+      "path": "docs/requirements/am-req-001-target-owned-requirements.md",
+      "sha256": "a041cb27fd8db14ca2b71882565e74358193f4a875f1223be2f2c6abedb23843"
+    },
+    {
+      "path": "docs/requirements/am-req-002-requirements-and-design-review.md",
+      "sha256": "653124672bc65a803f00d0e433f7e0b315a08dde3a08f3507963b978f374e984"
+    },
+    {
+      "path": "docs/requirements/am-req-003-traceable-delivery-planning.md",
+      "sha256": "0bf8804cc322cccd53344b7092bfdd8247d2ab18b254c03a114b1e3d00d9ae6f"
+    },
+    {
+      "path": "docs/requirements/am-req-004-baseline-bound-execution.md",
+      "sha256": "6985b94fe9a62bd9a1718c4938ed84894cb6578f983ffae3e3f42a9658d011d3"
+    },
+    {
+      "path": "docs/requirements/am-req-005-verification-and-acceptance.md",
+      "sha256": "9a918be83273cd46c7efac45843141d286e043c673ea19105f7ad953af603d18"
+    },
+    {
+      "path": "docs/requirements/am-req-006-controlled-requirement-change.md",
+      "sha256": "1b081441e81d8d409b971bc90f1e3dba9d20855b5351f9b2137ac9a84e9ebe32"
+    },
+    {
+      "path": "docs/requirements/am-req-007-project-aware-engineering.md",
+      "sha256": "8b426958afbd432fb1e53b4944de44ef0a98eec2dd4fe5a3c9507175f63247e9"
+    },
+    {
+      "path": "docs/requirements/am-req-008-self-hosting-and-adoption.md",
+      "sha256": "f4e7fff499254b1d4a65db2be6daecc400fe73096d67b60203b1150b5dc2efd0"
+    },
+    {
+      "path": "docs/requirements/am-req-009-in-place-manager.md",
+      "sha256": "95f17f3270cfe20480c59aa3caa34763db780fb0786735b523d5c0d0618157a6"
+    }
+  ]
+}

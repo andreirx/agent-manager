@@ -1,0 +1,65 @@
+{
+  "formatVersion": 1,
+  "kind": "requirements-baseline-approval",
+  "approvalId": "ASSURANCE-1-BASELINE-APPROVAL-1",
+  "subject": {
+    "path": "docs/requirements/baselines/ASSURANCE-1-INPUT-1.json",
+    "sha256": "sha256:2b8f4f188317df74172ff31cb6e476cbcb19ee06eed6fda1b45dc914e218eeca"
+  },
+  "review": {
+    "path": "docs/assurance/ASSURANCE-1-INPUT-1/requirements-review.json",
+    "sha256": "sha256:b3c0c3329bc06ca228dd7bda06d6546c2ba20d1b89981c15b1a5bfb01c95e967"
+  },
+  "decision": "approved",
+  "approvedBy": {
+    "actorType": "operator",
+    "actorId": "in-place-manager"
+  },
+  "recordedBy": {
+    "actorType": "operator",
+    "actorId": "in-place-manager"
+  },
+  "authorityBasis": {
+    "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+    "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+  },
+  "resolvedDecisions": [
+    {
+      "id": "D-FORMAT",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-AUTH",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-ADOPTION",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-DISPATCH",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-EVIDENCE",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    }
+  ],
+  "decidedAt": "2026-09-11T20:06:14.861Z",
+  "rationale": "Manager acceptance under approved rollout: docs/assurance/ASSURANCE-0/manager-acceptance.md. Review report bound post-review to the unchanged inspected closure; manual bootstrap, no runtime or tamper-proof claim. Prepublication EOF-only normalization by manager; prior candidate retained in ASSURANCE-0/publication-correction.json. Semantic reviewer evidence reused, not represented as a new reviewer run."
+}

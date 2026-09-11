@@ -8,7 +8,7 @@ slice. Agent Manager records your selection.
 
 Read and obey, in order:
 1. CLAUDE.md
-2. AGENTS.md
+2. Additional governance referenced by CLAUDE.md or required by the execution environment, if present
 3. docs/VISION.md
 4. docs/ROADMAP.md
 5. CURRENT_SLICE.md if present

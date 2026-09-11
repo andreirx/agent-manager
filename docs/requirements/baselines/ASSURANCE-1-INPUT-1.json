@@ -1,0 +1,121 @@
+{
+  "formatVersion": 1,
+  "kind": "requirements-baseline-manifest",
+  "baselineId": "ASSURANCE-1-INPUT-1",
+  "target": {
+    "projectId": "agent-manager",
+    "root": "."
+  },
+  "requirements": [
+    {
+      "path": "docs/requirements/am-req-001-target-owned-requirements.md",
+      "sha256": "sha256:7935baedfcb38fcd89795baf449d520a5259f2ff9f06caa5a4bb4a545e4802e6"
+    },
+    {
+      "path": "docs/requirements/am-req-002-requirements-and-design-review.md",
+      "sha256": "sha256:913c463c67778ba1a6cc96d62225d7b2775b9b1f1359d196b203b208589984fb"
+    },
+    {
+      "path": "docs/requirements/am-req-003-traceable-delivery-planning.md",
+      "sha256": "sha256:6fcec488306cca8fef8f14f9839c89e0216d5185498552128353fe19e69aa6ce"
+    },
+    {
+      "path": "docs/requirements/am-req-004-baseline-bound-execution.md",
+      "sha256": "sha256:862d748dfdd396bda696faf7b17c80e21331582d1ee48831c1c7b50b1dbd6144"
+    },
+    {
+      "path": "docs/requirements/am-req-005-verification-and-acceptance.md",
+      "sha256": "sha256:cadfd915b567c80b0406bd2fbf4547504042bf5675768a536fc06478cbbb5268"
+    },
+    {
+      "path": "docs/requirements/am-req-006-controlled-requirement-change.md",
+      "sha256": "sha256:a1fc9426f5f91fb0c70a519da9423ffcfda4c57c489594858c847256e26f4f51"
+    },
+    {
+      "path": "docs/requirements/am-req-007-project-aware-engineering.md",
+      "sha256": "sha256:32b981c6e42d52971d029f4ed3bf53f3658ee76c3852361f66d14497034050da"
+    },
+    {
+      "path": "docs/requirements/am-req-008-self-hosting-and-adoption.md",
+      "sha256": "sha256:7d0aa8c15b8f5146d7d06bf25c35e77dce8ce7b0813764ba31c9605ece82169e"
+    },
+    {
+      "path": "docs/requirements/am-req-009-in-place-manager.md",
+      "sha256": "sha256:e1a983a79397c5f104075c8a9625fa834b8a9b23bc9489d5ad9314980c25c9a2"
+    }
+  ],
+  "dependencies": [
+    {
+      "role": "source",
+      "path": "docs/VISION.md",
+      "sha256": "sha256:af3d5685b30b122da8720fb622bf8381869c7b920ff5affb33a89d5480cb4a98"
+    },
+    {
+      "role": "source",
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "sha256:51971b54c59cd15ab07fc1a3af848ad36426b925e72507b97f6dc60222ecf4f1"
+    },
+    {
+      "role": "source",
+      "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+      "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+    },
+    {
+      "role": "governance",
+      "path": "CLAUDE.md",
+      "sha256": "sha256:4a09c6119ec4c3970ebd0d91e4d122dbd75854054a54a8c3e173ce90e9a77538"
+    },
+    {
+      "role": "governance",
+      "path": "SYSTEM.txt",
+      "sha256": "sha256:ffe00c2654eaf7ac9f67e36114a781d502558e5a4ca9684395a77cfc780be772"
+    },
+    {
+      "role": "governance",
+      "path": "prompts/system/base.md",
+      "sha256": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+    },
+    {
+      "role": "governance",
+      "path": "prompts/roles/builder-target.md",
+      "sha256": "sha256:1c8871786cc8df15e94486f8c93beb5ca5c96c15c7cd308af4e7da28866b2768"
+    },
+    {
+      "role": "governance",
+      "path": "prompts/roles/reviewer-target.md",
+      "sha256": "sha256:1bdf263e075f4acc1dac96885b8dadd284e4192eef4cd255b4f27df0ad46576e"
+    },
+    {
+      "role": "design",
+      "path": "docs/PROCESS.md",
+      "sha256": "sha256:9bfd0bd27b80c51ce9741b3dfd89b017d23e6bf1d690bab221cb6ca6bdaf6686"
+    },
+    {
+      "role": "design",
+      "path": "docs/MANAGER.md",
+      "sha256": "sha256:ca0229eca65b8aaa2e5e79585663b3f2ba65987676d5bb6819b31473395ba43f"
+    },
+    {
+      "role": "design",
+      "path": "docs/slices/requirements-assurance-rollout.md",
+      "sha256": "sha256:bf6375d1730f8d8e62bb17cdf6538eee3ea5fa8733fe9b8a49ccfaf015f868f0"
+    },
+    {
+      "role": "design",
+      "path": "docs/contracts/requirements-assurance-v1.md",
+      "sha256": "sha256:81ed7df80e26880dcaddb535d883cf093c69b8430bb121a94e9a39bd6c4eefae"
+    },
+    {
+      "role": "allocation",
+      "path": "docs/slices/assurance-1-baseline-admission.md",
+      "sha256": "sha256:7f887ba492072964a9281417d83f8f39d395390cd3dbcc5da615311e25cdf5b9"
+    }
+  ],
+  "requiredDecisionIds": [
+    "D-FORMAT",
+    "D-AUTH",
+    "D-ADOPTION",
+    "D-DISPATCH",
+    "D-EVIDENCE"
+  ]
+}

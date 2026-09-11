@@ -1,0 +1,26 @@
+{
+  "formatVersion": 1,
+  "kind": "manual-requirements-review",
+  "reviewId": "ASSURANCE-0-REVIEW-4",
+  "subject": {
+    "path": "docs/requirements/baselines/ASSURANCE-1-INPUT-1.json",
+    "sha256": "sha256:2b8f4f188317df74172ff31cb6e476cbcb19ee06eed6fda1b45dc914e218eeca"
+  },
+  "author": {
+    "role": "builder",
+    "provider": "codex",
+    "model": "gpt-5.6-sol",
+    "effort": "high",
+    "runId": "build-ASSURANCE-0-3"
+  },
+  "reviewer": {
+    "role": "reviewer",
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "high",
+    "runId": "review-ASSURANCE-0-3"
+  },
+  "result": "accepted",
+  "completedAt": "2026-09-11T20:04:21.200Z",
+  "report": "STATUS: approved\n\n**OBSERVED:** The iteration-3 correction in `docs/contracts/requirements-assurance-v1.md:344-349` now distinguishes structural validation of *declared* identities/run IDs from manager-observed separate provider invocations. It no longer presents editable record fields as proof of critic independence. This preserves the VISION’s traceability and critic-independence boundary without adding runtime identity machinery.\n\n**OBSERVED:** Scope is compliant. `git status --short` matches the inherited manager inventory plus only the two permitted untracked deliverables: `docs/contracts/requirements-assurance-v1.md` and `docs/slices/assurance-1-baseline-admission.md`. The ignored permitted `build-progress.md` records the exact correction. Independent SHA-256 verification found all 74 non-requirement starting paths unchanged; each of the nine requirement bodies matches its starting hash after removing the allowed metadata block.\n\n**OBSERVED:** I reran:\n- `git diff --check` — PASS, exit 0.\n- Independent metadata/prose check — PASS: `H=9 L=56 criteria=56 sourceFragments=31 frozenProse=9`.\n- Independent local-link/format check — PASS: `links=75 whitespace=11 jsonExamples=8`.\n- Declaration-versus-observation wording check — PASS.\n\n**OBSERVED:** Stage 1 remains limited to baseline admission. The contract explicitly defers structured review coverage, allocation/evidence, final acceptance/change recovery, and reverse trace to ASSURANCE-2 through -5. No runtime code, dependency, provider branch, or dormant scaffold was added.\n\n**INFERRED — requirement quality:** all reviewed obligations are specific, scoped, falsifiable at their intended later acceptance boundary, and consistent with the approved authority model. “PASS” below assesses requirement/design quality only; it does not claim implementation or operational verification.\n\n| H | H result | L results |\n|---|---|---|\n| AM-REQ-001 | PASS | L01 PASS; L02 PASS; L03 PASS; L04 PASS; L05 PASS; L06 PASS |\n| AM-REQ-002 | PASS | L01 PASS; L02 PASS; L03 PASS; L04 PASS; L05 PASS; L06 PASS |\n| AM-REQ-003 | PASS | L01 PASS; L02 PASS; L03 PASS; L04 PASS; L05 PASS; L06 PASS |\n| AM-REQ-004 | PASS | L01 PASS; L02 PASS; L03 PASS; L04 PASS; L05 PASS; L06 PASS |\n| AM-REQ-005 | PASS | L01 PASS; L02 PASS; L03 PASS; L04 PASS; L05 PASS; L06 PASS; L07 PASS |\n| AM-REQ-006 | PASS | L01 PASS; L02 PASS; L03 PASS; L04 PASS; L05 PASS; L06 PASS |\n| AM-REQ-007 | PASS | L01 PASS; L02 PASS; L03 PASS; L04 PASS; L05 PASS; L06 PASS |\n| AM-REQ-008 | PASS | L01 PASS; L02 PASS; L03 PASS; L04 PASS; L05 PASS; L06 PASS |\n| AM-REQ-009 | PASS | L01 PASS; L02 PASS; L03 PASS; L04 PASS; L05 PASS; L06 PASS; L07 PASS |\n\n**OBSERVED:** No software tests were run; this is correct for the document-only slice and no runtime code changed. This approval is an independent review result, not manager publication, human acceptance, or evidence that future ASSURANCE-1 runtime gates exist.\n"
+}

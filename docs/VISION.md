@@ -258,3 +258,11 @@ The following are intentionally not locked by this vision document:
 - exact role catalog and promotion path from prototype to mature
 
 These belong to architecture and design documents, not to the vision layer.
+
+## Proposed requirements refinement
+
+The [requirements-assurance catalog](requirements/README.md) refines this vision's
+role separation, traceability, human authority, and self-hosting direction into
+human-approved H/L obligations. The [manager playbook](MANAGER.md) describes the human-started
+coordinating session that operates the existing relay. The [rollout](slices/requirements-assurance-rollout.md)
+proposes the supporting implementation. Approval is recorded in [the bootstrap authorization](assurance/ASSURANCE-0/human-authorization.md); no gate is claimed implemented by these links. Product boundaries above remain.

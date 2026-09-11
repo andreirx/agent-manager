@@ -1,0 +1,74 @@
+{
+  "kind": "manual-bootstrap-manager-checks",
+  "at": "2026-09-11T20:06:14.856Z",
+  "result": "passed",
+  "checks": {
+    "requirementIds": {
+      "H": 9,
+      "L": 56
+    },
+    "approvedProseBodiesUnchanged": 9,
+    "inheritedPathsUnchanged": 74,
+    "reviewerVerdict": "approved",
+    "authorModel": "gpt-5.6-sol",
+    "reviewerModel": "gpt-5.6-terra",
+    "invocationObservation": "Manager launched/awaited the actual relay; completed sequential provider runs recorded separately. Same provider, different models. Not tamper-proof attestation.",
+    "runtimeGate": "not implemented",
+    "earlierTypecheck": "PASS",
+    "earlierTests": "26 passed / 1 suite"
+  },
+  "author": {
+    "runId": "build-ASSURANCE-0-3",
+    "phase": "implement",
+    "role": "builder",
+    "provider": "codex",
+    "model": "gpt-5.6-sol",
+    "effort": "high",
+    "mode": "edit",
+    "permission": "write",
+    "status": "completed",
+    "startedAt": "2026-09-11T19:56:15.975Z",
+    "completedAt": "2026-09-11T20:00:55.608Z",
+    "logPath": ".agent-manager/logs/2026-09-11_19-56-15Z__builder__codex__slice-ASSURANCE-0.txt",
+    "prompts": [
+      {
+        "path": "prompts/system/base.md",
+        "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+      },
+      {
+        "path": "prompts/roles/builder-target.md",
+        "digest": "sha256:1c8871786cc8df15e94486f8c93beb5ca5c96c15c7cd308af4e7da28866b2768"
+      }
+    ],
+    "workingDir": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager"
+  },
+  "reviewer": {
+    "runId": "review-ASSURANCE-0-3",
+    "phase": "review-impl",
+    "role": "reviewer",
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "high",
+    "mode": "review",
+    "permission": "read-only",
+    "status": "completed",
+    "startedAt": "2026-09-11T20:00:55.613Z",
+    "completedAt": "2026-09-11T20:04:21.200Z",
+    "logPath": ".agent-manager/logs/2026-09-11_20-00-55Z__reviewer__codex__slice-ASSURANCE-0.txt",
+    "prompts": [
+      {
+        "path": "prompts/system/base.md",
+        "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+      },
+      {
+        "path": "prompts/roles/reviewer-target.md",
+        "digest": "sha256:1bdf263e075f4acc1dac96885b8dadd284e4192eef4cd255b4f27df0ad46576e"
+      }
+    ],
+    "workingDir": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager"
+  },
+  "sharedPrompt": {
+    "path": "SYSTEM.txt",
+    "sha256": "sha256:ffe00c2654eaf7ac9f67e36114a781d502558e5a4ca9684395a77cfc780be772"
+  }
+}

@@ -78,7 +78,21 @@ Delivery mechanism:
 - Claude receives the file path through `--system-prompt-file`.
 - Codex receives the file content through `--config developer_instructions=<json-escaped-content>`.
 
-`--system-prompt-file` replaces Claude's default system prompt with `CLAUDE-SYSTEM.txt` (operator preference for coding tasks). Tools remain available; Claude's default dynamic context (cwd/env/git) and target `CLAUDE.md` auto-load are not injected, so the role prompts instruct the agent to read target governance (`CLAUDE.md`/`AGENTS.md`) explicitly. Switch the adapter to `--append-system-prompt-file` if you want the house rules layered on top of Claude's default harness instead.
+`--system-prompt-file` replaces Claude's default system prompt with `CLAUDE-SYSTEM.txt` (operator preference for coding tasks). Tools remain available; Claude's default dynamic context (cwd/env/git) and target `CLAUDE.md` auto-load are not injected, so the role prompts instruct the agent to read `CLAUDE.md` and any additional required target governance explicitly. Switch the adapter to `--append-system-prompt-file` if you want the house rules layered on top of Claude's default harness instead.
+
+### In-place manager and proposed requirements assurance
+
+The human-started coordinating session can use the [manager role](prompts/roles/manager.md)
+and [playbook](docs/MANAGER.md) to prepare work, launch bounded relays, inspect logs/reports,
+steer, and coordinate acceptance. This manager is distinct from the CLI's `--supervisor`
+provider (which selects and reviews). The role file does not create a session or a daemon.
+
+[Requirements](docs/requirements/README.md), [process](docs/PROCESS.md),
+[roadmap](docs/ROADMAP.md), and [component rollout](docs/slices/requirements-assurance-rollout.md)
+describe the proposed adoption. They are not implemented assurance gates. `SYSTEM.txt`
+is human-approved for explicit --shared-prompt adoption in this overhaul. Its presence
+does not change global CLI defaults. The current track uses Codex sol as builder and
+Codex terra as reviewer; see CLAUDE.md and the recorded bootstrap authorization.
 
 ### Target repository requirements
 
@@ -87,7 +101,7 @@ The target folder must be an existing repository or working tree that the agents
 Expected target documentation:
 
 - `CLAUDE.md`
-- `AGENTS.md`
+- additional governance referenced by `CLAUDE.md`, if present (Agent Manager itself has no `AGENTS.md`)
 - `docs/VISION.md`
 - `docs/ROADMAP.md`
 - slice documents, usually under `docs/slices/`
@@ -371,7 +385,7 @@ Agent Manager separates two roots:
 | Root | Meaning |
 |------|---------|
 | `promptRoot` | This Agent Manager repository. Role prompts are loaded here and digest-pinned. |
-| `workingDir` | The target repository. Provider processes are spawned here and read the target's `CLAUDE.md`, `AGENTS.md`, git state, and files. |
+| `workingDir` | The target repository. Provider processes are spawned here and read the target's `CLAUDE.md`, any additional required governance, git state, and files. |
 
 The application use case owns the workflow state machine. Provider adapters only translate normalized `RunRequest` fields into CLI flags.
 

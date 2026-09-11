@@ -2,6 +2,15 @@
 
 Status: draft
 
+Requirements-assurance proposal (2026-09-11): [catalog](requirements/README.md),
+[process](PROCESS.md), and [component rollout](slices/requirements-assurance-rollout.md).
+Their staged design and recommended decisions are human-approved (see docs/assurance/ASSURANCE-0/human-authorization.md); exact grammar and independent review precede implementation.
+The target-owned relay currently uses its own smaller `TargetPhase` model; the
+full lifecycle below is architectural intent, not a claim that every phase runs.
+The rollout maps changes to the actual implementation and explicitly distinguishes
+target-owned durable records from its local-only operational state. Existing contracts
+remain in force until the corresponding proposal is accepted.
+
 This document defines the intended architectural boundaries for Agent Manager.
 
 It is normative for:

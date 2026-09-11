@@ -1,5 +1,15 @@
 # Agent Manager - Project Instructions
 
+## Requirements-assurance rollout authority (2026-09-11)
+
+CLAUDE.md is the sole project-instruction entry point; AGENTS.md was removed at human direction. Read the approved [catalog](docs/requirements/README.md), [process](docs/PROCESS.md), [manager playbook](docs/MANAGER.md), [rollout](docs/slices/requirements-assurance-rollout.md), and [roadmap](docs/ROADMAP.md).
+
+The human approved the drafts and authorized implementation: [authority and decisions](docs/assurance/ASSURANCE-0/human-authorization.md). Approval, independent review, implementation, and verification are distinct; only claim gates actually delivered. Execute the staged self-host sequence, beginning with ASSURANCE-0's record grammar and independent review.
+
+**Current overhaul assignment supersedes historical model instructions below for this track:** builder = Codex CLI / gpt-5.6-sol; reviewer = Codex CLI / gpt-5.6-terra; existing high effort. Manager = the human-started coordinating session. Separate invocations, same provider, not cross-vendor independence. Use explicit --builder codex --builder-model gpt-5.6-sol --supervisor codex --supervisor-model gpt-5.6-terra --shared-prompt <absolute-agent-manager-root>/SYSTEM.txt. This prompt must be loaded before either role runs; do not fall back to ~/CLAUDE-SYSTEM.txt. CLI global defaults remain unchanged.
+
+Use relay-target on agent-manager itself, at most three cycles before checkpoint. Verify the actual runner/prompt identities, preserve pre-existing work, and do not claim future gates enforce this bootstrap. Adopt each newly accepted runtime increment only in a fresh process after typecheck, tests, and legacy routing parity. The legacy --supervisor flag still binds selection and review, not the persistent manager; do not silently rename its contract.
+
 ## Read Order
 
 1. `docs/VISION.md` — product purpose and boundaries
