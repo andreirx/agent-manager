@@ -488,19 +488,37 @@ is persisted. On resume, the persisted object is authoritative even when the
 flag is omitted; the relay reloads and revalidates the same path and digest.
 Supplying a different path/digest is a blocked conflict. A malformed or partially
 present object blocks; it never falls back to legacy. A run with neither a flag
-nor a persisted object follows unchanged legacy behavior and prints `legacy
-(requirements assurance not enforced)`.
+nor a persisted object normally follows unchanged legacy behavior and prints
+`legacy (requirements assurance not enforced)`.
 
 Stage 1 persists the same mode object in the active slice `status.json` and the
 active `current.json` pointer. A mismatch blocks; the duplicate is limited to the
 minimum needed to stop an implicit resume from losing assurance when the slice
 status is malformed. These local records are operational continuity, not durable
-approval; durable authority remains the tracked chain above. If the active
-pointer names a missing or malformed status, implicit resume blocks rather than
-starting a legacy selection. Loss of both local records is the distinct recovery
-case deferred to ASSURANCE-4.
+approval; durable authority remains the tracked chain above.
+
+There is one narrow compatibility exception to otherwise unchanged legacy
+routing. During implicit dispatch, an existing malformed `current.json` or a
+readable current pointer whose referenced `status.json` is missing or malformed
+blocks before any provider call, whether or not either record declares assurance.
+The relay must not silently select different legacy work from a corrupted active
+pointer. This refusal stops unsafe dispatch; it does not by itself require a human
+decision or stop evidence-based manager investigation and recovery. Valid legacy
+state still resumes or routes exactly as before.
+
+If the entire local state directory, including both records, is absent, stage 1
+cannot reconstruct or claim the position of an interrupted run. That distinct
+case remains deferred to ASSURANCE-4; any explicit recovery or new run must use
+the available durable evidence and pass its applicable admission again.
 
 ## 8. Ordered admission algorithm
+
+When `--baseline` is supplied, baseline-specific steps 1–5 below run before
+implicit dispatch checks the active local pointer and its referenced status as
+section 7 requires. Malformed/dangling active state returns a refusal with zero
+selector, builder, or reviewer calls, including in legacy mode. Absence of an
+active pointer retains the established fresh-selection path and is not presented
+as reconstruction of a lost run.
 
 Before any provider call when `--baseline` is supplied, and before every provider
 call when an assured status already exists:
@@ -555,8 +573,16 @@ point on a disposable target and check the emitted enforcement label and reason.
 
 Legacy regression tests run without `--baseline` and compare the existing
 selection/build/review request shape, phase outcome, provider/model/permission
-routing and dry-run output except for the explicitly approved legacy label.
-No test may invoke a real provider or the operator's live target state.
+routing and dry-run output except for the explicitly approved legacy label and
+the narrow corrupted-active-state exception in section 7. They additionally
+assert that malformed active current state and a current pointer to missing or
+malformed status produce zero implicit provider calls in legacy mode, while an
+intact legacy state resumes unchanged. A recovery fixture preserves an interrupted
+assured slice's partial work, repairs only operational state justified by retained
+records, and explicitly resumes that same slice; admission is revalidated before
+the next provider call. No test may invoke a real provider or the operator's live
+target state. These are ASSURANCE-1 verification obligations, not claims that this
+document amendment executed them.
 
 ## 11. Earned structures
 

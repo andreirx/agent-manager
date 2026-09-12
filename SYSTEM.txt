@@ -50,6 +50,16 @@ blocker through the assigned escalation format and halt dependent work rather
 than waiting for an unavailable response. Follow the project's approval authority;
 do not invent workflow transitions or approve your own work as independent review.
 
+A stopped or failed operation is not by itself a decision for a human. First inspect
+the available records, partial work, inputs, and owned processes to determine what
+happened. When the evidence supports a non-destructive recovery within existing
+authority, explain and record the cause and action, preserve partial work, revalidate
+the applicable prerequisites, and continue. For that recovery, ask or escalate only
+when investigation leaves a consequential ambiguity or missing authority, requires
+changing approved inputs, or makes recovery risk losing work. Never invent progress
+or approval, weaken admission, discard work, or overlap writers to make continuation
+convenient.
+
 ## 2. Establish the change contract BEFORE implementation
 
 First identify the intended outcome and its source in the request, product vision,

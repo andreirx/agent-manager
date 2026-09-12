@@ -1,0 +1,79 @@
+{
+  "formatVersion": 1,
+  "kind": "requirements-baseline-approval",
+  "approvalId": "ASSURANCE-1-BASELINE-APPROVAL-3",
+  "subject": {
+    "path": "docs/requirements/baselines/ASSURANCE-1-INPUT-3.json",
+    "sha256": "sha256:aa17d202261ddbde0c32c868befefb3dde6b6e7156097c71d28b5ae4e77c58de"
+  },
+  "review": {
+    "path": "docs/assurance/ASSURANCE-1-INPUT-3/requirements-review.json",
+    "sha256": "sha256:e0205c31d3fc732a43b9aa54ed4bdc79f9e2e25a24a87f0af82c91ec96f87546"
+  },
+  "decision": "approved",
+  "approvedBy": {
+    "actorType": "operator",
+    "actorId": "in-place-manager"
+  },
+  "recordedBy": {
+    "actorType": "operator",
+    "actorId": "in-place-manager"
+  },
+  "authorityBasis": {
+    "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+    "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+  },
+  "resolvedDecisions": [
+    {
+      "id": "D-FORMAT",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-AUTH",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-ADOPTION",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-DISPATCH",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-EVIDENCE",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-A1-DIAGNOSTICS",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-1/diagnostics-ratification.md",
+        "sha256": "sha256:e402cd4d47aa163ddefe06a07fb83bbcaba4c85e635f56b14928d38115f1a325"
+      }
+    },
+    {
+      "id": "A1-LEGACY-POINTER-BEHAVIOR",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-1/recovery-ratification.md",
+        "sha256": "sha256:0f26f786cb022bd059324b8d41072cae340d599759257921f7254f9b22670644"
+      }
+    }
+  ],
+  "decidedAt": "2026-09-12T11:07:14.714Z",
+  "rationale": "Human ratified conscious recovery and the narrow legacy-corruption exception; manager accepted the reviewed six-document delta and guard-order correction. See docs/assurance/ASSURANCE-1-RECOVERY/manager-acceptance.md for scope, unchanged-evidence reuse, and post-review manual assembly. INPUT-1/INPUT-2 are preserved. No runtime-assurance or code-acceptance claim."
+}

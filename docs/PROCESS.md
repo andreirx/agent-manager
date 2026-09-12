@@ -157,9 +157,20 @@ historical evidence. Inspect recorded descendants plus actual affected consumers
 Review the delta and changed assumptions; reusing unaffected evidence requires a
 reason. Relaxed acceptance criteria need the corresponding authority.
 
-Separate infrastructure retry from missing approval, stale inputs, and human decisions.
-Generic resume must not release the latter blockers. Missing local state permits
-inspection of prior durable acceptance, not invented continuation of interrupted work.
+Separate a refusal of unsafe implicit dispatch from a stop to investigation. The
+manager first inspects available status and progress records, the worktree, approved
+inputs, and owned processes. When that evidence establishes a non-destructive repair
+within existing authority, the manager explains and records the cause/action, restores
+only supported operational state, and explicitly resumes the same work. Admission is
+revalidated before dispatch, and the builder continues preserved partial work rather
+than restarting unnecessarily.
+
+Ask the human only after that investigation reveals a consequential ambiguity or
+missing authority, requires changing approved inputs, or makes recovery risk losing
+work. Separate infrastructure retry from missing approval, stale inputs, and human
+decisions; generic resume must not release the latter blockers. Missing local state
+permits inspection of prior durable acceptance, not an invented run position,
+approval, or continuation of interrupted work.
 
 ## 4. Current runner versus proposal
 

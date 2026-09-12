@@ -1,0 +1,116 @@
+{
+  "runs": [
+    {
+      "builder": {
+        "runId": "build-ASSURANCE-1-RECOVERY-0",
+        "phase": "implement",
+        "role": "builder",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "high",
+        "mode": "edit",
+        "permission": "write",
+        "status": "completed",
+        "startedAt": "2026-09-12T10:36:03.548Z",
+        "completedAt": "2026-09-12T10:46:06.729Z",
+        "logPath": ".agent-manager/logs/2026-09-12_10-36-03Z__builder__codex__slice-ASSURANCE-1-RECOVERY.txt",
+        "prompts": [
+          {
+            "path": "prompts/system/base.md",
+            "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+          },
+          {
+            "path": "prompts/roles/builder-target.md",
+            "digest": "sha256:1c8871786cc8df15e94486f8c93beb5ca5c96c15c7cd308af4e7da28866b2768"
+          }
+        ],
+        "workingDir": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager"
+      },
+      "reviewer": {
+        "runId": "review-ASSURANCE-1-RECOVERY-0",
+        "phase": "review-impl",
+        "role": "reviewer",
+        "provider": "codex",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "mode": "review",
+        "permission": "read-only",
+        "status": "completed",
+        "startedAt": "2026-09-12T10:46:06.737Z",
+        "completedAt": "2026-09-12T10:48:04.457Z",
+        "logPath": ".agent-manager/logs/2026-09-12_10-46-06Z__reviewer__codex__slice-ASSURANCE-1-RECOVERY.txt",
+        "prompts": [
+          {
+            "path": "prompts/system/base.md",
+            "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+          },
+          {
+            "path": "prompts/roles/reviewer-target.md",
+            "digest": "sha256:1bdf263e075f4acc1dac96885b8dadd284e4192eef4cd255b4f27df0ad46576e"
+          }
+        ],
+        "workingDir": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager"
+      }
+    },
+    {
+      "builder": {
+        "runId": "build-ASSURANCE-1-RECOVERY-1",
+        "phase": "implement",
+        "role": "builder",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "high",
+        "mode": "edit",
+        "permission": "write",
+        "status": "completed",
+        "startedAt": "2026-09-12T10:50:04.851Z",
+        "completedAt": "2026-09-12T10:53:55.028Z",
+        "logPath": ".agent-manager/logs/2026-09-12_10-50-04Z__builder__codex__slice-ASSURANCE-1-RECOVERY.txt",
+        "prompts": [
+          {
+            "path": "prompts/system/base.md",
+            "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+          },
+          {
+            "path": "prompts/roles/builder-target.md",
+            "digest": "sha256:1c8871786cc8df15e94486f8c93beb5ca5c96c15c7cd308af4e7da28866b2768"
+          }
+        ],
+        "workingDir": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager"
+      },
+      "reviewer": {
+        "runId": "review-ASSURANCE-1-RECOVERY-1",
+        "phase": "review-impl",
+        "role": "reviewer",
+        "provider": "codex",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "mode": "review",
+        "permission": "read-only",
+        "status": "completed",
+        "startedAt": "2026-09-12T10:53:55.034Z",
+        "completedAt": "2026-09-12T10:55:04.719Z",
+        "logPath": ".agent-manager/logs/2026-09-12_10-53-55Z__reviewer__codex__slice-ASSURANCE-1-RECOVERY.txt",
+        "prompts": [
+          {
+            "path": "prompts/system/base.md",
+            "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+          },
+          {
+            "path": "prompts/roles/reviewer-target.md",
+            "digest": "sha256:1bdf263e075f4acc1dac96885b8dadd284e4192eef4cd255b4f27df0ad46576e"
+          }
+        ],
+        "workingDir": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager"
+      }
+    }
+  ],
+  "sharedPrompt": {
+    "source": "SYSTEM.txt",
+    "frozenPath": ".agent-manager/slices/ASSURANCE-1-RECOVERY/input-SYSTEM.txt",
+    "digest": "sha256:ffe00c2654eaf7ac9f67e36114a781d502558e5a4ca9684395a77cfc780be772",
+    "candidateDigest": "sha256:fbb99b8cb7349562236bf289e33f9850a8412e1272746ba53d8dc7c9f6894f75",
+    "basis": "Accepted starting repository SYSTEM copied before launch; adapter loads shared instructions independently per role, so candidate SYSTEM was reviewed as output, not loaded as authority."
+  },
+  "observation": "Separate completed Codex CLI invocations through accepted predecessor e2b3380; same provider. Manual bootstrap, not tamper-proof identity or runtime assurance."
+}

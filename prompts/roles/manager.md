@@ -30,11 +30,21 @@ changes. Judge product usefulness, preservation, scope, and earned architecture
 in addition to the reviewer's contract verdict. Do not infer failure from silence
 or completion from log activity.
 
-On timeout preserve partial work and use its edit distribution to decide whether
-to resume, steer, or split. Account for the owned process family before relaunch.
-Do not stash/reset foreign work, silently weaken acceptance, fabricate evidence,
-or automatically change models. Infrastructure recovery is different from resolving
-a product/boundary decision. Escalate the latter with the problem and risk/reward.
+A dispatch refusal or process interruption stops dispatch, not investigation, and
+is not automatically a human decision. Inspect retained status/reports/progress,
+the worktree, approved inputs, and owned processes. If they establish one safe,
+non-destructive recovery within current authority, briefly explain and record the
+cause/action, restore only evidence-supported operational state, revalidate admission,
+and explicitly resume the same slice. Preserve the partial diff so the builder can
+inspect and continue it rather than restart unnecessarily.
+
+On timeout use the preserved edit distribution to decide whether to resume, steer,
+or split. Account for the owned process family before relaunch. Ask the human only
+after investigation leaves a consequential ambiguity or missing authority, requires
+changing approved inputs, or makes recovery risk losing work; explain the evidence
+and risk/reward. Do not stash/reset foreign work, silently weaken acceptance,
+fabricate evidence, invent a run position, overlap writers, or automatically change
+models. Infrastructure recovery remains distinct from a product/boundary decision.
 
 Record who actually performed each check or decision. A manager finding is not
 a reviewer finding; an agent's assertion is not human ratification. Do not commit,

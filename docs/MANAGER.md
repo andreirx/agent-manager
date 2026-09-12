@@ -102,6 +102,7 @@ reviews product sense and scope at the checkpoint, not only the reviewer's verdi
 | In-scope revise findings, valid baseline | Amend steering if needed and launch the next bounded cycle |
 | Missing required verification only | Arrange the specific permitted proof and preserve who ran it; do not relabel it as builder execution |
 | Provider auth/quota/environment interruption | Record infrastructure failure; resume only after the condition is resolved and inputs remain valid |
+| Malformed/dangling active local state | Refuse implicit dispatch; inspect retained records, progress, worktree, approved inputs, and owned processes; restore only operational state supported by that evidence, then explicitly resume and revalidate admission when existing authority settles the recovery |
 | Timeout with partial edits | Read progress and edit distribution; preserve work; split or narrow if the slice is too large |
 | Repeated substantive disagreement/non-convergence | Inspect root cause and scope; surface model escalation only under current human/delegated authority |
 | Requirement/design contradiction | Stop dependent code, prepare the change/decision evidence, obtain proper review/authority |
@@ -112,6 +113,32 @@ When terminating an owned run, follow the current tool permissions and verify th
 its descendant provider/build processes are accounted for before relaunch. Record
 what was stopped and why. Do not discard the partial tree or use stash/reset to hide
 work. A retry is not permission to change requirements or silently raise every limit.
+
+### Conscious recovery protocol
+
+1. Stop implicit dispatch and account for possible writers. Do not treat the stop
+   itself as a request for human approval.
+2. Inspect the available status, newest reports, incremental progress, worktree,
+   approved inputs, and owned process evidence. State what each source establishes
+   and what remains unknown.
+3. If the evidence identifies one interrupted slice and a non-destructive repair
+   within existing authority, record the cause and repair in the existing handoff,
+   restore only the supported operational state, and explicitly resume that slice.
+   Revalidate its admission before dispatch. The builder inspects and continues the
+   preserved partial diff; it does not restart from a blank tree unnecessarily.
+4. Ask the human only if the inspection leaves a consequential ambiguity or missing
+   authority, requires changing approved inputs, or would risk losing work. Explain
+   the conflict and why existing authority cannot settle it before giving options.
+
+Example — clear interruption: status, build progress, the diff, and process exit
+all identify the same builder timeout with no live writer. The manager explains the
+timeout, preserves the diff, repairs only the supported local pointer if needed,
+and explicitly resumes the same admitted slice without seeking a new approval.
+
+Example — conflicting evidence: the pointer names one slice while progress and
+unaccounted live edits indicate another writer or work item. The manager first
+investigates process ownership and the tree, then escalates because choosing either
+position could discard or misattribute work; it does not manufacture a run position.
 
 Steering belongs in the existing local packet/operator note and references the
 unchanged authoritative obligations. New obligations or altered acceptance require

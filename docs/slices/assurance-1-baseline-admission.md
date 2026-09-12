@@ -1,12 +1,13 @@
 # ASSURANCE-1 — Baseline admission on the real dispatch path
 
 Status: PREPARED (not self-authorizing). Eligibility is established only after
-independent review of the ratified diagnostic amendment and manager publication
-of the exact ASSURANCE-1-INPUT-2 manifest/review/approval chain. Maturity:
-PROTOTYPE implementation slice.
+independent review of the ratified conscious-recovery amendment and manager
+publication of the exact future ASSURANCE-1-INPUT-3 manifest/review/approval
+chain. Maturity: PROTOTYPE implementation slice.
 
 Authority: [2026-09-11 human authorization](../assurance/ASSURANCE-0/human-authorization.md).
 Diagnostic amendment: [D-A1-DIAGNOSTICS](../assurance/ASSURANCE-1/diagnostics-ratification.md).
+Recovery amendment: [A1-LEGACY-POINTER-BEHAVIOR](../assurance/ASSURANCE-1/recovery-ratification.md).
 Design/grammar: [Requirements Assurance v1 stage 1](../contracts/requirements-assurance-v1.md).
 Parent rollout: [ASSURANCE-1](requirements-assurance-rollout.md#assurance-1--baseline-admission-on-the-real-dispatch-path).
 
@@ -22,8 +23,9 @@ existing `relay-target` command. On the real `targetRelayLoop` path:
 - a valid approved closure reaches the expected provider request;
 - the selected manifest identity and `baseline-admission` enforcement survive
   resume even when the flag is omitted; and
-- a run with no flag and no persisted assurance selection follows the existing
-  legacy routing and reports its limited enforcement honestly.
+- a run with no flag, no persisted assurance selection, and no malformed/dangling
+  active state follows the existing legacy routing and reports its limited
+  enforcement honestly.
 
 This is baseline admission only. It must not print or persist `v1 assured`,
 `verified`, `accepted`, or any equivalent full-methodology claim. This outcome
@@ -32,14 +34,15 @@ inspectable target-owned bytes while preserving the existing role/provider relay
 
 ### Eligibility gate for this packet
 
-After independent review of the ratified contract/slice amendment, the manager
-must publish and record the exact identities of the future INPUT-2 chain:
+After independent review of the ratified conscious-recovery amendment, the manager
+must publish and record the exact identities of the future INPUT-3 chain:
 
-- manifest: `docs/requirements/baselines/ASSURANCE-1-INPUT-2.json`;
-- manual review: `docs/assurance/ASSURANCE-1-INPUT-2/requirements-review.json`;
-- approval: `docs/assurance/ASSURANCE-1-INPUT-2/baseline-approval.json`;
+- manifest: `docs/requirements/baselines/ASSURANCE-1-INPUT-3.json`;
+- manual review: `docs/assurance/ASSURANCE-1-INPUT-3/requirements-review.json`;
+- approval: `docs/assurance/ASSURANCE-1-INPUT-3/baseline-approval.json`;
 - the accepted ASSURANCE-0 reviewer/manager record identities; and
-- the ratified D-A1-DIAGNOSTICS decision record included in that chain.
+- both the ratified D-A1-DIAGNOSTICS and A1-LEGACY-POINTER-BEHAVIOR decision
+  records included in that chain.
 
 Absence, draft state, digest mismatch, unresolved review findings, or an
 unresolved decision keeps this packet ineligible. The ASSURANCE-1 builder does
@@ -47,9 +50,9 @@ not author or approve those prerequisites. Exact digests live in the acyclic
 review/approval chain and the manager's operational selection packet, not in this
 slice document: the manifest hashes this document as its allocation input, so
 embedding the manifest's own digest here would create a circular identity.
-ASSURANCE-1-INPUT-1 remains an untouched historical baseline and cannot authorize
-dispatch against the amended contract or slice bytes; it is neither rehashed nor
-silently reused as INPUT-2 authority.
+ASSURANCE-1-INPUT-1 and ASSURANCE-1-INPUT-2 remain untouched historical baselines
+and cannot authorize dispatch against the newly amended contract or slice bytes;
+neither is rehashed nor silently reused as INPUT-3 authority.
 
 ## 2. Requirement allocation
 
@@ -70,7 +73,7 @@ packet becomes eligible.
 
 | ID | Existing contract to preserve | Evidence source / regression oracle |
 |---|---|---|
-| P-A1-01 | Without `--baseline` and without persisted assurance state, select -> implement -> review routing, phase results, model/provider/permission choices, retry/cycle behavior, and decision-review trigger remain unchanged. | `docs/contracts/target-owned-relay.md`; existing `relay-target.test.ts`; normalized stub requests and dry-run invocation lines before/after. |
+| P-A1-01 | Without `--baseline` and without persisted assurance state, valid select -> implement -> review routing, phase results, model/provider/permission choices, retry/cycle behavior, and decision-review trigger remain unchanged. Narrow exception: implicit dispatch refuses malformed active current state or a current pointer to missing/malformed status before any provider call, including in legacy mode; it must not silently select different work. | `docs/contracts/target-owned-relay.md`; `A1-LEGACY-POINTER-BEHAVIOR`; existing `relay-target.test.ts`; normalized stub requests and dry-run invocation lines before/after, plus zero-call corrupted-state cases. |
 | P-A1-02 | `--supervisor` still selects and reviews; it is not renamed or represented as the persistent manager. | CLAUDE.md authorization and `src/cli/relay-target.ts`. |
 | P-A1-03 | Provider-specific argv and prompt delivery remain in adapters; admission does not branch on provider names or call a real provider in tests. | ARCHITECTURE sections 3/8; adapter request tests and dry-run parity. |
 | P-A1-04 | The existing decision-review path and `DECISION_REQUIRED` behavior remain additive and unchanged. | `docs/contracts/target-owned-relay.md`; all existing decision-review tests. |
@@ -129,8 +132,14 @@ must not add a generic JSON/schema framework. No dependency is added.
 7. It is never a boolean plus optional manifest fields. The same object is written
 to status and current pointer; a mismatch, malformed assured object, or current
 pointer to a missing/malformed status blocks rather than selecting a legacy run.
-If both local state files were deleted, recovery is outside stage 1 and no resume
-claim is made; AM-REQ-006-L06 remains allocated to ASSURANCE-4.
+During implicit dispatch, malformed active current state and a current pointer to
+missing/malformed status also block when neither record declares assurance. This
+is the ratified narrow exception to P-A1-01; valid legacy routing remains unchanged.
+The refusal is not an automatic human-decision escalation: the existing manager
+investigates and may explicitly recover/resume within existing authority. If the
+whole local state directory was lost, stage 1 cannot reconstruct an interrupted
+position and no resume claim is made; AM-REQ-006-L06 remains allocated to
+ASSURANCE-4.
 
 ### Guard ordering
 
@@ -139,18 +148,23 @@ claim is made; AM-REQ-006-L06 remains allocated to ASSURANCE-4.
    content/authority chain (contract algorithm steps 1-5) before fresh selection
    or another provider call. Allocation admission is not yet claimed because a
    fresh selector's `SLICE_DOC` is not known.
-3. Resolve explicit slice/resume/fresh selection through the existing flow. For
+3. For implicit dispatch, parse active `current.json` and, when it points to active
+   work, its referenced `status.json`. Malformed current state or missing/malformed
+   referenced status refuses dispatch with zero provider calls in assured and
+   legacy modes. A valid legacy state continues through the established path.
+4. Resolve explicit slice/resume/fresh selection through the existing flow. For
    assured `--dry-run`, require explicit `--slice`, load its preprepared
    status fixture through the same local admission path as live
    execution, and do not run selection or any provider.
-4. When the slice is known, check that `sliceDoc` exactly names a manifest
+5. When the slice is known, check that `sliceDoc` exactly names a manifest
    dependency with role `allocation`; only after this check may output say
    `baseline-admission`. Live execution persists/compares mode; dry-run performs
    no writes.
-5. Immediately before each builder or reviewer call, reread and revalidate the
+6. Immediately before each builder or reviewer call, reread and revalidate the
    whole chain. Drift blocks. Selection is the sole permitted earlier provider
    call when its returned allocation was not knowable in advance.
-6. Legacy flow bypasses these new guards but prints the legacy limitation.
+7. Legacy flow bypasses the baseline-specific guards but not step 3, and prints
+   the legacy limitation.
 
 All files read within one validation attempt are immutable in-memory byte
 snapshots for that attempt. No continuous immutability or hostile-writer claim is
@@ -210,6 +224,9 @@ state its actual contract—its boolean narrows only object shape while missing 
 unknown fields are appended to the error accumulator—and the aggregate-diagnostic
 cases above verify that those appended errors do not stop readable duplicate
 identity collection. This document amendment does not perform the rename.
+The conscious-recovery amendment neither broadens nor weakens these diagnostic
+rules and does not resolve the parent review-4 source-diagnostic implementation
+finding; that code/test correction remains work for the implementation builder.
 
 ### A1-C02 — Filesystem boundary
 
@@ -230,7 +247,13 @@ selector/builder/reviewer calls, (b) valid baseline + selection allocation
 mismatch = one selector and zero builders, (c) valid prepared slice = exactly one
 builder and one reviewer as the verdict requires, (d) digest mutation before
 review = reviewer zero and blocked, (e) flag omission on resume revalidates the
-persisted baseline, and (f) a conflicting flag or corrupted assured state blocks.
+persisted baseline, (f) a conflicting flag or corrupted assured state blocks,
+(g) malformed active current state and a pointer to missing/malformed status cause
+zero implicit provider calls even in legacy mode, and (h) intact legacy resume
+remains unchanged. A recovery case retains an interrupted assured slice's partial
+work, restores only evidence-supported operational state, and explicitly resumes
+that same slice; admission is revalidated before dispatch and the builder continues
+the existing diff rather than restarting it.
 
 ### A1-C04 — Running CLI, isolated
 
@@ -271,9 +294,10 @@ disposable target and injected provider call counts.
 
 Stop and report rather than improvise if:
 
-- the ASSURANCE-1-INPUT-2 manifest/review/approval chain, its prerequisite
-  independent amendment review, or its D-A1-DIAGNOSTICS decision record is
-  absent, stale, rejected, or names unresolved decisions;
+- the future ASSURANCE-1-INPUT-3 manifest/review/approval chain, its prerequisite
+  independent recovery-amendment review, or either D-A1-DIAGNOSTICS or
+  A1-LEGACY-POINTER-BEHAVIOR decision record is absent, stale, rejected, or names
+  unresolved decisions;
 - implementing the grammar reveals a contradiction with any approved H/L prose
   or requires changing the record shape/authority choice;
 - a new package/dependency/module boundary, provider-specific assurance branch,

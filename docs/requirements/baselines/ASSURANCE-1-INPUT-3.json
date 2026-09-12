@@ -1,0 +1,158 @@
+{
+  "formatVersion": 1,
+  "kind": "requirements-baseline-manifest",
+  "baselineId": "ASSURANCE-1-INPUT-3",
+  "target": {
+    "projectId": "agent-manager",
+    "root": "."
+  },
+  "requirements": [
+    {
+      "path": "docs/requirements/am-req-001-target-owned-requirements.md",
+      "sha256": "sha256:7935baedfcb38fcd89795baf449d520a5259f2ff9f06caa5a4bb4a545e4802e6"
+    },
+    {
+      "path": "docs/requirements/am-req-002-requirements-and-design-review.md",
+      "sha256": "sha256:913c463c67778ba1a6cc96d62225d7b2775b9b1f1359d196b203b208589984fb"
+    },
+    {
+      "path": "docs/requirements/am-req-003-traceable-delivery-planning.md",
+      "sha256": "sha256:6fcec488306cca8fef8f14f9839c89e0216d5185498552128353fe19e69aa6ce"
+    },
+    {
+      "path": "docs/requirements/am-req-004-baseline-bound-execution.md",
+      "sha256": "sha256:862d748dfdd396bda696faf7b17c80e21331582d1ee48831c1c7b50b1dbd6144"
+    },
+    {
+      "path": "docs/requirements/am-req-005-verification-and-acceptance.md",
+      "sha256": "sha256:cadfd915b567c80b0406bd2fbf4547504042bf5675768a536fc06478cbbb5268"
+    },
+    {
+      "path": "docs/requirements/am-req-006-controlled-requirement-change.md",
+      "sha256": "sha256:a1fc9426f5f91fb0c70a519da9423ffcfda4c57c489594858c847256e26f4f51"
+    },
+    {
+      "path": "docs/requirements/am-req-007-project-aware-engineering.md",
+      "sha256": "sha256:32b981c6e42d52971d029f4ed3bf53f3658ee76c3852361f66d14497034050da"
+    },
+    {
+      "path": "docs/requirements/am-req-008-self-hosting-and-adoption.md",
+      "sha256": "sha256:7d0aa8c15b8f5146d7d06bf25c35e77dce8ce7b0813764ba31c9605ece82169e"
+    },
+    {
+      "path": "docs/requirements/am-req-009-in-place-manager.md",
+      "sha256": "sha256:e1a983a79397c5f104075c8a9625fa834b8a9b23bc9489d5ad9314980c25c9a2"
+    }
+  ],
+  "dependencies": [
+    {
+      "role": "source",
+      "path": "docs/VISION.md",
+      "sha256": "sha256:af3d5685b30b122da8720fb622bf8381869c7b920ff5affb33a89d5480cb4a98"
+    },
+    {
+      "role": "source",
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "sha256:51971b54c59cd15ab07fc1a3af848ad36426b925e72507b97f6dc60222ecf4f1"
+    },
+    {
+      "role": "source",
+      "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+      "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+    },
+    {
+      "role": "governance",
+      "path": "CLAUDE.md",
+      "sha256": "sha256:4a09c6119ec4c3970ebd0d91e4d122dbd75854054a54a8c3e173ce90e9a77538"
+    },
+    {
+      "role": "governance",
+      "path": "SYSTEM.txt",
+      "sha256": "sha256:fbb99b8cb7349562236bf289e33f9850a8412e1272746ba53d8dc7c9f6894f75"
+    },
+    {
+      "role": "governance",
+      "path": "prompts/system/base.md",
+      "sha256": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+    },
+    {
+      "role": "governance",
+      "path": "prompts/roles/builder-target.md",
+      "sha256": "sha256:1c8871786cc8df15e94486f8c93beb5ca5c96c15c7cd308af4e7da28866b2768"
+    },
+    {
+      "role": "governance",
+      "path": "prompts/roles/reviewer-target.md",
+      "sha256": "sha256:1bdf263e075f4acc1dac96885b8dadd284e4192eef4cd255b4f27df0ad46576e"
+    },
+    {
+      "role": "design",
+      "path": "docs/PROCESS.md",
+      "sha256": "sha256:4fbc7672c02cee0c4445d2485e58759ba870d6726501626ee490642838858703"
+    },
+    {
+      "role": "design",
+      "path": "docs/MANAGER.md",
+      "sha256": "sha256:9ab870f7a32b4bdfc138cbc1c43654325bfac820f6a0b6f6d5580e7c8ce08d18"
+    },
+    {
+      "role": "design",
+      "path": "docs/slices/requirements-assurance-rollout.md",
+      "sha256": "sha256:bf6375d1730f8d8e62bb17cdf6538eee3ea5fa8733fe9b8a49ccfaf015f868f0"
+    },
+    {
+      "role": "design",
+      "path": "docs/contracts/requirements-assurance-v1.md",
+      "sha256": "sha256:2003d54cfaa529a7d8f8757975d03f95f720fcc877b2ed3fcf1554a1802c3cae"
+    },
+    {
+      "role": "allocation",
+      "path": "docs/slices/assurance-1-baseline-admission.md",
+      "sha256": "sha256:1016ad78d742cc42690b6af0cb8d62f4067c59a7456c061cd88bc107523e6276"
+    },
+    {
+      "role": "governance",
+      "path": "docs/assurance/ASSURANCE-1/diagnostics-ratification.md",
+      "sha256": "sha256:e402cd4d47aa163ddefe06a07fb83bbcaba4c85e635f56b14928d38115f1a325"
+    },
+    {
+      "role": "design",
+      "path": "docs/assurance/ASSURANCE-0/review-3.json",
+      "sha256": "sha256:c094c9f5d6924c3a951c5940dca9d2c76dc2ed7cd7edab205f7b5d3b5df597a8"
+    },
+    {
+      "role": "design",
+      "path": "docs/assurance/ASSURANCE-1-DIAGNOSTICS/review-0.json",
+      "sha256": "sha256:9d937c47d451e7d46858074f83ad0cdc19b38feede7144ab4e24eed2c06e7a26"
+    },
+    {
+      "role": "governance",
+      "path": "docs/assurance/ASSURANCE-1/recovery-ratification.md",
+      "sha256": "sha256:0f26f786cb022bd059324b8d41072cae340d599759257921f7254f9b22670644"
+    },
+    {
+      "role": "governance",
+      "path": "prompts/roles/manager.md",
+      "sha256": "sha256:8c64dc0f4457a4ac8b2efcdaf27b8eb9aa1bbc0cfda0ed16fe4fb1ec92a2176d"
+    },
+    {
+      "role": "design",
+      "path": "docs/assurance/ASSURANCE-1-RECOVERY/review-0.json",
+      "sha256": "sha256:e0c2f245a9dd9251a39b0db7070ae61702b14aab64cde1e213ed5d7ef98814d7"
+    },
+    {
+      "role": "design",
+      "path": "docs/assurance/ASSURANCE-1-RECOVERY/review-1.json",
+      "sha256": "sha256:323d95686660ab7fca696a7db8570953f7660a412df9e6afd5a2c9772f013983"
+    }
+  ],
+  "requiredDecisionIds": [
+    "D-FORMAT",
+    "D-AUTH",
+    "D-ADOPTION",
+    "D-DISPATCH",
+    "D-EVIDENCE",
+    "D-A1-DIAGNOSTICS",
+    "A1-LEGACY-POINTER-BEHAVIOR"
+  ]
+}

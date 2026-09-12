@@ -1,0 +1,26 @@
+{
+  "formatVersion": 1,
+  "kind": "manual-requirements-review",
+  "reviewId": "ASSURANCE-1-RECOVERY-REVIEW-2",
+  "subject": {
+    "path": "docs/requirements/baselines/ASSURANCE-1-INPUT-3.json",
+    "sha256": "sha256:aa17d202261ddbde0c32c868befefb3dde6b6e7156097c71d28b5ae4e77c58de"
+  },
+  "author": {
+    "role": "builder",
+    "provider": "codex",
+    "model": "gpt-5.6-sol",
+    "effort": "high",
+    "runId": "build-ASSURANCE-1-RECOVERY-1"
+  },
+  "reviewer": {
+    "role": "reviewer",
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "high",
+    "runId": "review-ASSURANCE-1-RECOVERY-1"
+  },
+  "result": "accepted",
+  "completedAt": "2026-09-12T10:55:04.719Z",
+  "report": "STATUS: approved\n\n- **OBSERVED:** `pre-correction-identities.json` audit covers 109 paths: exactly the two authorized paths differ; 107, including all inherited code, tests, records, and the other recovery-delta documents, are byte-identical.\n- **OBSERVED:** Contract §8 now places explicit baseline steps 1–5 before implicit active-pointer/status inspection. The parent slice restores baseline validation to guard 2, implicit state resolution to guard 3, and correctly limits legacy bypass to baseline-specific guards.\n- **OBSERVED:** `targetRelayLoop` performs `admitBaseline` before reading `.agent-manager/current.json`; malformed/dangling pointer refusal remains before any selection/provider call.\n- **OBSERVED:** The zero-provider-call legacy-corruption rule, valid legacy routing, and INPUT-3 prerequisites remain present.\n- **OBSERVED:** `git diff --check` passed. No commit was made.\n- **INFERRED:** This small correction aligns the ratified recovery documentation with existing dispatch order while preserving the VISION’s inspectable, fail-closed workflow and avoiding an unratified precedence change.\n- **OBSERVED:** This is a separate-invocation review using the same provider family; it is not human ratification or runtime verification.\n"
+}
