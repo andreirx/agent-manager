@@ -5,12 +5,11 @@ Maturity: PROTOTYPE planning artifact. This is not a historical completion ledge
 
 ## Current priority
 
-Review the [requirements catalog](requirements/README.md), [process](PROCESS.md),
-[manager playbook](MANAGER.md), and [rollout design](slices/requirements-assurance-rollout.md).
-The human approved the drafts and recommended decisions and authorized implementation:
-[authorization](assurance/ASSURANCE-0/human-authorization.md). ASSURANCE-0 is READY for
-document refinement and independent review. Dependent code remains gated on its result;
-no runtime assurance gate is claimed implemented.
+ASSURANCE-0 is accepted. ASSURANCE-1 is implemented in the working tree but NOT
+accepted; four review rounds ended in revise. The human ratified
+[D-A1-DIAGNOSTICS](assurance/ASSURANCE-1/diagnostics-ratification.md). The two-document
+amendment is independently reviewed and INPUT-2 published; code continuation is next;
+no implementation gate is claimed accepted.
 
 ## Proposed order
 
@@ -21,7 +20,7 @@ baseline; do not point every execution at an unreviewed umbrella plan.
 | Work item | Deliverable and visible result | Prerequisite | State |
 |---|---|---|---|
 | [ASSURANCE-0](slices/requirements-assurance-rollout.md#assurance-0--review-the-process-and-baseline-documents-only) | Independent review, resolved format/authority decisions, accepted input baseline | Human authorization to run review; provider readiness | Accepted; four document cycles; [record](assurance/ASSURANCE-0/manager-acceptance.md) |
-| [ASSURANCE-1](slices/requirements-assurance-rollout.md#assurance-1--baseline-admission-on-the-real-dispatch-path) | Real pre-dispatch refusal/allow result for a baseline | Accepted ASSURANCE-0 | Ready for bounded self-build |
+| [ASSURANCE-1](slices/requirements-assurance-rollout.md#assurance-1--baseline-admission-on-the-real-dispatch-path) | Real pre-dispatch refusal/allow result for a baseline | Accepted ASSURANCE-0 | Not accepted; [ratified amendment](assurance/ASSURANCE-1/diagnostics-ratification.md) reviewed; INPUT-2 published, code continuation next |
 | [ASSURANCE-2](slices/requirements-assurance-rollout.md#assurance-2--reviewed-inputs-and-identical-role-context) | Requirements review coverage and identical recorded role inputs | Accepted ASSURANCE-1 runner | Blocked on prerequisite |
 | [ASSURANCE-3](slices/requirements-assurance-rollout.md#assurance-3--evidence-linked-implementation-review) | Evidence/preservation gate rejects an unsupported green verdict | Accepted ASSURANCE-2 runner | Blocked on prerequisite |
 | [ASSURANCE-4](slices/requirements-assurance-rollout.md#assurance-4--controlled-acceptance-and-recovery) | Durable operator acceptance and cause-aware resume | Accepted ASSURANCE-3 runner | Blocked on prerequisite |

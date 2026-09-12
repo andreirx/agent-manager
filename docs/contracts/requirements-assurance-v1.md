@@ -106,8 +106,25 @@ substitutes for this digest; Git HEAD alone omits uncommitted and untracked inpu
 
 ### 2.5 Failure reporting
 
-Validation is fail-closed and returns all independently discoverable structural
-errors from the files successfully read. Each error reports:
+Validation is fail-closed. For a successfully read JSON record, including the
+delimited JSON metadata in a requirement file, diagnostic continuation depends
+on whether that record parses unambiguously:
+
+- an unambiguously parsed record returns all independently discoverable
+  structural errors, so one readable error does not hide another;
+- malformed JSON or any duplicate object member name rejects that record and
+  stops deeper field, identity and cross-record diagnostics that would depend on
+  decoding it; the applicable `malformed-json` and/or `duplicate-field` errors
+  are still reported; and
+- a duplicate-key record is never decoded with last-member-wins semantics for
+  validation or admission. Repairing malformed or duplicate-key JSON may expose
+  additional errors on a later validation pass.
+
+Stopping at one ambiguous record does not discard errors already collected from
+other unambiguously parsed records, but validation need not discover records or
+identities reachable only by decoding the ambiguous record.
+
+Each reported error includes:
 
 - stable code: `missing`, `unreadable`, `io-failure`, `path-escape`,
   `malformed-json`, `metadata-delimiter`, `duplicate-field`,
@@ -524,13 +541,17 @@ database, package, provider-specific gate, or dormant lifecycle state.
 
 Pure in-memory tests exercise JSON/metadata parsing, exact fields, duplicate keys
 and identities, versions/kinds, parent/heading/source closure, digest matching,
-review/approval binding and exhaustive error rendering. Disposable filesystem
-tests separately exercise missing/unreadable files, traversal, symlink escape,
-root containment and reread mutation. Use-case tests inject stub providers and
-assert call counts: invalid initial closure -> zero provider calls; allocation
-mismatch after fresh selection -> zero builder calls; valid closure -> exactly
-the expected request. CLI tests invoke the built entry point on a disposable
-target and check the emitted enforcement label and reason.
+review/approval binding and exhaustive error rendering. For requirement,
+manifest, review and approval records, malformed or duplicate-key JSON must be
+rejected without harvesting deeper identities or field diagnostics from the
+ambiguous record; unambiguously parsed objects must retain aggregate diagnostics,
+including a readable duplicate identity alongside an unrelated structural error.
+Disposable filesystem tests separately exercise missing/unreadable files,
+traversal, symlink escape, root containment and reread mutation. Use-case tests
+inject stub providers and assert call counts: invalid initial closure -> zero
+provider calls; allocation mismatch after fresh selection -> zero builder calls;
+valid closure -> exactly the expected request. CLI tests invoke the built entry
+point on a disposable target and check the emitted enforcement label and reason.
 
 Legacy regression tests run without `--baseline` and compare the existing
 selection/build/review request shape, phase outcome, provider/model/permission

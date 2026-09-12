@@ -1,0 +1,72 @@
+{
+  "formatVersion": 1,
+  "kind": "requirements-baseline-approval",
+  "approvalId": "ASSURANCE-1-BASELINE-APPROVAL-2",
+  "subject": {
+    "path": "docs/requirements/baselines/ASSURANCE-1-INPUT-2.json",
+    "sha256": "sha256:f188eb720f919a891db0cd60dbd25f9d95c03ed96eba3a46d7928aabf869d0ca"
+  },
+  "review": {
+    "path": "docs/assurance/ASSURANCE-1-INPUT-2/requirements-review.json",
+    "sha256": "sha256:7c6b1a76fe10ef105dca7274bd564124099f521e0f4ccf257602e87c213ff0fd"
+  },
+  "decision": "approved",
+  "approvedBy": {
+    "actorType": "operator",
+    "actorId": "in-place-manager"
+  },
+  "recordedBy": {
+    "actorType": "operator",
+    "actorId": "in-place-manager"
+  },
+  "authorityBasis": {
+    "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+    "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+  },
+  "resolvedDecisions": [
+    {
+      "id": "D-FORMAT",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-AUTH",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-ADOPTION",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-DISPATCH",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-EVIDENCE",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-A1-DIAGNOSTICS",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-1/diagnostics-ratification.md",
+        "sha256": "sha256:e402cd4d47aa163ddefe06a07fb83bbcaba4c85e635f56b14928d38115f1a325"
+      }
+    }
+  ],
+  "decidedAt": "2026-09-12T06:48:33.351Z",
+  "rationale": "Human ratified D-A1-DIAGNOSTICS; manager accepted the independently reviewed amendment. See docs/assurance/ASSURANCE-1-DIAGNOSTICS/manager-acceptance.md for exact unchanged-evidence reuse. INPUT-1 is preserved; INPUT-2 is manually assembled post-review and is not runtime-assured."
+}

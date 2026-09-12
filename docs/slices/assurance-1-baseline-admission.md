@@ -1,10 +1,12 @@
 # ASSURANCE-1 — Baseline admission on the real dispatch path
 
 Status: PREPARED (not self-authorizing). Eligibility is established only after
-ASSURANCE-0 independent review is accepted and the manager publishes the exact
-manifest/review/approval chain. Maturity: PROTOTYPE implementation slice.
+independent review of the ratified diagnostic amendment and manager publication
+of the exact ASSURANCE-1-INPUT-2 manifest/review/approval chain. Maturity:
+PROTOTYPE implementation slice.
 
 Authority: [2026-09-11 human authorization](../assurance/ASSURANCE-0/human-authorization.md).
+Diagnostic amendment: [D-A1-DIAGNOSTICS](../assurance/ASSURANCE-1/diagnostics-ratification.md).
 Design/grammar: [Requirements Assurance v1 stage 1](../contracts/requirements-assurance-v1.md).
 Parent rollout: [ASSURANCE-1](requirements-assurance-rollout.md#assurance-1--baseline-admission-on-the-real-dispatch-path).
 
@@ -30,13 +32,14 @@ inspectable target-owned bytes while preserving the existing role/provider relay
 
 ### Eligibility gate for this packet
 
-After ASSURANCE-0 review, the manager must publish and record the exact identities
-of:
+After independent review of the ratified contract/slice amendment, the manager
+must publish and record the exact identities of the future INPUT-2 chain:
 
-- manifest: `docs/requirements/baselines/ASSURANCE-1-INPUT-1.json`;
-- manual review: `docs/assurance/ASSURANCE-1-INPUT-1/requirements-review.json`;
-- approval: `docs/assurance/ASSURANCE-1-INPUT-1/baseline-approval.json`; and
-- the accepted ASSURANCE-0 reviewer/manager record identities.
+- manifest: `docs/requirements/baselines/ASSURANCE-1-INPUT-2.json`;
+- manual review: `docs/assurance/ASSURANCE-1-INPUT-2/requirements-review.json`;
+- approval: `docs/assurance/ASSURANCE-1-INPUT-2/baseline-approval.json`;
+- the accepted ASSURANCE-0 reviewer/manager record identities; and
+- the ratified D-A1-DIAGNOSTICS decision record included in that chain.
 
 Absence, draft state, digest mismatch, unresolved review findings, or an
 unresolved decision keeps this packet ineligible. The ASSURANCE-1 builder does
@@ -44,6 +47,9 @@ not author or approve those prerequisites. Exact digests live in the acyclic
 review/approval chain and the manager's operational selection packet, not in this
 slice document: the manifest hashes this document as its allocation input, so
 embedding the manifest's own digest here would create a circular identity.
+ASSURANCE-1-INPUT-1 remains an untouched historical baseline and cannot authorize
+dispatch against the amended contract or slice bytes; it is neither rehashed nor
+silently reused as INPUT-2 authority.
 
 ## 2. Requirement allocation
 
@@ -181,15 +187,29 @@ incrementally before moving to the next group and deletes owned disposable roots
 `npm test -- --runInBand`.
 
 **Oracle:** valid requirement/manifest/review/approval snapshots yield one
-`baseline-admission` value; cases cover every required error code from contract
-2.5, duplicate JSON keys before `JSON.parse`, unknown fields at every object
-level, wrong/missing/type/version/kind, global H/L/path/decision duplicates,
-parent/heading/source mismatch, stale subjects and unaccepted review/approval.
+`baseline-admission` value. For each of the requirement, manifest, review and
+approval record kinds, one malformed payload (the metadata payload for a
+requirement record) is refused with `malformed-json`, and one syntactically valid
+duplicate-key payload is refused with `duplicate-field`. Neither case harvests
+deeper field, identity or cross-record diagnostics from that ambiguous record. A
+paired case for each kind uses unambiguous JSON containing an unrelated structural
+error plus a readable duplicate identity and asserts that both are reported. No
+case admits duplicate-key JSON through last-member-wins decoding, and no case
+requires errors that only become discoverable after the JSON is repaired.
+Remaining cases cover every required error code from contract 2.5, unknown fields
+at every object level, wrong/missing/type/version/kind, global H/L/path/decision
+duplicates, parent/heading/source mismatch, stale subjects and unaccepted
+review/approval.
 Source-closure cases accept a metadata source resolved by a single
 `requirements` entry or by a single role-`source` dependency, and reject the
 same path in both arrays, a path absent from both, or a path present only under
 a non-`source` dependency role. No provider or filesystem is needed for these
-pure cases.
+pure cases. The implementation pass also renames or clarifies the private
+`checkClosed` helper: source inspection must verify that its name and comment
+state its actual contract—its boolean narrows only object shape while missing and
+unknown fields are appended to the error accumulator—and the aggregate-diagnostic
+cases above verify that those appended errors do not stop readable duplicate
+identity collection. This document amendment does not perform the rename.
 
 ### A1-C02 — Filesystem boundary
 
@@ -251,8 +271,9 @@ disposable target and injected provider call counts.
 
 Stop and report rather than improvise if:
 
-- the accepted ASSURANCE-0 manifest/review/approval chain is absent, stale,
-  rejected, or names unresolved decisions;
+- the ASSURANCE-1-INPUT-2 manifest/review/approval chain, its prerequisite
+  independent amendment review, or its D-A1-DIAGNOSTICS decision record is
+  absent, stale, rejected, or names unresolved decisions;
 - implementing the grammar reveals a contradiction with any approved H/L prose
   or requires changing the record shape/authority choice;
 - a new package/dependency/module boundary, provider-specific assurance branch,

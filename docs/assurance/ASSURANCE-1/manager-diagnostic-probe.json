@@ -1,0 +1,28 @@
+{
+  "at": "2026-09-12T06:05:01.055Z",
+  "oneUnknownField": [
+    {
+      "code": "duplicate-identity",
+      "recordPath": "docs/requirements/baselines/PROBE.json",
+      "location": "/requirements/9/path",
+      "detail": "duplicate identity 'docs/requirements/am-req-001-target-owned-requirements.md'",
+      "otherLocation": "/requirements/0/path"
+    },
+    {
+      "code": "unknown-field",
+      "recordPath": "docs/requirements/baselines/PROBE.json",
+      "location": "/extra",
+      "detail": "unknown field 'extra'"
+    }
+  ],
+  "duplicateUnrelatedField": [
+    {
+      "code": "duplicate-field",
+      "recordPath": "docs/requirements/baselines/PROBE.json",
+      "location": "line 1 (/extra)",
+      "detail": "duplicate JSON member 'extra'",
+      "otherLocation": "line 1 (/extra)"
+    }
+  ],
+  "interpretation": "Ordinary unknown-field case retains duplicate path diagnostics; duplicate JSON field suppresses them. Both cases reject admission. This is diagnostic coverage, not invalid-baseline acceptance."
+}
