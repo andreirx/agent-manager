@@ -25,6 +25,7 @@
  *   --reselect                 force a fresh selection even if a slice is active
  *   --until select-slice       stop after selection (no building)
  *   --dry-run                  print exact provider invocations; do not spawn
+ *   --baseline <path>          target-relative stage-1 baseline manifest
  *
  * @module cli
  * @maturity PROTOTYPE
@@ -44,11 +45,13 @@ import { CodexAdapter } from '../adapters/providers/codex/index.js';
 import { CopilotAdapter } from '../adapters/providers/copilot/index.js';
 import {
   targetRelayLoop,
+  admitBaseline,
   type TargetActor,
   type TargetPhase,
   type TargetRelayInput,
 } from '../application/use-cases/relay-target.js';
 import type { RunRequest } from '../application/ports/provider-runner.js';
+import { parseAssuranceJson, parsePersistedAssurance, renderAssuranceError } from '../core/assurance.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 /** agent-manager root: prompt-asset root (NOT the target working dir). */
@@ -168,6 +171,7 @@ interface Args {
    * e.g. claude-fable-5 for complex/long-converging slices, opus-4-8 default). */
   builderModel?: string;
   supervisorModel?: string;
+  baseline?: string;
 }
 
 function parseProvider(value: string, flag: string): TargetActor {
@@ -192,6 +196,7 @@ function parseArgs(argv: string[]): Args {
   let dryRun = false;
   let builderModel: string | undefined;
   let supervisorModel: string | undefined;
+  let baseline: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -224,6 +229,9 @@ function parseArgs(argv: string[]): Args {
         break;
       case '--shared-prompt':
         sharedPrompt = value('--shared-prompt');
+        break;
+      case '--baseline':
+        baseline = value('--baseline');
         break;
       case '--max-iter':
         maxIter = Number.parseInt(value('--max-iter'), 10);
@@ -286,7 +294,8 @@ function parseArgs(argv: string[]): Args {
   const withSlice = slice !== undefined ? { ...base, slice } : base;
   const withUntil = until !== undefined ? { ...withSlice, until } : withSlice;
   const withBM = builderModel !== undefined ? { ...withUntil, builderModel } : withUntil;
-  return supervisorModel !== undefined ? { ...withBM, supervisorModel } : withBM;
+  const withSM = supervisorModel !== undefined ? { ...withBM, supervisorModel } : withBM;
+  return baseline !== undefined ? { ...withSM, baseline } : withSM;
 }
 
 /** Elide the long developer_instructions value so dry-run stays readable. */
@@ -305,8 +314,61 @@ async function printDryRun(
   targetDir: string,
   sharedInstructionPath: string | undefined,
   builderRaw: RawAdapter,
-  supervisorRaw: RawAdapter
+  supervisorRaw: RawAdapter,
+  store: FilesystemArtifactStore
 ): Promise<void> {
+  if (args.baseline !== undefined) {
+    if (args.slice === undefined) {
+      throw new Error('assured dry-run requires an explicit --slice <id> so its SLICE_DOC allocation can be checked');
+    }
+    const statusPath = `.agent-manager/slices/${args.slice}/status.json`;
+    const statusSnapshot = await store.readContainedFile(targetDir, statusPath);
+    if (statusSnapshot.status === 'error') {
+      throw new Error(`${statusSnapshot.code}: ${statusPath}: ${statusSnapshot.detail}`);
+    }
+    const parsedStatus = parseAssuranceJson(
+      new TextDecoder('utf-8', { fatal: true }).decode(statusSnapshot.bytes),
+      statusPath
+    );
+    if (!parsedStatus.ok) {
+      throw new Error(parsedStatus.errors.map(renderAssuranceError).join('\n'));
+    }
+    const status = parsedStatus.value;
+    const sliceDoc =
+      status && typeof status === 'object' && !Array.isArray(status)
+        ? (status as Record<string, unknown>).sliceDoc
+        : undefined;
+    const statusRecord = status && typeof status === 'object' && !Array.isArray(status)
+      ? status as Record<string, unknown>
+      : undefined;
+    if (statusRecord?.sliceId !== args.slice) {
+      throw new Error(`subject-mismatch: ${statusPath} /sliceId: status sliceId does not equal --slice '${args.slice}'`);
+    }
+    if (typeof sliceDoc !== 'string' || sliceDoc.length === 0) {
+      throw new Error(`invalid-field: ${statusPath} /sliceDoc: assured dry-run requires a non-empty SLICE_DOC`);
+    }
+    const admission = await admitBaseline(targetDir, args.baseline, store, { allocationPath: sliceDoc });
+    if (!admission.ok) {
+      throw new Error(admission.errors.map((e) => `${e.code}: ${e.recordPath} ${e.location}: ${e.detail}`).join('\n'));
+    }
+    if (Object.prototype.hasOwnProperty.call(statusRecord, 'assurance')) {
+      const persisted = parsePersistedAssurance(statusRecord.assurance, statusPath);
+      if (!persisted.ok) {
+        throw new Error(persisted.errors.map(renderAssuranceError).join('\n'));
+      }
+      if (
+        persisted.value.manifest.path !== admission.admission.manifest.path ||
+        persisted.value.manifest.sha256 !== admission.admission.manifest.sha256
+      ) {
+        throw new Error(`subject-mismatch: ${statusPath} /assurance/manifest: persisted assurance conflicts with --baseline`);
+      }
+    }
+    console.log(`Enforcement: baseline-admission`);
+    console.log(`Manifest   : ${admission.admission.manifest.path} ${admission.admission.manifest.sha256}\n`);
+  } else {
+    console.log('Enforcement: legacy (requirements assurance not enforced)\n');
+  }
+
   // Preload external files so the printed argv is exact (Codex developer_instructions).
   await builderRaw.prewarm();
   await supervisorRaw.prewarm();
@@ -397,6 +459,11 @@ async function main(): Promise<void> {
   console.log(`Builder    : ${args.builder}`);
   console.log(`Supervisor : ${args.supervisor}`);
   console.log(`Shared     : ${sharedInstructionPath ?? '(none)'}`);
+  if (!args.dryRun && args.baseline !== undefined) {
+    console.log(
+      `Enforcement: baseline requested (${args.baseline}; allocation not yet evaluated)`
+    );
+  }
   console.log('');
 
   const clock = new SystemClock();
@@ -412,7 +479,12 @@ async function main(): Promise<void> {
   const supervisorRaw = makeAdapter(args.supervisor, adapterConfig, store, clock);
 
   if (args.dryRun) {
-    await printDryRun(args, targetDir, sharedInstructionPath, builderRaw, supervisorRaw);
+    try {
+      await printDryRun(args, targetDir, sharedInstructionPath, builderRaw, supervisorRaw, store);
+    } catch (cause) {
+      console.error(`Baseline admission failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+      process.exit(1);
+    }
     return;
   }
 
@@ -438,6 +510,7 @@ async function main(): Promise<void> {
     maxIterations: args.maxIter,
     reselect: args.reselect,
     reviewerPermission: args.reviewerWrite ? 'write' : 'read-only',
+    ...(args.baseline !== undefined ? { baselinePath: args.baseline } : {}),
   };
   const withSlice = args.slice !== undefined ? { ...base, sliceId: args.slice } : base;
   const input: TargetRelayInput =
@@ -450,6 +523,7 @@ async function main(): Promise<void> {
       supervisor: supervisorRaw,
       computeDigest,
       changedPaths: gitChangedPaths,
+      artifactStore: store,
     });
 
     console.log(`\nRelay completed.`);

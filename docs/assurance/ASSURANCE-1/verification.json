@@ -1,0 +1,146 @@
+{
+  "at": "2026-09-12T12:23:22.499Z",
+  "actor": "in-place-manager",
+  "baseline": "ASSURANCE-1-INPUT-3",
+  "iteration": 8,
+  "candidate": [
+    {
+      "path": "docs/contracts/target-owned-relay.md",
+      "sha256": "sha256:3b8fe8508192b2785df66f9b8be88a74287aee0ac3d5a373c14e4518790b5d00"
+    },
+    {
+      "path": "src/adapters/filesystem/artifact-store.ts",
+      "sha256": "sha256:c2780be2ee71a294a66875731f33074138ce0e95add7bcee136d0c1c0412a163"
+    },
+    {
+      "path": "src/application/ports/artifact-store.ts",
+      "sha256": "sha256:8ee80256b991f38157f6b550b53df3e63e6bad7dd57efa556e637fa6b61e6098"
+    },
+    {
+      "path": "src/application/use-cases/relay-target.test.ts",
+      "sha256": "sha256:0aedbb0ab70c642faf2df20ab1f33ccad961a26b225963ae834e274ecc8ff4c7"
+    },
+    {
+      "path": "src/application/use-cases/relay-target.ts",
+      "sha256": "sha256:51c5acc385f2ede268b2b8350d1cbbcdde27a64ee83647874704de3d74862cfa"
+    },
+    {
+      "path": "src/cli/relay-target.ts",
+      "sha256": "sha256:be5fab67b67a60dc8934080aa7ba9755ca6580ed624e68a153c583a7b2fbdd48"
+    },
+    {
+      "path": "src/core/assurance.ts",
+      "sha256": "sha256:f88727de67f54b216ea042e850425abdb18c83c9f84409ae0ed330afabe30e14"
+    }
+  ],
+  "candidateStableDuringChecks": true,
+  "cleanCopy": {
+    "initiallyAbsent": [
+      ".agent-manager",
+      "dist",
+      "logs"
+    ],
+    "dependencies": "Existing node_modules symlink only; no installation",
+    "cleaned": true
+  },
+  "checks": [
+    {
+      "location": "clean",
+      "name": "typecheck",
+      "command": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "exitCode": 0,
+      "error": null,
+      "log": ".agent-manager/slices/ASSURANCE-1/manager-accepted-clean-typecheck.log"
+    },
+    {
+      "location": "clean",
+      "name": "tests",
+      "command": [
+        "npm",
+        "test",
+        "--",
+        "--runInBand"
+      ],
+      "exitCode": 0,
+      "error": null,
+      "log": ".agent-manager/slices/ASSURANCE-1/manager-accepted-clean-tests.log"
+    },
+    {
+      "location": "clean",
+      "name": "build",
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "exitCode": 0,
+      "error": null,
+      "log": ".agent-manager/slices/ASSURANCE-1/manager-accepted-clean-build.log"
+    },
+    {
+      "location": "workspace",
+      "name": "typecheck",
+      "command": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "exitCode": 0,
+      "error": null,
+      "log": ".agent-manager/slices/ASSURANCE-1/manager-accepted-workspace-typecheck.log"
+    },
+    {
+      "location": "workspace",
+      "name": "tests",
+      "command": [
+        "npm",
+        "test",
+        "--",
+        "--runInBand"
+      ],
+      "exitCode": 0,
+      "error": null,
+      "log": ".agent-manager/slices/ASSURANCE-1/manager-accepted-workspace-tests.log"
+    },
+    {
+      "location": "workspace",
+      "name": "build",
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "exitCode": 0,
+      "error": null,
+      "log": ".agent-manager/slices/ASSURANCE-1/manager-accepted-workspace-build.log"
+    },
+    {
+      "location": "workspace",
+      "name": "diff-check",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0,
+      "log": ".agent-manager/slices/ASSURANCE-1/manager-accepted-diff-check.log"
+    }
+  ],
+  "review": ".agent-manager/slices/ASSURANCE-1/review-8.json",
+  "passed": true,
+  "testCounts": {
+    "clean": {
+      "suites": 1,
+      "passed": 82
+    },
+    "workspace": {
+      "suites": 1,
+      "passed": 82
+    }
+  },
+  "logs": "Referenced logs are optional local traces, not the sole acceptance evidence. Commands, results and exact candidate bytes are retained here; the complete test oracle is committed in source."
+}

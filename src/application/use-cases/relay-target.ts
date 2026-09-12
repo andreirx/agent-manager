@@ -24,10 +24,23 @@
 import { join, sep } from 'node:path';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 
-import type { ClockPort, ProviderRunnerPort } from '../ports/index.js';
+import type { ArtifactStorePort, ClockPort, ProviderRunnerPort } from '../ports/index.js';
 import type { RunRequest, RunResult } from '../ports/provider-runner.js';
 import type { PromptRef } from '../../core/run-record.js';
 import { RunStatus } from '../../core/run-record.js';
+import {
+  parseApprovalRecord,
+  parseAssuranceJson,
+  parseBaselineManifest,
+  parsePersistedAssurance,
+  persistedAssurance,
+  renderAssuranceError,
+  validateBaselineAdmission,
+  type AssuranceFileSnapshot,
+  type AssuranceSnapshot,
+  type BaselineAdmissionResult,
+  type PersistedAssurance,
+} from '../../core/assurance.js';
 import { parseVerdict } from './relay-shared.js';
 
 /**
@@ -64,6 +77,8 @@ export interface TargetRelayStatus {
   lastActor: TargetActor;
   builderProvider: TargetActor;
   supervisorProvider: TargetActor;
+  /** Present only for explicit stage-1 baseline-admission operation. */
+  assurance?: PersistedAssurance;
 }
 
 /** Pointer to the active slice, so a later invocation resumes (not reselects). */
@@ -71,6 +86,7 @@ interface CurrentPointer {
   sliceId: string;
   sliceDoc: string | null;
   updatedAt: string;
+  assurance?: PersistedAssurance;
 }
 
 /** Authoritative per-run record (traceability: run -> log path). */
@@ -141,6 +157,8 @@ export interface TargetRelayInput {
   reselect?: boolean;
   /** Early stop after selection (no building). Only 'select-slice' supported. */
   until?: TargetPhase;
+  /** Target-relative requirements baseline manifest (explicit stage-1 opt-in). */
+  baselinePath?: string;
 }
 
 /** Dependencies for the target relay. */
@@ -160,6 +178,8 @@ export interface TargetRelayDeps {
    * implementation that cannot determine the set returns [] (no false trigger).
    */
   changedPaths: (targetDir: string) => Promise<readonly string[]>;
+  /** Existing filesystem boundary used for contained baseline snapshots. */
+  artifactStore: ArtifactStorePort;
 }
 
 /** Result of a full target relay run. */
@@ -168,6 +188,104 @@ export interface TargetRelayResult {
   sliceId?: string;
   stopped: boolean;
   reason?: string;
+}
+
+/**
+ * Load one complete closure through the filesystem port, then run the pure
+ * stage-1 validator. Live dispatch and assured dry-run call this same operation.
+ */
+export async function admitBaseline(
+  targetDir: string,
+  manifestPath: string,
+  artifactStore: ArtifactStorePort,
+  options: { expectedManifest?: PersistedAssurance['manifest']; allocationPath?: string } = {}
+): Promise<BaselineAdmissionResult> {
+  const manifestSegments = manifestPath.split('/');
+  if (
+    manifestPath.length === 0 ||
+    manifestPath.startsWith('/') ||
+    manifestPath.includes('\\') ||
+    manifestSegments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')
+  ) {
+    const code = manifestPath.includes('\\') || manifestPath.length === 0 ? 'invalid-field' : 'path-escape';
+    return {
+      ok: false,
+      errors: [{ code, recordPath: manifestPath, location: '/', detail: 'baseline path must be a target-relative POSIX file path' }],
+    };
+  }
+  const snapshots = new Map<string, AssuranceSnapshot>();
+  const readOnce = async (path: string): Promise<AssuranceSnapshot> => {
+    const existing = snapshots.get(path);
+    if (existing) return existing;
+    const snapshot = await artifactStore.readContainedFile(targetDir, path);
+    snapshots.set(path, snapshot);
+    return snapshot;
+  };
+
+  const manifestSnapshot = await readOnce(manifestPath);
+  if (manifestSnapshot.status === 'ok') {
+    const manifest = parseBaselineManifest(manifestSnapshot as AssuranceFileSnapshot);
+    if (manifest.ok) {
+      for (const ref of [...manifest.value.requirements, ...manifest.value.dependencies]) {
+        await readOnce(ref.path);
+      }
+      const reviewPath = `docs/assurance/${manifest.value.baselineId}/requirements-review.json`;
+      const approvalPath = `docs/assurance/${manifest.value.baselineId}/baseline-approval.json`;
+      await readOnce(reviewPath);
+      const approvalSnapshot = await readOnce(approvalPath);
+      if (approvalSnapshot.status === 'ok') {
+        const approval = parseApprovalRecord(approvalSnapshot as AssuranceFileSnapshot);
+        if (approval.ok) {
+          await readOnce(approval.value.authorityBasis.path);
+          for (const decision of approval.value.resolvedDecisions) {
+            await readOnce(decision.record.path);
+          }
+        }
+      }
+    }
+  }
+  return validateBaselineAdmission({
+    manifestPath,
+    snapshots: [...snapshots.values()],
+    ...(options.expectedManifest ? { expectedManifest: options.expectedManifest } : {}),
+    ...(options.allocationPath !== undefined ? { allocationPath: options.allocationPath } : {}),
+  });
+}
+
+function renderAdmissionFailure(result: Extract<BaselineAdmissionResult, { ok: false }>): string {
+  return result.errors.map(renderAssuranceError).join('\n');
+}
+
+function assuranceFromUnknown(
+  container: unknown,
+  recordPath: string
+): { present: false } | { present: true; valid: true; value: PersistedAssurance } | { present: true; valid: false; reason: string } {
+  if (!container || typeof container !== 'object' || Array.isArray(container)) {
+    return { present: false };
+  }
+  if (!Object.prototype.hasOwnProperty.call(container, 'assurance')) return { present: false };
+  const parsed = parsePersistedAssurance((container as Record<string, unknown>).assurance, recordPath);
+  return parsed.ok
+    ? { present: true, valid: true, value: parsed.value }
+    : { present: true, valid: false, reason: parsed.errors.map(renderAssuranceError).join('\n') };
+}
+
+async function assuredDispatchFailure(
+  input: TargetRelayInput,
+  deps: TargetRelayDeps,
+  status: TargetRelayStatus
+): Promise<string | undefined> {
+  if (!status.assurance) return undefined;
+  const result = await admitBaseline(
+    input.targetDir,
+    status.assurance.manifest.path,
+    deps.artifactStore,
+    {
+      expectedManifest: status.assurance.manifest,
+      allocationPath: status.sliceDoc ?? '',
+    }
+  );
+  return result.ok ? undefined : renderAdmissionFailure(result);
 }
 
 // ---------------------------------------------------------------------------
@@ -305,14 +423,10 @@ async function ensureScaffold(amDir: string): Promise<void> {
     join(amDir, '.gitignore'),
     [
       '# Agent Manager (target-owned relay) operational output.',
-      '#',
-      '# Raw provider execution traces are operational, not system-of-record.',
-      '# Workflow artifacts (selection.json, status.json, build-*.md,',
-      '# review-*.json, runs/*.json, notes-for-human.md, current.json) ARE',
-      '# committed.',
+      '# The complete directory is local-only process state. Durable target',
+      '# requirements, decisions, review, and acceptance records live outside it.',
       '',
-      'logs/',
-      'pending-selection.md',
+      '*',
       '',
     ].join('\n')
   );
@@ -323,7 +437,7 @@ async function ensureScaffold(amDir: string): Promise<void> {
       '',
       'Workflow state written by Agent Manager (target-owned relay) running',
       'against this repository. Agent Manager itself lives elsewhere; this',
-      'directory only holds its artifacts for work performed here.',
+      'directory holds local-only process state for work performed here.',
       '',
       'This repository is the system of record. The builder edits files (left',
       'uncommitted); the reviewer inspects the resulting `git diff`.',
@@ -337,6 +451,9 @@ async function ensureScaffold(amDir: string): Promise<void> {
       '(it never auto-proceeds).',
       'Verdict contract: reviewer first line `STATUS: approved|revise|escalate`.',
       '',
+      'Durable requirements, decisions, reviews, and acceptance evidence belong',
+      'in the target repository\'s tracked paths outside `.agent-manager/`.',
+      '',
     ].join('\n')
   );
 }
@@ -349,12 +466,74 @@ async function writeIfAbsent(path: string, content: string): Promise<void> {
   }
 }
 
-async function readJson<T>(path: string): Promise<T | undefined> {
+type JsonFileState =
+  | { status: 'missing' }
+  | { status: 'malformed'; detail: string }
+  | { status: 'ok'; value: unknown };
+
+async function readJsonState(path: string): Promise<JsonFileState> {
+  let raw: string;
   try {
-    return JSON.parse(await readFile(path, 'utf-8')) as T;
-  } catch {
-    return undefined;
+    raw = await readFile(path, 'utf-8');
+  } catch (cause) {
+    const code =
+      typeof cause === 'object' && cause !== null && 'code' in cause
+        ? String((cause as { code: unknown }).code)
+        : '';
+    if (code === 'ENOENT' || code === 'ENOTDIR') return { status: 'missing' };
+    return { status: 'malformed', detail: cause instanceof Error ? cause.message : String(cause) };
   }
+  const parsed = parseAssuranceJson(raw, path);
+  return parsed.ok
+    ? { status: 'ok', value: parsed.value }
+    : { status: 'malformed', detail: parsed.errors.map(renderAssuranceError).join('\n') };
+}
+
+function sameAssurance(a: PersistedAssurance, b: PersistedAssurance): boolean {
+  return (
+    a.contract === b.contract &&
+    a.enforcement === b.enforcement &&
+    a.manifest.path === b.manifest.path &&
+    a.manifest.sha256 === b.manifest.sha256
+  );
+}
+
+const TARGET_PHASE_VALUES: Readonly<Record<TargetPhase, true>> = {
+  'select-slice': true,
+  implement: true,
+  'review-impl': true,
+  'decision-review': true,
+  'awaiting-ratification': true,
+  blocked: true,
+  done: true,
+};
+
+const TARGET_ACTOR_VALUES: Readonly<Record<TargetActor, true>> = {
+  claude: true,
+  codex: true,
+  copilot: true,
+  human: true,
+};
+
+function isTargetRelayStatusShape(value: unknown): value is TargetRelayStatus {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.phase === 'string' &&
+    Object.prototype.hasOwnProperty.call(TARGET_PHASE_VALUES, record.phase) &&
+    typeof record.sliceId === 'string' &&
+    (typeof record.sliceDoc === 'string' || record.sliceDoc === null) &&
+    typeof record.iteration === 'number' &&
+    Number.isInteger(record.iteration) &&
+    record.iteration >= 0 &&
+    typeof record.updatedAt === 'string' &&
+    typeof record.lastActor === 'string' &&
+    Object.prototype.hasOwnProperty.call(TARGET_ACTOR_VALUES, record.lastActor) &&
+    typeof record.builderProvider === 'string' &&
+    Object.prototype.hasOwnProperty.call(TARGET_ACTOR_VALUES, record.builderProvider) &&
+    typeof record.supervisorProvider === 'string' &&
+    Object.prototype.hasOwnProperty.call(TARGET_ACTOR_VALUES, record.supervisorProvider)
+  );
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -1448,6 +1627,10 @@ async function runDecisionReview(
   const recommendationSources = [specArtifact, buildArtifact].filter((s) => s.trim());
 
   // --- 1) Supervisor challenges the recommendations (read-only). ---
+  const challengeAdmissionFailure = await assuredDispatchFailure(input, deps, status);
+  if (challengeAdmissionFailure) {
+    return blockSlice(sliceDir, status, deps.clock, 'human', `Baseline drift blocked decision-challenge dispatch:\n${challengeAdmissionFailure}`);
+  }
   const challengerPrompts = await loadPrompts(
     input.promptRoot,
     input.challengerPromptPaths,
@@ -1489,6 +1672,10 @@ async function runDecisionReview(
   await writeFile(join(sliceDir, 'decision-challenge.md'), challengeRaw, 'utf-8');
 
   // --- 2) Builder rebuts each challenge (read-only). ---
+  const rebuttalAdmissionFailure = await assuredDispatchFailure(input, deps, status);
+  if (rebuttalAdmissionFailure) {
+    return blockSlice(sliceDir, status, deps.clock, 'human', `Baseline drift blocked decision-rebuttal dispatch:\n${rebuttalAdmissionFailure}`);
+  }
   const rebutterPrompts = await loadPrompts(
     input.promptRoot,
     input.rebutterPromptPaths,
@@ -1582,20 +1769,78 @@ export async function targetRelayLoop(
 ): Promise<TargetRelayResult> {
   const maxIterations = input.maxIterations ?? 10;
   const amDir = join(input.targetDir, '.agent-manager');
+
+  // An explicit baseline is checked before scaffold writes or provider calls.
+  // Allocation is checked later, once the selected/resumed sliceDoc is known.
+  let requestedAssurance: PersistedAssurance | undefined;
+  if (input.baselinePath !== undefined) {
+    const initialAdmission = await admitBaseline(
+      input.targetDir,
+      input.baselinePath,
+      deps.artifactStore
+    );
+    if (!initialAdmission.ok) {
+      return {
+        phase: 'blocked',
+        stopped: true,
+        reason: `Baseline admission failed before provider dispatch:\n${renderAdmissionFailure(initialAdmission)}`,
+      };
+    }
+    requestedAssurance = persistedAssurance(initialAdmission.admission);
+  }
+
   await ensureScaffold(amDir);
 
   // --- Resolve the active slice: explicit --slice, resume, or fresh select ---
   let sliceId: string | undefined;
+  let currentPointer: CurrentPointer | undefined;
 
   if (input.sliceId) {
     sliceId = sanitizeId(input.sliceId);
   } else if (!input.reselect) {
-    const current = await readJson<CurrentPointer>(join(amDir, 'current.json'));
-    if (current) {
-      const candidate = sanitizeId(current.sliceId);
-      const st = await readJson<TargetRelayStatus>(
-        join(amDir, 'slices', candidate, 'status.json')
-      );
+    const currentPath = join(amDir, 'current.json');
+    const currentState = await readJsonState(currentPath);
+    if (currentState.status === 'malformed') {
+      return { phase: 'blocked', stopped: true, reason: `Malformed active current.json: ${currentState.detail}` };
+    }
+    if (currentState.status === 'ok') {
+      const rawCurrent = currentState.value;
+      if (!rawCurrent || typeof rawCurrent !== 'object' || Array.isArray(rawCurrent) || typeof (rawCurrent as Record<string, unknown>).sliceId !== 'string') {
+        return { phase: 'blocked', stopped: true, reason: 'Malformed active current.json: sliceId is missing or invalid.' };
+      }
+      const currentMode = assuranceFromUnknown(rawCurrent, '.agent-manager/current.json');
+      if (currentMode.present && !currentMode.valid) {
+        return { phase: 'blocked', stopped: true, reason: `Malformed assured current.json:\n${currentMode.reason}` };
+      }
+      const raw = rawCurrent as Record<string, unknown>;
+      currentPointer = {
+        sliceId: String(raw.sliceId),
+        sliceDoc: typeof raw.sliceDoc === 'string' ? raw.sliceDoc : null,
+        updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : '',
+        ...(currentMode.present && currentMode.valid ? { assurance: currentMode.value } : {}),
+      };
+      const candidate = sanitizeId(currentPointer.sliceId);
+      const statusPath = join(amDir, 'slices', candidate, 'status.json');
+      const statusState = await readJsonState(statusPath);
+      if (statusState.status !== 'ok') {
+        return {
+          phase: 'blocked',
+          sliceId: candidate,
+          stopped: true,
+          reason: `Active current.json points to a ${statusState.status} status.json for slice '${candidate}'${statusState.status === 'malformed' ? `: ${statusState.detail}` : '.'}`,
+        };
+      }
+      if (!isTargetRelayStatusShape(statusState.value)) {
+        return { phase: 'blocked', sliceId: candidate, stopped: true, reason: `Active current.json points to a malformed status.json for slice '${candidate}'.` };
+      }
+      const st = statusState.value;
+      const statusMode = assuranceFromUnknown(statusState.value, `.agent-manager/slices/${candidate}/status.json`);
+      if (statusMode.present && !statusMode.valid) {
+        return { phase: 'blocked', sliceId: candidate, stopped: true, reason: `Malformed assured status.json:\n${statusMode.reason}` };
+      }
+      if (currentMode.present !== statusMode.present || (currentMode.present && currentMode.valid && statusMode.present && statusMode.valid && !sameAssurance(currentMode.value, statusMode.value))) {
+        return { phase: 'blocked', sliceId: candidate, stopped: true, reason: 'Assurance state mismatch between current.json and status.json.' };
+      }
       if (st && st.phase !== 'done' && st.phase !== 'blocked') {
         sliceId = candidate; // resume in-flight slice
       } else if (st && st.phase === 'blocked') {
@@ -1606,7 +1851,7 @@ export async function targetRelayLoop(
           reason: `Active slice '${candidate}' is blocked (see slices/${candidate}/notes-for-human.md). Pass --slice ${candidate} to unblock and retry (raise --max-iter if it hit the cycle cap), or --reselect to choose a new slice.`,
         };
       }
-      // done (or missing status) => fall through to a fresh selection.
+      // A completed status permits the established fresh-selection behavior.
     }
   }
 
@@ -1638,6 +1883,24 @@ export async function targetRelayLoop(
         stopped: true,
         reason: selection.reason ?? 'Blocked during select-slice.',
       };
+    }
+
+    if (requestedAssurance !== undefined) {
+      const allocationAdmission = await admitBaseline(
+        input.targetDir,
+        requestedAssurance.manifest.path,
+        deps.artifactStore,
+        {
+          expectedManifest: requestedAssurance.manifest,
+          allocationPath: selection.sliceDoc ?? '',
+        }
+      );
+      if (!allocationAdmission.ok) {
+        const reason = `Selected slice failed baseline allocation admission:\n${renderAdmissionFailure(allocationAdmission)}`;
+        await writeFile(join(amDir, 'notes-for-human.md'), `# Blocked at baseline admission\n\n${reason}\n`, 'utf-8');
+        return { phase: 'blocked', stopped: true, reason };
+      }
+      requestedAssurance = persistedAssurance(allocationAdmission.admission);
     }
 
     sliceId = sanitizeId(selection.sliceId as string);
@@ -1680,15 +1943,20 @@ export async function targetRelayLoop(
       lastActor: input.supervisorProvider,
       builderProvider: input.builderProvider,
       supervisorProvider: input.supervisorProvider,
+      ...(requestedAssurance ? { assurance: requestedAssurance } : {}),
     };
     await writeStatus(sliceDir, initial);
     await writeCurrent(amDir, {
       sliceId,
       sliceDoc: selection.sliceDoc ?? null,
       updatedAt: deps.clock.now(),
+      ...(requestedAssurance ? { assurance: requestedAssurance } : {}),
     });
 
     if (input.until === 'select-slice') {
+      if (requestedAssurance) {
+        console.log(`  [assurance] baseline-admission ${requestedAssurance.manifest.path} ${requestedAssurance.manifest.sha256}`);
+      }
       return {
         phase: 'implement',
         sliceId,
@@ -1700,14 +1968,99 @@ export async function targetRelayLoop(
 
   // --- Load resolved slice state ---
   const sliceDir = join(amDir, 'slices', sliceId);
-  let status = await readJson<TargetRelayStatus>(join(sliceDir, 'status.json'));
-  if (!status) {
+  const statusPath = join(sliceDir, 'status.json');
+  const statusState = await readJsonState(statusPath);
+  if (statusState.status !== 'ok') {
     return {
       phase: 'blocked',
       sliceId,
       stopped: true,
-      reason: `No status.json for slice '${sliceId}' (cannot resume).`,
+      reason: `${statusState.status === 'missing' ? 'No' : 'Malformed'} status.json for slice '${sliceId}' (cannot resume)${statusState.status === 'malformed' ? `: ${statusState.detail}` : '.'}`,
     };
+  }
+  if (!isTargetRelayStatusShape(statusState.value)) {
+    return { phase: 'blocked', sliceId, stopped: true, reason: `Malformed status.json for slice '${sliceId}' (cannot resume): required relay fields are missing or invalid.` };
+  }
+  let status = statusState.value;
+  if (status.sliceId !== sliceId) {
+    return { phase: 'blocked', sliceId, stopped: true, reason: `Status subject mismatch: status.json names slice '${status.sliceId}', expected '${sliceId}'.` };
+  }
+  if (status.phase === 'select-slice') {
+    return {
+      phase: 'blocked',
+      sliceId,
+      stopped: true,
+      reason: `Active status phase 'select-slice' is not resumable for slice '${sliceId}'; selection has not established a slice status.`,
+    };
+  }
+  const loadedMode = assuranceFromUnknown(statusState.value, `.agent-manager/slices/${sliceId}/status.json`);
+  if (loadedMode.present && !loadedMode.valid) {
+    return { phase: 'blocked', sliceId, stopped: true, reason: `Malformed assured status.json:\n${loadedMode.reason}` };
+  }
+
+  const persistedMode = loadedMode.present && loadedMode.valid ? loadedMode.value : undefined;
+  if (input.sliceId) {
+    const explicitCurrentState = await readJsonState(join(amDir, 'current.json'));
+    if (explicitCurrentState.status === 'malformed' && (persistedMode || requestedAssurance)) {
+      return { phase: 'blocked', sliceId, stopped: true, reason: `Malformed active current.json for assured slice: ${explicitCurrentState.detail}` };
+    }
+    if (
+      explicitCurrentState.status === 'ok' &&
+      (persistedMode || requestedAssurance) &&
+      (!explicitCurrentState.value ||
+        typeof explicitCurrentState.value !== 'object' ||
+        Array.isArray(explicitCurrentState.value) ||
+        typeof (explicitCurrentState.value as Record<string, unknown>).sliceId !== 'string')
+    ) {
+      return { phase: 'blocked', sliceId, stopped: true, reason: 'Malformed active current.json for assured slice: sliceId is missing or invalid.' };
+    }
+    if (explicitCurrentState.status === 'ok' && explicitCurrentState.value && typeof explicitCurrentState.value === 'object' && !Array.isArray(explicitCurrentState.value)) {
+      const explicitRecord = explicitCurrentState.value as Record<string, unknown>;
+      if (explicitRecord.sliceId === sliceId) {
+        const explicitCurrentMode = assuranceFromUnknown(explicitCurrentState.value, '.agent-manager/current.json');
+        if (explicitCurrentMode.present && !explicitCurrentMode.valid) {
+          return { phase: 'blocked', sliceId, stopped: true, reason: `Malformed assured current.json:\n${explicitCurrentMode.reason}` };
+        }
+        const currentModeValue = explicitCurrentMode.present && explicitCurrentMode.valid ? explicitCurrentMode.value : undefined;
+        if ((currentModeValue === undefined) !== (persistedMode === undefined) || (currentModeValue && persistedMode && !sameAssurance(currentModeValue, persistedMode))) {
+          // A first explicit --baseline invocation is allowed to promote two
+          // matching legacy records together. Every already-assured mismatch blocks.
+          if (!(requestedAssurance && currentModeValue === undefined && persistedMode === undefined)) {
+            return { phase: 'blocked', sliceId, stopped: true, reason: 'Assurance state mismatch between current.json and status.json.' };
+          }
+        }
+      }
+    }
+  }
+  if (requestedAssurance && persistedMode && !sameAssurance(requestedAssurance, persistedMode)) {
+    return { phase: 'blocked', sliceId, stopped: true, reason: `Baseline conflict: --baseline resolved to ${requestedAssurance.manifest.path} ${requestedAssurance.manifest.sha256}, but status.json persists ${persistedMode.manifest.path} ${persistedMode.manifest.sha256}.` };
+  }
+  const activeMode = persistedMode ?? requestedAssurance;
+  if (activeMode) {
+    const allocationAdmission = await admitBaseline(
+      input.targetDir,
+      activeMode.manifest.path,
+      deps.artifactStore,
+      { expectedManifest: activeMode.manifest, allocationPath: status.sliceDoc ?? '' }
+    );
+    if (!allocationAdmission.ok) {
+      return { phase: 'blocked', sliceId, stopped: true, reason: `Baseline admission failed for active slice:\n${renderAdmissionFailure(allocationAdmission)}` };
+    }
+    const mode = persistedAssurance(allocationAdmission.admission);
+    status = { ...status, assurance: mode };
+    await writeStatus(sliceDir, status);
+    await writeCurrent(amDir, {
+      sliceId,
+      sliceDoc: status.sliceDoc,
+      updatedAt: deps.clock.now(),
+      assurance: mode,
+    });
+    console.log(`  [assurance] baseline-admission ${mode.manifest.path} ${mode.manifest.sha256}`);
+  } else {
+    if (currentPointer?.assurance !== undefined) {
+      return { phase: 'blocked', sliceId, stopped: true, reason: 'Assured current.json cannot resume a legacy status.json.' };
+    }
+    console.log('  [assurance] legacy (requirements assurance not enforced)');
   }
 
   // Explicit --slice on a terminal slice is an operator override.
@@ -1782,6 +2135,17 @@ export async function targetRelayLoop(
     // Run implement only if this cycle has not built yet (handles resume at
     // review-impl, where the builder already ran).
     if (status.phase === 'implement') {
+      const admissionFailure = await assuredDispatchFailure(input, deps, status);
+      if (admissionFailure) {
+        status = await blockSlice(
+          sliceDir,
+          status,
+          deps.clock,
+          'human',
+          `Baseline drift blocked builder dispatch:\n${admissionFailure}`
+        );
+        break;
+      }
       console.log(
         `  [cycle ${status.iteration + 1}/${maxIterations}] implement builder=${input.builderProvider}`
       );
@@ -1790,6 +2154,17 @@ export async function targetRelayLoop(
     }
 
     if (status.phase === 'review-impl') {
+      const admissionFailure = await assuredDispatchFailure(input, deps, status);
+      if (admissionFailure) {
+        status = await blockSlice(
+          sliceDir,
+          status,
+          deps.clock,
+          'human',
+          `Baseline drift blocked reviewer dispatch:\n${admissionFailure}`
+        );
+        break;
+      }
       console.log(
         `  [cycle ${status.iteration + 1}/${maxIterations}] review-impl supervisor=${input.supervisorProvider}`
       );

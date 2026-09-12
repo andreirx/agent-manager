@@ -22,13 +22,39 @@ export interface PromptAsset {
   readonly digest: string;
 }
 
+/** Raw contained-file snapshot crossing the filesystem boundary. */
+export type ContainedFileSnapshotResult =
+  | {
+      readonly status: 'ok';
+      readonly path: string;
+      readonly bytes: Uint8Array;
+      readonly sha256: string;
+    }
+  | {
+      readonly status: 'error';
+      readonly path: string;
+      readonly code: 'missing' | 'unreadable' | 'io-failure' | 'path-escape';
+      readonly detail: string;
+    };
+
 /**
  * Port for reading and writing slice artifacts.
  *
- * All paths are provided by the caller. The port does not construct
- * or interpret paths beyond performing the requested I/O.
+ * Callers construct artifact paths. `readContainedFile` additionally enforces
+ * its explicit target-root containment contract; legacy operations retain their
+ * existing direct-path behavior.
  */
 export interface ArtifactStorePort {
+  /**
+   * Read one regular target-relative file as an immutable text/digest snapshot.
+   * Both the target root and existing file are resolved through symlinks before
+   * containment is decided. Expected read failures remain distinct values.
+   */
+  readContainedFile(
+    targetRoot: string,
+    targetRelativePath: string
+  ): Promise<ContainedFileSnapshotResult>;
+
   /**
    * Read a prompt asset and compute its digest.
    *

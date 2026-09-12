@@ -12,6 +12,67 @@ repo as the system of record.
 This complements (does not replace) the self-host relay (`relay.ts` /
 `npm run relay`), which remains for AM-* slices inside agent-manager.
 
+## Optional stage-1 baseline admission (PROTOTYPE)
+
+`relay-target -- <target> --baseline <target-relative-manifest-path>` opts one
+target-owned run into the additive `requirements-assurance/v1-stage1` contract
+defined in [Requirements Assurance v1](requirements-assurance-v1.md). This is
+**baseline admission only**: it does not mean the requirements are semantically
+validated by software, evidence-complete, accepted, verified, or released.
+
+Before a provider dispatch, the relay reads the manifest and its exact
+requirement/dependency/review/approval/authority closure through the contained
+filesystem boundary, hashes the raw bytes, and applies the closed record grammar.
+Expected failures name a stable error code, record path, and location. A bad
+upstream closure causes zero provider calls. On fresh selection the selector is
+the one permitted earlier call because `SLICE_DOC` is not known; the selected
+`SLICE_DOC` must then equal a role-`allocation` dependency before the builder.
+The closure is reread before builder, reviewer, and any decision-review role.
+
+Successful allocation admission persists the same complete object in the
+slice's `status.json` and active `current.json`:
+
+```json
+{
+  "assurance": {
+    "contract": "requirements-assurance/v1-stage1",
+    "enforcement": "baseline-admission",
+    "manifest": {
+      "path": "docs/requirements/baselines/EXAMPLE.json",
+      "sha256": "sha256:<64-lowercase-hex>"
+    }
+  }
+}
+```
+
+Flag omission on resume does not downgrade that persisted mode. A conflicting
+flag, malformed/partial mode, state-file mismatch, input byte drift, or allocation
+mismatch blocks instead. Malformed active `current.json`, or an active pointer to
+missing/malformed `status.json`, also blocks implicit dispatch before any provider
+call, including in legacy mode; it never silently selects different work. This is
+the narrow ratified compatibility exception. Otherwise, runs with neither a flag
+nor persisted assurance keep legacy routing and print `legacy (requirements
+assurance not enforced)`. Live execution prints that definitive legacy label only
+after loading the selected slice status and resolving that no persisted assurance
+mode applies; flag omission alone is not a legacy verdict.
+
+This refusal is not itself a human-decision escalation or an automatic repair.
+The manager first investigates the status/progress records, worktree, owned
+processes, and approved inputs. When that evidence supports a non-destructive
+repair within existing authority, the manager records/explains the repair,
+restores only the supported operational pointer or status, and explicitly resumes
+the same slice. The relay then revalidates any persisted baseline before dispatch
+and leaves partial work intact. Ambiguous authority, changed approved inputs, or a
+recovery that risks losing work still requires human direction. Typed runtime
+recovery remains outside stage 1.
+
+Assured dry-run is deliberately narrower: it requires both `--baseline` and an
+explicit preprepared `--slice`. It reads that slice's existing status to obtain
+`sliceDoc`, executes the same closure/allocation admission operation as live
+dispatch, then prints `baseline-admission` and the exact manifest digest. It does
+not write local state or invoke a provider. It prints no admission label when
+only upstream closure validation or allocation validation fails.
+
 ## Two roots (the core distinction)
 
 | Root | Value | Holds |
@@ -188,9 +249,9 @@ traceability **locally** (`runId`, provider, model, effort, mode, permission, st
 the target-relative `logPath`, pinned prompt digests).
 
 The scaffold (`.gitignore`, `README.md`) is provisioned by the relay on first run for **whatever
-target** is passed; no repository is pre-seeded or hardcoded. **Scaffold follow-up (TECH-DEBT):**
-the scaffold must gitignore `.agent-manager/` for a NEW target by default (existing targets carry
-a manual root `.gitignore` entry).
+target** is passed; no repository is pre-seeded or hardcoded. A newly generated scaffold ignores
+the whole `.agent-manager/` directory and describes it as local-only. Existing scaffold files are
+write-if-absent and are not migrated or rewritten.
 
 The relay does **not** commit the target repo (neither code changes nor these artifacts); the
 operator commits the **deliverable** after review approval. Committing/branching by the relay is
@@ -237,7 +298,8 @@ npm run relay-target -- <target-path> \
   [--builder claude|codex|copilot] [--supervisor claude|codex|copilot] \
   [--builder-model <id>] [--supervisor-model <id>] \
   [--shared-prompt <path>] [--max-iter <n>] \
-  [--slice <id>] [--reselect] [--until select-slice] [--dry-run]
+  [--slice <id>] [--reselect] [--until select-slice] [--dry-run] \
+  [--baseline <target-relative-manifest-path>]
 ```
 
 - `<target-path>` is required and resolved against the invocation cwd. No
@@ -249,6 +311,10 @@ npm run relay-target -- <target-path> \
   including Codex's `--config developer_instructions=…` (its long value is
   elided for readability, with the source path and length shown). No process is
   spawned.
+- `--baseline` selects stage-1 baseline admission. Its path uses the contract's
+  target-relative POSIX syntax; it never names an Agent Manager prompt-root path.
+- `--dry-run --baseline` additionally requires `--slice`; see the no-write
+  allocation check above.
 - `--until select-slice` stops after the supervisor picks a slice, before any
   edit, so the selection can be inspected.
 
@@ -267,6 +333,11 @@ npm run relay-target -- <target-path> \
    `current.json` (phase not `done`/`blocked`); a `blocked` active slice stops
    with guidance to pass `--slice <id>` (unblock + retry) or `--reselect`;
 3. else runs a fresh selection.
+
+A malformed active pointer, or one naming missing/malformed slice status, stops
+at step 2 rather than falling through to step 3. Recovery follows the consciously
+managed procedure in the stage-1 section above; this command does not infer or
+repair lost run state.
 
 So `relay-target -- <t> --until select-slice` then `relay-target -- <t>` builds
 and reviews the slice just selected — it does not reselect a different one.

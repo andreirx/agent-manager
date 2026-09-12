@@ -5,13 +5,13 @@ Maturity: PROTOTYPE planning artifact. This is not a historical completion ledge
 
 ## Current priority
 
-ASSURANCE-0 is accepted. ASSURANCE-1 code remains unaccepted after four revise
-rounds and one escalation. The human resolved the diagnostic and legacy-corruption
-questions. The [conscious-recovery amendment](assurance/ASSURANCE-1-RECOVERY/manager-acceptance.md)
-is independently reviewed and INPUT-3 published: investigate/explain/recover within
-authority, rather than automatically asking the human. Code continuation now targets
-the confirmed source-diagnostic omission and recovery verification; no implementation
-gate is claimed accepted.
+ASSURANCE-1 is [accepted](assurance/ASSURANCE-1/manager-acceptance.md): real baseline
+admission, persisted-mode revalidation, and isolated CLI checks are implemented.
+Nine implementation cycles retained their verdicts; final independent review plus
+manager clean-copy and working-tree gates passed (82 tests each). The deliberate
+legacy-corruption exception includes conscious manager recovery, not automatic repair.
+ASSURANCE-2 preparation is next; no structured per-ID review, identical-context,
+evidence-completion, or final-acceptance gate is claimed delivered yet.
 
 ## Proposed order
 
@@ -22,8 +22,8 @@ baseline; do not point every execution at an unreviewed umbrella plan.
 | Work item | Deliverable and visible result | Prerequisite | State |
 |---|---|---|---|
 | [ASSURANCE-0](slices/requirements-assurance-rollout.md#assurance-0--review-the-process-and-baseline-documents-only) | Independent review, resolved format/authority decisions, accepted input baseline | Human authorization to run review; provider readiness | Accepted; four document cycles; [record](assurance/ASSURANCE-0/manager-acceptance.md) |
-| [ASSURANCE-1](slices/requirements-assurance-rollout.md#assurance-1--baseline-admission-on-the-real-dispatch-path) | Real pre-dispatch refusal/allow result for a baseline | Accepted ASSURANCE-0 | Not accepted; [recovery amendment](assurance/ASSURANCE-1-RECOVERY/manager-acceptance.md) reviewed; INPUT-3 published, implementation continuation next |
-| [ASSURANCE-2](slices/requirements-assurance-rollout.md#assurance-2--reviewed-inputs-and-identical-role-context) | Requirements review coverage and identical recorded role inputs | Accepted ASSURANCE-1 runner | Blocked on prerequisite |
+| [ASSURANCE-1](slices/requirements-assurance-rollout.md#assurance-1--baseline-admission-on-the-real-dispatch-path) | Real pre-dispatch refusal/allow result for a baseline | Accepted ASSURANCE-0 | Accepted; [operator record](assurance/ASSURANCE-1/manager-acceptance.md), INPUT-3, 82 tests in clean copy and working checkout |
+| [ASSURANCE-2](slices/requirements-assurance-rollout.md#assurance-2--reviewed-inputs-and-identical-role-context) | Requirements review coverage and identical recorded role inputs | Accepted ASSURANCE-1 runner | Next: bounded requirements/design preparation |
 | [ASSURANCE-3](slices/requirements-assurance-rollout.md#assurance-3--evidence-linked-implementation-review) | Evidence/preservation gate rejects an unsupported green verdict | Accepted ASSURANCE-2 runner | Blocked on prerequisite |
 | [ASSURANCE-4](slices/requirements-assurance-rollout.md#assurance-4--controlled-acceptance-and-recovery) | Durable operator acceptance and cause-aware resume | Accepted ASSURANCE-3 runner | Blocked on prerequisite |
 | [ASSURANCE-5](slices/requirements-assurance-rollout.md#assurance-5--manager-led-trace-readiness-and-complete-dogfood) | Manager-led own-repo delivery, trace/readiness report, and independent usefulness gate | Accepted ASSURANCE-4 runner | Blocked on prerequisite |

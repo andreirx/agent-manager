@@ -1,0 +1,210 @@
+{
+  "mode": "manual-bootstrap",
+  "runnerHead": "e2b338047501e797ce80350faeb2623b58e8552a",
+  "runnerSnapshot": "/private/tmp/ASSURANCE-1-runner-vA8GYG",
+  "target": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager",
+  "finalInputs": {
+    "manifest": {
+      "path": "docs/requirements/baselines/ASSURANCE-1-INPUT-3.json",
+      "sha256": "sha256:aa17d202261ddbde0c32c868befefb3dde6b6e7156097c71d28b5ae4e77c58de"
+    },
+    "review": {
+      "path": "docs/assurance/ASSURANCE-1-INPUT-3/requirements-review.json",
+      "sha256": "sha256:e0205c31d3fc732a43b9aa54ed4bdc79f9e2e25a24a87f0af82c91ec96f87546"
+    },
+    "approval": {
+      "path": "docs/assurance/ASSURANCE-1-INPUT-3/baseline-approval.json",
+      "sha256": "sha256:e79c9f4433a6a8595f909006a6235bac3301564cede015665ef0e712345b966d"
+    },
+    "sharedPrompt": {
+      "path": "SYSTEM.txt",
+      "sha256": "sha256:fbb99b8cb7349562236bf289e33f9850a8412e1272746ba53d8dc7c9f6894f75"
+    }
+  },
+  "provider": "codex",
+  "independence": "Separate CLI invocations, different models, same provider; not cross-vendor or certification independence.",
+  "history": [
+    {
+      "iteration": 0,
+      "baseline": "ASSURANCE-1-INPUT-1",
+      "builder": {
+        "runId": "build-ASSURANCE-1-0",
+        "model": "gpt-5.6-sol",
+        "effort": "high",
+        "startedAt": "2026-09-11T20:09:20.451Z",
+        "completedAt": "2026-09-11T20:42:04.021Z"
+      },
+      "reviewer": {
+        "runId": "review-ASSURANCE-1-0",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "startedAt": "2026-09-11T20:42:04.059Z",
+        "completedAt": "2026-09-11T20:45:11.513Z",
+        "verdict": "revise"
+      }
+    },
+    {
+      "iteration": 1,
+      "baseline": "ASSURANCE-1-INPUT-1",
+      "builder": {
+        "runId": "build-ASSURANCE-1-1",
+        "model": "gpt-5.6-sol",
+        "effort": "high",
+        "startedAt": "2026-09-11T20:45:11.519Z",
+        "completedAt": "2026-09-11T20:52:29.806Z"
+      },
+      "reviewer": {
+        "runId": "review-ASSURANCE-1-1",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "startedAt": "2026-09-11T20:52:29.815Z",
+        "completedAt": "2026-09-11T20:54:40.694Z",
+        "verdict": "revise"
+      }
+    },
+    {
+      "iteration": 2,
+      "baseline": "ASSURANCE-1-INPUT-1",
+      "builder": {
+        "runId": "build-ASSURANCE-1-2",
+        "model": "gpt-5.6-sol",
+        "effort": "high",
+        "startedAt": "2026-09-11T20:54:40.699Z",
+        "completedAt": "2026-09-11T21:00:57.080Z"
+      },
+      "reviewer": {
+        "runId": "review-ASSURANCE-1-2",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "startedAt": "2026-09-11T21:00:57.083Z",
+        "completedAt": "2026-09-11T21:03:31.005Z",
+        "verdict": "revise"
+      }
+    },
+    {
+      "iteration": 3,
+      "baseline": "ASSURANCE-1-INPUT-1",
+      "builder": {
+        "runId": "build-ASSURANCE-1-3",
+        "model": "gpt-5.6-sol",
+        "effort": "high",
+        "startedAt": "2026-09-12T05:43:06.044Z",
+        "completedAt": "2026-09-12T05:50:15.510Z"
+      },
+      "reviewer": {
+        "runId": "review-ASSURANCE-1-3",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "startedAt": "2026-09-12T05:50:15.517Z",
+        "completedAt": "2026-09-12T05:52:57.398Z",
+        "verdict": "revise"
+      }
+    },
+    {
+      "iteration": 4,
+      "baseline": "ASSURANCE-1-INPUT-2",
+      "builder": {
+        "runId": "build-ASSURANCE-1-4",
+        "model": "gpt-5.6-sol",
+        "effort": "high",
+        "startedAt": "2026-09-12T06:50:08.901Z",
+        "completedAt": "2026-09-12T07:00:07.320Z"
+      },
+      "reviewer": {
+        "runId": "review-ASSURANCE-1-4",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "startedAt": "2026-09-12T07:00:07.338Z",
+        "completedAt": "2026-09-12T07:03:13.749Z",
+        "verdict": "escalate"
+      }
+    },
+    {
+      "iteration": 5,
+      "baseline": "ASSURANCE-1-INPUT-3",
+      "builder": {
+        "runId": "build-ASSURANCE-1-5",
+        "model": "gpt-5.6-sol",
+        "effort": "high",
+        "startedAt": "2026-09-12T11:09:24.691Z",
+        "completedAt": "2026-09-12T11:18:06.909Z"
+      },
+      "reviewer": {
+        "runId": "review-ASSURANCE-1-5",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "startedAt": "2026-09-12T11:18:06.916Z",
+        "completedAt": "2026-09-12T11:20:21.848Z",
+        "verdict": "revise"
+      }
+    },
+    {
+      "iteration": 6,
+      "baseline": "ASSURANCE-1-INPUT-3",
+      "builder": {
+        "runId": "build-ASSURANCE-1-6",
+        "model": "gpt-5.6-sol",
+        "effort": "high",
+        "startedAt": "2026-09-12T11:20:21.854Z",
+        "completedAt": "2026-09-12T11:26:57.247Z"
+      },
+      "reviewer": {
+        "runId": "review-ASSURANCE-1-6",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "startedAt": "2026-09-12T11:26:57.253Z",
+        "completedAt": "2026-09-12T11:28:59.396Z",
+        "verdict": "approved"
+      }
+    },
+    {
+      "iteration": 7,
+      "baseline": "ASSURANCE-1-INPUT-3",
+      "builder": {
+        "runId": "build-ASSURANCE-1-7",
+        "model": "gpt-5.6-sol",
+        "effort": "high",
+        "startedAt": "2026-09-12T11:41:45.156Z",
+        "completedAt": "2026-09-12T11:48:25.019Z"
+      },
+      "reviewer": {
+        "runId": "review-ASSURANCE-1-7",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "startedAt": "2026-09-12T11:48:25.025Z",
+        "completedAt": "2026-09-12T11:50:11.972Z",
+        "verdict": "approved"
+      }
+    },
+    {
+      "iteration": 8,
+      "baseline": "ASSURANCE-1-INPUT-3",
+      "builder": {
+        "runId": "build-ASSURANCE-1-8",
+        "model": "gpt-5.6-sol",
+        "effort": "high",
+        "startedAt": "2026-09-12T12:04:30.111Z",
+        "completedAt": "2026-09-12T12:10:57.229Z"
+      },
+      "reviewer": {
+        "runId": "review-ASSURANCE-1-8",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "startedAt": "2026-09-12T12:10:57.234Z",
+        "completedAt": "2026-09-12T12:12:06.515Z",
+        "verdict": "approved"
+      }
+    }
+  ],
+  "rolePrompts": [
+    {
+      "path": "prompts/system/base.md",
+      "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+    },
+    {
+      "path": "prompts/roles/reviewer-target.md",
+      "digest": "sha256:1bdf263e075f4acc1dac96885b8dadd284e4192eef4cd255b4f27df0ad46576e"
+    }
+  ],
+  "limits": "Final input identities were manager-checked; stage1 source did not gate its own development. Later source increments must use the accepted earlier admission guard. Raw operational logs remain local; this durable history is derived from completed run records."
+}

@@ -1,0 +1,16 @@
+{
+  "at": "2026-09-12T12:25:25.080Z",
+  "actor": "in-place-manager",
+  "candidate": "index8 final",
+  "persistedMode": {
+    "exitCode": 0,
+    "stdout": "=== Target-owned relay ===\nTarget     : /var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-1-manager-final-probes-lPDBtZ\nPrompt root: /Users/apple/Documents/APLICATII BIJUTERIE/agent-manager\nBuilder    : claude\nSupervisor : codex\nShared     : /var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-1-manager-final-probes-lPDBtZ/SYSTEM.txt\n\n  [assurance] baseline-admission docs/requirements/baselines/ASSURANCE-1-INPUT-3.json sha256:aa17d202261ddbde0c32c868befefb3dde6b6e7156097c71d28b5ae4e77c58de\n\nRelay completed.\nFinal phase: done\nSlice: S1\nReason: Slice already done. Use --reselect to choose a new slice.\n"
+  },
+  "selectionPhase": {
+    "maxIterations": 2,
+    "exitCode": 0,
+    "stdout": "{\"phase\":\"blocked\",\"sliceId\":\"S1\",\"stopped\":true,\"reason\":\"Active status phase 'select-slice' is not resumable for slice 'S1'; selection has not established a slice status.\"}\n"
+  },
+  "passed": true,
+  "method": "Disposable target from real INPUT-3; live CLI terminal slice and headless phase probe, no real provider calls. Positive cycle cap confirms no non-transitioning loop."
+}
