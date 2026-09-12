@@ -1,0 +1,115 @@
+{
+  "recordedAt": "2026-09-12T13:49:04.941Z",
+  "runner": {
+    "root": "/private/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-runner-i6ieuh",
+    "head": "47e647ca451a2f0701baa249b5ea6b5eb3275c08",
+    "entrypoint": "sha256:70ae2809c7172bcfbf010c4b8b6245d0020b49b9dba33e9a20b9a0ddc7bb5eb7"
+  },
+  "baseline": {
+    "path": "docs/requirements/baselines/ASSURANCE-2-INPUT-1.json",
+    "sha256": "sha256:e0ae3b39bca92b9121de9f35265401b2334d2d7a314dd3dc7f96ede801cfeec3"
+  },
+  "immutableInputs": 17,
+  "mutableOutputPaths": [
+    "src/core/assurance.ts",
+    "src/application/ports/provider-runner.ts",
+    "src/core/run-record.ts",
+    "src/application/use-cases/relay-target.ts",
+    "src/application/use-cases/relay.ts",
+    "src/application/use-cases/run-builder.ts",
+    "src/application/use-cases/relay-target.test.ts",
+    "src/cli/relay-target.ts",
+    "src/adapters/providers/claude-code/adapter.ts",
+    "src/adapters/providers/codex/adapter.ts",
+    "src/adapters/providers/copilot/adapter.ts",
+    "prompts/roles/builder-target.md",
+    "prompts/roles/reviewer-target.md",
+    "docs/contracts/target-owned-relay.md"
+  ],
+  "results": [
+    {
+      "name": "manager-a2c00-positive",
+      "command": [
+        "/Users/apple/.nvm/versions/node/v22.21.1/bin/node",
+        "/private/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-runner-i6ieuh/dist/cli/relay-target.js",
+        "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-admission-OgVzcH",
+        "--dry-run",
+        "--baseline",
+        "docs/requirements/baselines/ASSURANCE-2-INPUT-1.json",
+        "--slice",
+        "ASSURANCE-2",
+        "--builder",
+        "codex",
+        "--builder-model",
+        "gpt-5.6-sol",
+        "--supervisor",
+        "codex",
+        "--supervisor-model",
+        "gpt-5.6-terra",
+        "--shared-prompt",
+        "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-admission-OgVzcH/SYSTEM.txt"
+      ],
+      "exit": 0,
+      "expected": "admit",
+      "noTargetWrites": true,
+      "passed": true
+    },
+    {
+      "name": "manager-a2c00-output-mutation",
+      "command": [
+        "/Users/apple/.nvm/versions/node/v22.21.1/bin/node",
+        "/private/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-runner-i6ieuh/dist/cli/relay-target.js",
+        "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-admission-OgVzcH",
+        "--dry-run",
+        "--baseline",
+        "docs/requirements/baselines/ASSURANCE-2-INPUT-1.json",
+        "--slice",
+        "ASSURANCE-2",
+        "--builder",
+        "codex",
+        "--builder-model",
+        "gpt-5.6-sol",
+        "--supervisor",
+        "codex",
+        "--supervisor-model",
+        "gpt-5.6-terra",
+        "--shared-prompt",
+        "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-admission-OgVzcH/SYSTEM.txt"
+      ],
+      "exit": 0,
+      "expected": "admit",
+      "noTargetWrites": true,
+      "passed": true
+    },
+    {
+      "name": "manager-a2c00-input-mutation",
+      "command": [
+        "/Users/apple/.nvm/versions/node/v22.21.1/bin/node",
+        "/private/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-runner-i6ieuh/dist/cli/relay-target.js",
+        "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-admission-OgVzcH",
+        "--dry-run",
+        "--baseline",
+        "docs/requirements/baselines/ASSURANCE-2-INPUT-1.json",
+        "--slice",
+        "ASSURANCE-2",
+        "--builder",
+        "codex",
+        "--builder-model",
+        "gpt-5.6-sol",
+        "--supervisor",
+        "codex",
+        "--supervisor-model",
+        "gpt-5.6-terra",
+        "--shared-prompt",
+        "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-admission-OgVzcH/SYSTEM.txt"
+      ],
+      "exit": 1,
+      "expected": "refuse",
+      "noTargetWrites": true,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "temporaryTarget": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-admission-OgVzcH",
+  "temporaryTargetCleaned": true
+}

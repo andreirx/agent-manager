@@ -1,0 +1,102 @@
+{
+  "formatVersion": 1,
+  "kind": "requirements-baseline-manifest",
+  "baselineId": "ASSURANCE-2-INPUT-1",
+  "target": {
+    "projectId": "agent-manager",
+    "root": "."
+  },
+  "requirements": [
+    {
+      "path": "docs/requirements/am-req-001-target-owned-requirements.md",
+      "sha256": "sha256:7935baedfcb38fcd89795baf449d520a5259f2ff9f06caa5a4bb4a545e4802e6"
+    },
+    {
+      "path": "docs/requirements/am-req-002-requirements-and-design-review.md",
+      "sha256": "sha256:913c463c67778ba1a6cc96d62225d7b2775b9b1f1359d196b203b208589984fb"
+    },
+    {
+      "path": "docs/requirements/am-req-004-baseline-bound-execution.md",
+      "sha256": "sha256:862d748dfdd396bda696faf7b17c80e21331582d1ee48831c1c7b50b1dbd6144"
+    },
+    {
+      "path": "docs/requirements/am-req-007-project-aware-engineering.md",
+      "sha256": "sha256:32b981c6e42d52971d029f4ed3bf53f3658ee76c3852361f66d14497034050da"
+    },
+    {
+      "path": "docs/requirements/am-req-009-in-place-manager.md",
+      "sha256": "sha256:e1a983a79397c5f104075c8a9625fa834b8a9b23bc9489d5ad9314980c25c9a2"
+    }
+  ],
+  "dependencies": [
+    {
+      "role": "source",
+      "path": "docs/VISION.md",
+      "sha256": "sha256:af3d5685b30b122da8720fb622bf8381869c7b920ff5affb33a89d5480cb4a98"
+    },
+    {
+      "role": "source",
+      "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+      "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+    },
+    {
+      "role": "governance",
+      "path": "CLAUDE.md",
+      "sha256": "sha256:4a09c6119ec4c3970ebd0d91e4d122dbd75854054a54a8c3e173ce90e9a77538"
+    },
+    {
+      "role": "governance",
+      "path": "SYSTEM.txt",
+      "sha256": "sha256:fbb99b8cb7349562236bf289e33f9850a8412e1272746ba53d8dc7c9f6894f75"
+    },
+    {
+      "role": "design",
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "sha256:51971b54c59cd15ab07fc1a3af848ad36426b925e72507b97f6dc60222ecf4f1"
+    },
+    {
+      "role": "design",
+      "path": "docs/PROCESS.md",
+      "sha256": "sha256:4fbc7672c02cee0c4445d2485e58759ba870d6726501626ee490642838858703"
+    },
+    {
+      "role": "design",
+      "path": "docs/MANAGER.md",
+      "sha256": "sha256:9ab870f7a32b4bdfc138cbc1c43654325bfac820f6a0b6f6d5580e7c8ce08d18"
+    },
+    {
+      "role": "design",
+      "path": "docs/slices/requirements-assurance-rollout.md",
+      "sha256": "sha256:bf6375d1730f8d8e62bb17cdf6538eee3ea5fa8733fe9b8a49ccfaf015f868f0"
+    },
+    {
+      "role": "design",
+      "path": "docs/contracts/requirements-assurance-v1.md",
+      "sha256": "sha256:2003d54cfaa529a7d8f8757975d03f95f720fcc877b2ed3fcf1554a1802c3cae"
+    },
+    {
+      "role": "design",
+      "path": "docs/contracts/requirements-assurance-v2.md",
+      "sha256": "sha256:60e26eec6642f4b089ed27eaf3d7142bd4e6902281041e033ac6d6381ed116b1"
+    },
+    {
+      "role": "design",
+      "path": "docs/assurance/ASSURANCE-1/manager-acceptance.md",
+      "sha256": "sha256:08261fca0ee6e8abff457467dfca90395fba800d10905659868c096dd935576a"
+    },
+    {
+      "role": "allocation",
+      "path": "docs/slices/assurance-2-reviewed-inputs.md",
+      "sha256": "sha256:974af65604afcdd4bde390337f010d6afe73dd8aacc7e36d74723ce856aa1b8a"
+    }
+  ],
+  "requiredDecisionIds": [
+    "D-FORMAT",
+    "D-AUTH",
+    "D-ADOPTION",
+    "D-DISPATCH",
+    "D-EVIDENCE",
+    "D-A1-DIAGNOSTICS",
+    "A1-LEGACY-POINTER-BEHAVIOR"
+  ]
+}

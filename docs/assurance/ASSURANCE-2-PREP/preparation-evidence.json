@@ -1,0 +1,126 @@
+{
+  "recordedAt": "2026-09-12T13:47:59.113Z",
+  "candidate": [
+    {
+      "path": "docs/contracts/requirements-assurance-v2.md",
+      "sha256": "sha256:60e26eec6642f4b089ed27eaf3d7142bd4e6902281041e033ac6d6381ed116b1"
+    },
+    {
+      "path": "docs/slices/assurance-2-reviewed-inputs.md",
+      "sha256": "sha256:974af65604afcdd4bde390337f010d6afe73dd8aacc7e36d74723ce856aa1b8a"
+    }
+  ],
+  "checks": {
+    "frozenStartingFiles": 122,
+    "changedStartingFiles": 0,
+    "allocatedDraftsOnly": true,
+    "whitespace": "pass",
+    "jsonExamples": "parse pass",
+    "reviewedAllocationCount": 16
+  },
+  "runs": [
+    {
+      "runId": "build-ASSURANCE-2-PREP-0",
+      "phase": "implement",
+      "role": "builder",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "mode": "edit",
+      "permission": "write",
+      "status": "completed",
+      "startedAt": "2026-09-12T12:32:03.111Z",
+      "completedAt": "2026-09-12T13:16:21.334Z",
+      "logPath": ".agent-manager/logs/2026-09-12_12-32-03Z__builder__codex__slice-ASSURANCE-2-PREP.txt",
+      "prompts": [
+        {
+          "path": "prompts/system/base.md",
+          "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+        },
+        {
+          "path": "prompts/roles/builder-target.md",
+          "digest": "sha256:1c8871786cc8df15e94486f8c93beb5ca5c96c15c7cd308af4e7da28866b2768"
+        }
+      ],
+      "workingDir": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager"
+    },
+    {
+      "runId": "build-ASSURANCE-2-PREP-1",
+      "phase": "implement",
+      "role": "builder",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "mode": "edit",
+      "permission": "write",
+      "status": "completed",
+      "startedAt": "2026-09-12T13:21:52.389Z",
+      "completedAt": "2026-09-12T13:33:29.801Z",
+      "logPath": ".agent-manager/logs/2026-09-12_13-21-52Z__builder__codex__slice-ASSURANCE-2-PREP.txt",
+      "prompts": [
+        {
+          "path": "prompts/system/base.md",
+          "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+        },
+        {
+          "path": "prompts/roles/builder-target.md",
+          "digest": "sha256:1c8871786cc8df15e94486f8c93beb5ca5c96c15c7cd308af4e7da28866b2768"
+        }
+      ],
+      "workingDir": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager"
+    },
+    {
+      "runId": "review-ASSURANCE-2-PREP-0",
+      "phase": "review-impl",
+      "role": "reviewer",
+      "provider": "codex",
+      "model": "gpt-5.6-terra",
+      "effort": "high",
+      "mode": "review",
+      "permission": "read-only",
+      "status": "completed",
+      "startedAt": "2026-09-12T13:16:21.374Z",
+      "completedAt": "2026-09-12T13:19:51.229Z",
+      "logPath": ".agent-manager/logs/2026-09-12_13-16-21Z__reviewer__codex__slice-ASSURANCE-2-PREP.txt",
+      "prompts": [
+        {
+          "path": "prompts/system/base.md",
+          "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+        },
+        {
+          "path": "prompts/roles/reviewer-target.md",
+          "digest": "sha256:1bdf263e075f4acc1dac96885b8dadd284e4192eef4cd255b4f27df0ad46576e"
+        }
+      ],
+      "workingDir": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager"
+    },
+    {
+      "runId": "review-ASSURANCE-2-PREP-1",
+      "phase": "review-impl",
+      "role": "reviewer",
+      "provider": "codex",
+      "model": "gpt-5.6-terra",
+      "effort": "high",
+      "mode": "review",
+      "permission": "read-only",
+      "status": "completed",
+      "startedAt": "2026-09-12T13:33:29.809Z",
+      "completedAt": "2026-09-12T13:35:41.237Z",
+      "logPath": ".agent-manager/logs/2026-09-12_13-33-29Z__reviewer__codex__slice-ASSURANCE-2-PREP.txt",
+      "prompts": [
+        {
+          "path": "prompts/system/base.md",
+          "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+        },
+        {
+          "path": "prompts/roles/reviewer-target.md",
+          "digest": "sha256:1bdf263e075f4acc1dac96885b8dadd284e4192eef4cd255b4f27df0ad46576e"
+        }
+      ],
+      "workingDir": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager"
+    }
+  ],
+  "reviewScope": "document-only, separate invocations, same provider",
+  "codeGates": "not applicable; predecessor runner build passed separately",
+  "preDispatchGate": "A2-C00 passed; see admission-probes.json"
+}

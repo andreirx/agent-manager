@@ -1,0 +1,79 @@
+{
+  "formatVersion": 1,
+  "kind": "requirements-baseline-approval",
+  "approvalId": "ASSURANCE-2-BASELINE-APPROVAL-1",
+  "subject": {
+    "path": "docs/requirements/baselines/ASSURANCE-2-INPUT-1.json",
+    "sha256": "sha256:e0ae3b39bca92b9121de9f35265401b2334d2d7a314dd3dc7f96ede801cfeec3"
+  },
+  "review": {
+    "path": "docs/assurance/ASSURANCE-2-INPUT-1/requirements-review.json",
+    "sha256": "sha256:01e3f1f39b4b4cf3a7865387d6eac18b6915f7e4d1ecaaed7bbb8beb0552f3c2"
+  },
+  "decision": "approved",
+  "approvedBy": {
+    "actorType": "operator",
+    "actorId": "in-place-manager"
+  },
+  "recordedBy": {
+    "actorType": "operator",
+    "actorId": "in-place-manager"
+  },
+  "authorityBasis": {
+    "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+    "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+  },
+  "resolvedDecisions": [
+    {
+      "id": "D-FORMAT",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-AUTH",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-ADOPTION",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-DISPATCH",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-EVIDENCE",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-A1-DIAGNOSTICS",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-1/diagnostics-ratification.md",
+        "sha256": "sha256:e402cd4d47aa163ddefe06a07fb83bbcaba4c85e635f56b14928d38115f1a325"
+      }
+    },
+    {
+      "id": "A1-LEGACY-POINTER-BEHAVIOR",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-1/recovery-ratification.md",
+        "sha256": "sha256:0f26f786cb022bd059324b8d41072cae340d599759257921f7254f9b22670644"
+      }
+    }
+  ],
+  "decidedAt": "2026-09-12T13:47:59.116Z",
+  "rationale": "Operator accepts the separately reviewed ASSURANCE-2 design and exact new implementation baseline under existing rollout authority. See docs/assurance/ASSURANCE-2-PREP/manager-acceptance.md. Unchanged five H files reuse ASSURANCE-0 review; two new design documents received Sol/Terra review0 and focused review1. Manifest assembled after those reviews: no claim the reviewer read the later manifest. Only baseline-admission is implemented; no stage2 runtime acceptance is claimed."
+}

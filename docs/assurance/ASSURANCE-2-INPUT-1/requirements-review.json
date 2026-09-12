@@ -1,0 +1,26 @@
+{
+  "formatVersion": 1,
+  "kind": "manual-requirements-review",
+  "reviewId": "ASSURANCE-2-PREP-REVIEW-1",
+  "subject": {
+    "path": "docs/requirements/baselines/ASSURANCE-2-INPUT-1.json",
+    "sha256": "sha256:e0ae3b39bca92b9121de9f35265401b2334d2d7a314dd3dc7f96ede801cfeec3"
+  },
+  "author": {
+    "role": "builder",
+    "provider": "codex",
+    "model": "gpt-5.6-sol",
+    "effort": "high",
+    "runId": "build-ASSURANCE-2-PREP-1"
+  },
+  "reviewer": {
+    "role": "reviewer",
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "high",
+    "runId": "review-ASSURANCE-2-PREP-1"
+  },
+  "result": "accepted",
+  "completedAt": "2026-09-12T13:35:41.237Z",
+  "report": "STATUS: approved\n\n- **OBSERVED:** Only the two allocated documents are uncommitted/untracked; all 122 starting identities match. `git diff --check` and both untracked-document whitespace checks produced no diagnostics.\n- **OBSERVED:** Both documents trace all 16 allocated ASSURANCE-2 L obligations, preserve v1/legacy routing, defer ASSURANCE-3–5 gates, and provide executable headless/CLI oracles.\n- **OBSERVED:** M-A2-PREP-01 is resolved: `ADMISSION_ALLOCATION` is the existing v1-hashed input, while `SLICE_DOC` and `REVIEW_BASELINE` are authored outputs; A2-C03/A2-C09 test this bridge without bypassing v1 admission or legacy decision discovery.\n- **OBSERVED:** M-A2-PREP-02 is resolved: section 6.1 defines the 17 immutable implementation-baseline inputs and excludes all 14 runtime outputs, including both target role prompts and `target-owned-relay.md`; the fresh candidate runner supplies reviewed prompt bytes for the ASSURANCE-3 demonstration.\n- **OBSERVED:** The documented seams match current source: requests carry live prompt references and undigested context; target requests leave `inputArtifacts` empty; adapters reread/cache live inputs; `npm run human` is legacy slice-state input.\n- **OBSERVED:** All 10 JSON examples in `requirements-assurance-v2.md` parse.\n- **INFERRED:** The direct extensions to existing policy, relay use case, DTO, adapters, and CLI are implementable without an unearned package, service, registry, or workflow engine.\n\nThis is a separate same-provider Codex/Terra review. Approval covers the two preparation documents only, not runtime implementation, baseline publication, or operator acceptance.\n"
+}
