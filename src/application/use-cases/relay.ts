@@ -168,7 +168,7 @@ export async function relayStep(
     runId,
     sliceId: input.sliceId,
     role,
-    prompts,
+    delivery: { kind: 'legacy-live-inputs', prompts },
     inputArtifacts: [
       { path: join(input.sliceDir, 'brief.md'), type: 'brief' },
       ...(current ? [{ path: join(input.sliceDir, 'current.md'), type: 'artifact' }] : []),

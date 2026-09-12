@@ -1,0 +1,83 @@
+{
+  "formatVersion": 2,
+  "kind": "requirements-baseline-approval",
+  "approvalId": "ASSURANCE-3-BASELINE-APPROVAL-1",
+  "target": {
+    "projectId": "agent-manager",
+    "root": "."
+  },
+  "subject": {
+    "path": "docs/requirements/baselines/ASSURANCE-3-INPUT-1.json",
+    "sha256": "sha256:fc9b5c6b5cb25acde572d571ee1e1fbdd7cc05ec52a0dd21fd5d743bbdc05dfb"
+  },
+  "review": {
+    "path": "docs/assurance/ASSURANCE-3-INPUT-1/requirements-review.json",
+    "sha256": "sha256:e40ab6fa172d2cb9d94b139a00e34bb7f735e1c64d40e82b62816eae1412ceeb"
+  },
+  "decision": "approved",
+  "approvedBy": {
+    "actorType": "operator",
+    "actorId": "in-place-manager"
+  },
+  "recordedBy": {
+    "actorType": "operator",
+    "actorId": "in-place-manager"
+  },
+  "authorityBasis": {
+    "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+    "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+  },
+  "resolvedDecisions": [
+    {
+      "id": "D-FORMAT",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-AUTH",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-ADOPTION",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-DISPATCH",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-EVIDENCE",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+        "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+      }
+    },
+    {
+      "id": "D-A1-DIAGNOSTICS",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-1/diagnostics-ratification.md",
+        "sha256": "sha256:e402cd4d47aa163ddefe06a07fb83bbcaba4c85e635f56b14928d38115f1a325"
+      }
+    },
+    {
+      "id": "A1-LEGACY-POINTER-BEHAVIOR",
+      "record": {
+        "path": "docs/assurance/ASSURANCE-1/recovery-ratification.md",
+        "sha256": "sha256:0f26f786cb022bd059324b8d41072cae340d599759257921f7254f9b22670644"
+      }
+    }
+  ],
+  "decidedAt": "2026-09-12T19:34:44.601Z",
+  "rationale": "Operator approves the exact independently reviewed ASSURANCE-3 input manifest under existing rollout authority after inspecting all 17 accepted assessments, source-linked allocations, current dependency hashes, preserved frozen inputs, separate Sol/Terra run provenance and identical common delivered inputs. This is document/baseline approval only. Stage3 implementation must start from the clean operator-accepted committed Stage2 predecessor; Stage2 runtime acceptance remains a separate manager closeout. No minimum-diff requirement, final-acceptance mechanism, release or deployment is claimed."
+}

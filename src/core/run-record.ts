@@ -44,6 +44,40 @@ export interface PromptRef {
   readonly digest: string;
 }
 
+export type RunInputIdentity =
+  | {
+      readonly origin: 'file';
+      readonly root: 'target' | 'prompt';
+      readonly purpose: string;
+      readonly path: string;
+      readonly sha256: string;
+      readonly byteLength: number;
+    }
+  | {
+      readonly origin: 'generated';
+      readonly purpose: string;
+      readonly label: string;
+      readonly sha256: string;
+      readonly byteLength: number;
+    };
+
+export interface RunChannelIdentityRecord {
+  readonly channel: 'shared-instruction' | 'stdin';
+  readonly mechanism: string;
+  readonly sha256: string;
+  readonly byteLength: number;
+}
+
+/** Bounded record of bytes Agent Manager supplied and the adapter channels used. */
+export interface RunInputProvenance {
+  readonly contract: 'requirements-assurance/v2-input-delivery';
+  readonly roots: { readonly target: string; readonly prompt: string };
+  readonly baseline: { readonly path: string; readonly sha256: string };
+  readonly commonInputs: readonly RunInputIdentity[];
+  readonly roleSpecificInputs: readonly RunInputIdentity[];
+  readonly channels: readonly RunChannelIdentityRecord[];
+}
+
 /**
  * Output artifact from a run.
  *
@@ -112,4 +146,7 @@ export interface RunRecord {
 
   /** Error description (on failure) */
   readonly error?: string;
+
+  /** Present only when reviewed snapshots, rather than live files, were delivered. */
+  readonly inputProvenance?: RunInputProvenance;
 }

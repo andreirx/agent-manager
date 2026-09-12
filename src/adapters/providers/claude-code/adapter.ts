@@ -14,6 +14,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, isAbsolute } from 'node:path';
 
@@ -22,7 +23,10 @@ import type {
   ProviderRunnerPort,
   RunRequest,
   RunResult,
+  PreparedRunDelivery,
+  RunTextInput,
 } from '../../../application/ports/provider-runner.js';
+import { frameReviewedInputs } from '../../../application/ports/provider-runner.js';
 import { RunStatus } from '../../../core/run-record.js';
 
 /**
@@ -138,42 +142,16 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     }
 
     const startedAt = this.clock.now();
-
-    // Validate and read all prompt contents
-    const promptContents: string[] = [];
-    for (const prompt of request.prompts) {
-      // Validate repo-relative path
-      if (isAbsolute(prompt.path)) {
-        throw new ClaudeAdapterCompositionError(
-          `Prompt path must be repo-relative, got absolute path: ${prompt.path}`
-        );
+    const prepared = await this.prepareRunDelivery(request);
+    if (prepared.sharedSnapshot) {
+      await mkdir(dirname(prepared.sharedSnapshot.path), { recursive: true });
+      await writeFile(prepared.sharedSnapshot.path, prepared.sharedSnapshot.bytes);
+      const written = await this.store.readPromptAsset(prepared.sharedSnapshot.path);
+      const expected = digest(prepared.sharedSnapshot.bytes);
+      if (written.digest !== expected) {
+        throw new ClaudeAdapterCompositionError(`Shared snapshot digest mismatch after write: ${prepared.sharedSnapshot.path}`);
       }
-
-      const fullPath = join(this.config.promptRoot, prompt.path);
-      const asset = await this.store.readPromptAsset(fullPath);
-
-      // Verify digest matches
-      if (asset.digest !== prompt.digest) {
-        throw new ClaudeAdapterCompositionError(
-          `Prompt digest mismatch for ${prompt.path}. ` +
-          `Expected ${prompt.digest}, got ${asset.digest}. ` +
-          `Prompt may have changed since run was prepared.`
-        );
-      }
-
-      promptContents.push(asset.content);
     }
-
-    // Combine file prompts, then append dynamic per-run context (not a pinned
-    // asset, so it is delivered inline rather than resolved/digested).
-    const parts = [...promptContents];
-    if (request.contextText) {
-      parts.push(request.contextText);
-    }
-    const fullPrompt = parts.join('\n\n---\n\n');
-
-    // Build full invocation (command, args, cwd)
-    const invocation = this.buildInvocation(request);
 
     // Determine log path
     const logPath = this.buildLogPath(request, startedAt);
@@ -189,7 +167,7 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     const liveStream = createWriteStream(livePath, { flags: 'a' });
     let execResult: ExecResult;
     try {
-      execResult = await this.execute(invocation, request.timeout, fullPrompt, (chunk) => {
+      execResult = await this.execute(prepared.invocation, request.timeout, new TextDecoder().decode(prepared.stdinBytes), (chunk) => {
         liveStream.write(chunk);
       });
     } finally {
@@ -208,7 +186,52 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     await this.writeLog(logPath, request, execResult, finalText, startedAt, completedAt);
 
     // Build result
-    return this.buildResult(request, execResult, finalText, logPath, startedAt, completedAt);
+    return this.buildResult(request, execResult, finalText, logPath, startedAt, completedAt, prepared.receipt);
+  }
+
+  /** Compose and identify exactly what a live spawn will receive, without spawning. */
+  async prepareRunDelivery(request: RunRequest): Promise<PreparedRunDelivery> {
+    switch (request.delivery.kind) {
+      case 'legacy-live-inputs': {
+        const promptContents: string[] = [];
+        for (const prompt of request.delivery.prompts) {
+          if (isAbsolute(prompt.path)) throw new ClaudeAdapterCompositionError(`Prompt path must be repo-relative, got absolute path: ${prompt.path}`);
+          const asset = await this.store.readPromptAsset(join(this.config.promptRoot, prompt.path));
+          if (asset.digest !== prompt.digest) throw new ClaudeAdapterCompositionError(`Prompt digest mismatch for ${prompt.path}. Expected ${prompt.digest}, got ${asset.digest}. Prompt may have changed since run was prepared.`);
+          promptContents.push(asset.content);
+        }
+        const parts = [...promptContents];
+        if (request.delivery.contextText) parts.push(request.delivery.contextText);
+        return {
+          invocation: this.buildInvocation(request),
+          stdinBytes: new TextEncoder().encode(parts.join('\n\n---\n\n')),
+          receipt: { kind: 'legacy-live-inputs' },
+        };
+      }
+      case 'reviewed-input-snapshots': {
+        verifyReviewedInputs(request.delivery.common, request.delivery.roleSpecific);
+        const shared = reviewedShared(request.delivery.common);
+        const stdinBytes = frameReviewedInputs([
+          ...request.delivery.common.filter((item) => item !== shared),
+          ...request.delivery.roleSpecific,
+        ]);
+        const snapshotPath = join(this.config.logsDir, 'input-snapshots', `${shared.sha256.slice('sha256:'.length)}.txt`);
+        const invocation = this.buildInvocation(request, snapshotPath);
+        return {
+          invocation,
+          stdinBytes,
+          sharedSnapshot: { path: snapshotPath, bytes: shared.bytes.slice() },
+          receipt: {
+            kind: 'reviewed-input-snapshots',
+            contract: request.delivery.contract,
+            channels: [
+              { channel: 'shared-instruction', mechanism: 'claude-system-prompt-file', sha256: shared.sha256, byteLength: shared.bytes.byteLength },
+              { channel: 'stdin', mechanism: 'stdin', sha256: digest(stdinBytes), byteLength: stdinBytes.byteLength },
+            ],
+          },
+        };
+      }
+    }
   }
 
   /**
@@ -219,19 +242,19 @@ export class ClaudeAdapter implements ProviderRunnerPort {
    * and git context. cwd defaults to the prompt root (self-host) and becomes the
    * target repo when `request.workingDir` is set.
    */
-  buildInvocation(request: RunRequest): {
+  buildInvocation(request: RunRequest, sharedInstructionPath = this.config.sharedInstructionPath): {
     command: string;
     args: string[];
     cwd: string;
   } {
     return {
       command: this.config.command,
-      args: this.buildArgs(request),
+      args: this.buildArgs(request, sharedInstructionPath),
       cwd: request.workingDir ?? this.config.promptRoot,
     };
   }
 
-  private buildArgs(request: RunRequest): string[] {
+  private buildArgs(request: RunRequest, sharedInstructionPath?: string): string[] {
     const args: string[] = ['--print'];
 
     // Output format. Transcript mode emits a full stream-json event stream
@@ -254,8 +277,8 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     // appends. Tools remain available; target governance (CLAUDE.md / AGENTS.md)
     // is honored via the explicit "read and obey" instructions in the role
     // prompts rather than Claude's default auto-load (which replace mode drops).
-    if (this.config.sharedInstructionPath) {
-      args.push('--system-prompt-file', this.config.sharedInstructionPath);
+    if (sharedInstructionPath) {
+      args.push('--system-prompt-file', sharedInstructionPath);
     }
 
     // Model override
@@ -551,7 +574,11 @@ export class ClaudeAdapter implements ProviderRunnerPort {
       ``,
       `## Prompts`,
       ``,
-      ...request.prompts.map((p) => `- ${p.path} (${p.digest})`),
+      ...(request.delivery.kind === 'legacy-live-inputs'
+        ? request.delivery.prompts.map((p) => `- ${p.path} (${p.digest})`)
+        : [...request.delivery.common, ...request.delivery.roleSpecific].map((p) =>
+          `- ${p.origin === 'file' ? p.path : p.label} (${p.sha256})`
+        )),
       ``
     );
 
@@ -601,7 +628,8 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     finalText: string,
     logPath: string,
     startedAt: string,
-    completedAt: string
+    completedAt: string,
+    deliveryReceipt: RunResult['deliveryReceipt']
   ): RunResult {
     // Determine status
     let status: RunStatus;
@@ -635,6 +663,7 @@ export class ClaudeAdapter implements ProviderRunnerPort {
       logPath,
       startedAt,
       completedAt,
+      deliveryReceipt,
     };
 
     // Add failure details if applicable
@@ -646,6 +675,25 @@ export class ClaudeAdapter implements ProviderRunnerPort {
 
     return result;
   }
+}
+
+function digest(bytes: Uint8Array): string {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+function verifyReviewedInputs(common: readonly RunTextInput[], roleSpecific: readonly RunTextInput[]): void {
+  if (common.length === 0 || roleSpecific.length === 0) throw new ClaudeAdapterCompositionError('Reviewed input arrays must be non-empty.');
+  for (const input of [...common, ...roleSpecific]) {
+    if (digest(input.bytes) !== input.sha256) throw new ClaudeAdapterCompositionError(`Reviewed input digest mismatch for ${input.origin === 'file' ? input.path : input.label}.`);
+    try { new TextDecoder('utf-8', { fatal: true }).decode(input.bytes); }
+    catch { throw new ClaudeAdapterCompositionError(`Reviewed input is not UTF-8 for ${input.origin === 'file' ? input.path : input.label}.`); }
+  }
+}
+
+function reviewedShared(common: readonly RunTextInput[]): RunTextInput {
+  const matches = common.filter((input) => input.purpose === 'shared-instruction');
+  if (matches.length !== 1 || !matches[0]) throw new ClaudeAdapterCompositionError('Reviewed delivery requires exactly one shared-instruction common input.');
+  return matches[0];
 }
 
 /**

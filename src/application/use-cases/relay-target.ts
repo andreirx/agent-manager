@@ -26,20 +26,33 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 
 import type { ArtifactStorePort, ClockPort, ProviderRunnerPort } from '../ports/index.js';
 import type { RunRequest, RunResult } from '../ports/provider-runner.js';
+import type { RunTextInput } from '../ports/provider-runner.js';
 import type { PromptRef } from '../../core/run-record.js';
+import type { RunInputProvenance } from '../../core/run-record.js';
 import { RunStatus } from '../../core/run-record.js';
 import {
   parseApprovalRecord,
+  parseApprovalRecordV2,
   parseAssuranceJson,
   parseBaselineManifest,
   parsePersistedAssurance,
+  persistedAssuranceV2,
+  parseRequirementsReviewResult,
+  parseRequirementsReviewRecord,
+  validateBaselineCandidate,
   persistedAssurance,
   renderAssuranceError,
   validateBaselineAdmission,
   type AssuranceFileSnapshot,
   type AssuranceSnapshot,
   type BaselineAdmissionResult,
-  type PersistedAssurance,
+  type BaselineManifest,
+  type BaselineManifestV2,
+  type ContentRef,
+  type PersistedAssuranceV2,
+  type RequirementsReviewRecord,
+  type ApprovalRecordV2,
+  type AnyPersistedAssurance,
 } from '../../core/assurance.js';
 import { parseVerdict } from './relay-shared.js';
 
@@ -78,7 +91,7 @@ export interface TargetRelayStatus {
   builderProvider: TargetActor;
   supervisorProvider: TargetActor;
   /** Present only for explicit stage-1 baseline-admission operation. */
-  assurance?: PersistedAssurance;
+  assurance?: AnyPersistedAssurance;
 }
 
 /** Pointer to the active slice, so a later invocation resumes (not reselects). */
@@ -86,7 +99,7 @@ interface CurrentPointer {
   sliceId: string;
   sliceDoc: string | null;
   updatedAt: string;
-  assurance?: PersistedAssurance;
+  assurance?: AnyPersistedAssurance;
 }
 
 /** Authoritative per-run record (traceability: run -> log path). */
@@ -107,6 +120,7 @@ interface TargetRunRecord {
   prompts: { path: string; digest: string }[];
   workingDir: string;
   error?: string;
+  inputProvenance?: RunInputProvenance;
 }
 
 /** Input for a full target relay run. */
@@ -159,6 +173,10 @@ export interface TargetRelayInput {
   until?: TargetPhase;
   /** Target-relative requirements baseline manifest (explicit stage-1 opt-in). */
   baselinePath?: string;
+  /** Selected shared instruction, identified relative to one accepted root. */
+  sharedInstruction?: { root: 'target' | 'prompt'; path: string };
+  /** Prompt instructions intentionally common to every target role. */
+  commonPromptPaths?: readonly string[];
 }
 
 /** Dependencies for the target relay. */
@@ -198,8 +216,86 @@ export async function admitBaseline(
   targetDir: string,
   manifestPath: string,
   artifactStore: ArtifactStorePort,
-  options: { expectedManifest?: PersistedAssurance['manifest']; allocationPath?: string } = {}
+  options: { expectedManifest?: AnyPersistedAssurance['manifest']; allocationPath?: string } = {}
 ): Promise<BaselineAdmissionResult> {
+  return (await loadBaselineClosure(targetDir, manifestPath, artifactStore, options)).result;
+}
+
+interface LoadedBaselineClosure {
+  result: BaselineAdmissionResult;
+  snapshots: readonly AssuranceSnapshot[];
+  manifest?: BaselineManifest;
+}
+
+type WorkItemPosture =
+  | { kind: 'legacy' }
+  | { kind: 'implementation'; implementObligationIds?: readonly string[] }
+  | { kind: 'requirements-document'; admissionAllocation: string; reviewBaseline: string; reviewObligationIds: readonly string[] };
+
+function packetFieldValues(raw: string, name: string): string[] {
+  return raw.split('\n').flatMap((line) => {
+    const match = line.match(new RegExp(`^${name}:\\s*(.*)$`));
+    return match?.[1] !== undefined ? [match[1].replace(/^ +| +$/g, '')] : [];
+  });
+}
+
+function parseObligationList(value: string, field: string): readonly string[] {
+  const ids = value.split(',').map((item) => item.replace(/^ +| +$/g, ''));
+  if (ids.length === 0 || ids.some((id) => !/^[A-Z][A-Z0-9-]*-REQ-[0-9]{3}(?:-L[0-9]{2})?$/.test(id))) throw new Error(`invalid-field: selection.md ${field}: expected a non-empty comma-separated H/L ID list`);
+  if (new Set(ids).size !== ids.length) throw new Error(`duplicate-identity: selection.md ${field}: duplicate obligation ID`);
+  return ids;
+}
+
+function parseTargetRelativePacketPath(value: string, field: string): string {
+  const segments = value.split('/');
+  if (value.length === 0 || value.startsWith('/') || value.includes('\\') || segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
+    throw new Error(`invalid-field: selection.md ${field}: expected a target-relative POSIX file path`);
+  }
+  return value;
+}
+
+function parseWorkItemPosture(raw: string, assurance: AnyPersistedAssurance | undefined): WorkItemPosture {
+  // Stage-2 posture is an admitted-mode contract. A legacy packet may contain
+  // similarly named prose/fields, but those bytes did not previously change
+  // routing and must not opt themselves into document review.
+  if (!assurance) return { kind: 'legacy' };
+  const kinds = packetFieldValues(raw, 'ARTIFACT_KIND');
+  if (kinds.length === 0) {
+    if (assurance?.contract === 'requirements-assurance/v2-stage2') throw new Error('invalid-field: v2 selection.md requires exactly one ARTIFACT_KIND');
+    return { kind: 'legacy' };
+  }
+  if (kinds.length !== 1) throw new Error('duplicate-field: selection.md ARTIFACT_KIND must occur exactly once');
+  if (kinds[0] === 'REQUIREMENTS_DOCUMENT') {
+    const admission = packetFieldValues(raw, 'ADMISSION_ALLOCATION');
+    const baseline = packetFieldValues(raw, 'REVIEW_BASELINE');
+    const obligations = packetFieldValues(raw, 'REVIEW_OBLIGATION_IDS');
+    if (admission.length !== 1 || baseline.length !== 1 || obligations.length !== 1) throw new Error('invalid-field: requirements document requires exactly one ADMISSION_ALLOCATION, REVIEW_BASELINE and REVIEW_OBLIGATION_IDS');
+    return {
+      kind: 'requirements-document',
+      admissionAllocation: parseTargetRelativePacketPath(admission[0] as string, 'ADMISSION_ALLOCATION'),
+      reviewBaseline: parseTargetRelativePacketPath(baseline[0] as string, 'REVIEW_BASELINE'),
+      reviewObligationIds: parseObligationList(obligations[0] as string, 'REVIEW_OBLIGATION_IDS'),
+    };
+  }
+  if (kinds[0] === 'IMPLEMENTATION') {
+    const obligations = packetFieldValues(raw, 'IMPLEMENT_OBLIGATION_IDS');
+    if (assurance?.contract === 'requirements-assurance/v2-stage2') {
+      if (obligations.length !== 1) throw new Error('invalid-field: v2 implementation requires exactly one IMPLEMENT_OBLIGATION_IDS');
+      return { kind: 'implementation', implementObligationIds: parseObligationList(obligations[0] as string, 'IMPLEMENT_OBLIGATION_IDS') };
+    }
+    if (obligations.length > 1) throw new Error('duplicate-field: selection.md IMPLEMENT_OBLIGATION_IDS occurs more than once');
+    return { kind: 'implementation', ...(obligations[0] ? { implementObligationIds: parseObligationList(obligations[0], 'IMPLEMENT_OBLIGATION_IDS') } : {}) };
+  }
+  throw new Error(`invalid-field: selection.md ARTIFACT_KIND: unsupported value '${kinds[0]}'`);
+}
+
+async function loadBaselineClosure(
+  targetDir: string,
+  manifestPath: string,
+  artifactStore: ArtifactStorePort,
+  options: { expectedManifest?: AnyPersistedAssurance['manifest']; allocationPath?: string } = {},
+  readTargetSnapshot?: (path: string) => Promise<AssuranceSnapshot>
+): Promise<LoadedBaselineClosure> {
   const manifestSegments = manifestPath.split('/');
   if (
     manifestPath.length === 0 ||
@@ -208,24 +304,25 @@ export async function admitBaseline(
     manifestSegments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')
   ) {
     const code = manifestPath.includes('\\') || manifestPath.length === 0 ? 'invalid-field' : 'path-escape';
-    return {
-      ok: false,
-      errors: [{ code, recordPath: manifestPath, location: '/', detail: 'baseline path must be a target-relative POSIX file path' }],
-    };
+    return { result: { ok: false, errors: [{ code, recordPath: manifestPath, location: '/', detail: 'baseline path must be a target-relative POSIX file path' }] }, snapshots: [] };
   }
   const snapshots = new Map<string, AssuranceSnapshot>();
   const readOnce = async (path: string): Promise<AssuranceSnapshot> => {
     const existing = snapshots.get(path);
     if (existing) return existing;
-    const snapshot = await artifactStore.readContainedFile(targetDir, path);
+    const snapshot = readTargetSnapshot
+      ? await readTargetSnapshot(path)
+      : await artifactStore.readContainedFile(targetDir, path);
     snapshots.set(path, snapshot);
     return snapshot;
   };
 
   const manifestSnapshot = await readOnce(manifestPath);
+  let parsedManifestValue: BaselineManifest | undefined;
   if (manifestSnapshot.status === 'ok') {
     const manifest = parseBaselineManifest(manifestSnapshot as AssuranceFileSnapshot);
     if (manifest.ok) {
+      parsedManifestValue = manifest.value;
       for (const ref of [...manifest.value.requirements, ...manifest.value.dependencies]) {
         await readOnce(ref.path);
       }
@@ -234,7 +331,9 @@ export async function admitBaseline(
       await readOnce(reviewPath);
       const approvalSnapshot = await readOnce(approvalPath);
       if (approvalSnapshot.status === 'ok') {
-        const approval = parseApprovalRecord(approvalSnapshot as AssuranceFileSnapshot);
+        const approval = manifest.value.formatVersion === 1
+          ? parseApprovalRecord(approvalSnapshot as AssuranceFileSnapshot)
+          : parseApprovalRecordV2(approvalSnapshot as AssuranceFileSnapshot);
         if (approval.ok) {
           await readOnce(approval.value.authorityBasis.path);
           for (const decision of approval.value.resolvedDecisions) {
@@ -244,12 +343,13 @@ export async function admitBaseline(
       }
     }
   }
-  return validateBaselineAdmission({
+  const result = validateBaselineAdmission({
     manifestPath,
     snapshots: [...snapshots.values()],
     ...(options.expectedManifest ? { expectedManifest: options.expectedManifest } : {}),
     ...(options.allocationPath !== undefined ? { allocationPath: options.allocationPath } : {}),
   });
+  return { result, snapshots: [...snapshots.values()], ...(parsedManifestValue ? { manifest: parsedManifestValue } : {}) };
 }
 
 function renderAdmissionFailure(result: Extract<BaselineAdmissionResult, { ok: false }>): string {
@@ -259,7 +359,7 @@ function renderAdmissionFailure(result: Extract<BaselineAdmissionResult, { ok: f
 function assuranceFromUnknown(
   container: unknown,
   recordPath: string
-): { present: false } | { present: true; valid: true; value: PersistedAssurance } | { present: true; valid: false; reason: string } {
+): { present: false } | { present: true; valid: true; value: AnyPersistedAssurance } | { present: true; valid: false; reason: string } {
   if (!container || typeof container !== 'object' || Array.isArray(container)) {
     return { present: false };
   }
@@ -273,19 +373,22 @@ function assuranceFromUnknown(
 async function assuredDispatchFailure(
   input: TargetRelayInput,
   deps: TargetRelayDeps,
-  status: TargetRelayStatus
+  status: TargetRelayStatus,
+  posture: WorkItemPosture,
+  capture: ReviewedInputCapture | undefined
 ): Promise<string | undefined> {
   if (!status.assurance) return undefined;
-  const result = await admitBaseline(
+  const loaded = await loadBaselineClosure(
     input.targetDir,
     status.assurance.manifest.path,
     deps.artifactStore,
     {
       expectedManifest: status.assurance.manifest,
-      allocationPath: status.sliceDoc ?? '',
-    }
+      allocationPath: posture.kind === 'requirements-document' ? posture.admissionAllocation : status.sliceDoc ?? '',
+    },
+    capture ? (path) => capture.read('target', path) : undefined
   );
-  return result.ok ? undefined : renderAdmissionFailure(result);
+  return loaded.result.ok ? undefined : renderAdmissionFailure(loaded.result);
 }
 
 // ---------------------------------------------------------------------------
@@ -304,6 +407,343 @@ async function loadPrompts(
     prompts.push({ path, digest: computeDigest(content) });
   }
   return prompts;
+}
+
+function decoded(snapshot: AssuranceFileSnapshot): string {
+  return new TextDecoder('utf-8', { fatal: true }).decode(snapshot.bytes);
+}
+
+interface ReviewedInputCapture {
+  read(root: 'target' | 'prompt', path: string): Promise<AssuranceSnapshot>;
+}
+
+/**
+ * One dispatch-attempt cache for exact reviewed bytes. Target and prompt roots
+ * are separate namespaces; every rooted path is read at most once, and all
+ * policy checks plus provider DTO construction reuse that captured result.
+ */
+function captureReviewedInputs(
+  input: TargetRelayInput,
+  deps: Pick<TargetRelayDeps, 'artifactStore'>
+): ReviewedInputCapture {
+  const snapshots = new Map<string, Promise<AssuranceSnapshot>>();
+  return {
+    read(root, path) {
+      const key = `${root}\0${path}`;
+      const existing = snapshots.get(key);
+      if (existing) return existing;
+      const loaded = deps.artifactStore.readContainedFile(root === 'target' ? input.targetDir : input.promptRoot, path);
+      snapshots.set(key, loaded);
+      return loaded;
+    },
+  };
+}
+
+function fileRunInput(snapshot: AssuranceFileSnapshot, root: 'target' | 'prompt', purpose: RunTextInput['purpose']): RunTextInput {
+  return { origin: 'file', root, purpose, path: snapshot.path, bytes: snapshot.bytes, sha256: snapshot.sha256 };
+}
+
+function generatedRunInput(label: string, purpose: RunTextInput['purpose'], content: string, computeDigest: (content: string) => string): RunTextInput {
+  return { origin: 'generated', purpose, label, bytes: new TextEncoder().encode(content), sha256: computeDigest(content) };
+}
+
+async function readRequiredCapturedSnapshot(capture: ReviewedInputCapture, root: 'target' | 'prompt', path: string): Promise<AssuranceFileSnapshot> {
+  const snapshot = await capture.read(root, path);
+  if (snapshot.status === 'error') throw new Error(`${snapshot.code}: ${path}: ${snapshot.detail}`);
+  // Enforce the reviewed-delivery UTF-8 rule before any provider call.
+  decoded(snapshot);
+  return snapshot;
+}
+
+async function readRequiredSnapshot(root: string, path: string, store: ArtifactStorePort): Promise<AssuranceFileSnapshot> {
+  const snapshot = await store.readContainedFile(root, path);
+  if (snapshot.status === 'error') throw new Error(`${snapshot.code}: ${path}: ${snapshot.detail}`);
+  decoded(snapshot);
+  return snapshot;
+}
+
+async function resolveInstructionSet(
+  input: TargetRelayInput,
+  deps: Pick<TargetRelayDeps, 'artifactStore'>,
+  capture = captureReviewedInputs(input, deps)
+): Promise<PersistedAssuranceV2['instructions']> {
+  if (!input.sharedInstruction) throw new Error('missing: reviewed-inputs requires a contained shared instruction');
+  const readRef = async (root: 'target' | 'prompt', path: string) => {
+    const snapshot = await readRequiredCapturedSnapshot(capture, root, path);
+    return { root, path, sha256: snapshot.sha256 } as const;
+  };
+  const common = input.commonPromptPaths ?? [];
+  const roleOnly = (paths: readonly string[]) => paths.filter((path) => !common.includes(path));
+  return {
+    shared: await readRef(input.sharedInstruction.root, input.sharedInstruction.path),
+    commonRole: await Promise.all(common.map((path) => readRef('prompt', path))),
+    selectorRole: await Promise.all(roleOnly(input.selectPromptPaths).map((path) => readRef('prompt', path))),
+    builderRole: await Promise.all(roleOnly(input.builderPromptPaths).map((path) => readRef('prompt', path))),
+    reviewerRole: await Promise.all(roleOnly(input.reviewerPromptPaths).map((path) => readRef('prompt', path))),
+    challengerRole: await Promise.all(roleOnly(input.challengerPromptPaths).map((path) => readRef('prompt', path))),
+    rebutterRole: await Promise.all(roleOnly(input.rebutterPromptPaths).map((path) => readRef('prompt', path))),
+  };
+}
+
+function sameInstructions(a: PersistedAssuranceV2['instructions'], b: PersistedAssuranceV2['instructions']): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+async function acceptedCommonInputs(
+  input: TargetRelayInput,
+  deps: Pick<TargetRelayDeps, 'artifactStore'>,
+  assurance: AnyPersistedAssurance,
+  allocationPath?: string,
+  capture = captureReviewedInputs(input, deps)
+): Promise<readonly RunTextInput[]> {
+  const loaded = await loadBaselineClosure(input.targetDir, assurance.manifest.path, deps.artifactStore, {
+    expectedManifest: assurance.manifest,
+    ...(allocationPath !== undefined ? { allocationPath } : {}),
+  }, (path) => capture.read('target', path));
+  if (!loaded.result.ok || !loaded.manifest) throw new Error(loaded.result.ok ? 'invalid-field: admitted manifest was not decoded' : renderAdmissionFailure(loaded.result));
+  if (assurance.contract === 'requirements-assurance/v2-stage2') {
+    const current = await resolveInstructionSet(input, deps, capture);
+    if (!sameInstructions(current, assurance.instructions)) throw new Error('digest-mismatch: persisted reviewed-input instruction identities changed');
+  }
+  if (!input.sharedInstruction) throw new Error('missing: reviewed input delivery requires a shared instruction');
+  const shared = await readRequiredCapturedSnapshot(capture, input.sharedInstruction.root, input.sharedInstruction.path);
+  const commonPrompts = await Promise.all((input.commonPromptPaths ?? []).map((path) => readRequiredCapturedSnapshot(capture, 'prompt', path)));
+  const manifest = loaded.manifest;
+  const requirementPaths = new Set(manifest.requirements.map((ref) => ref.path));
+  const roles = new Map(manifest.dependencies.map((ref) => [ref.path, ref.role]));
+  const reviewPath = `docs/assurance/${manifest.baselineId}/requirements-review.json`;
+  const approvalPath = `docs/assurance/${manifest.baselineId}/baseline-approval.json`;
+  const approvalSnapshot = loaded.snapshots.find((snapshot) => snapshot.path === approvalPath && snapshot.status === 'ok') as AssuranceFileSnapshot | undefined;
+  const authorityPaths = new Set<string>();
+  const decisionPaths = new Set<string>();
+  if (approvalSnapshot) {
+    const approval = manifest.formatVersion === 1 ? parseApprovalRecord(approvalSnapshot) : parseApprovalRecordV2(approvalSnapshot);
+    if (approval.ok) {
+      authorityPaths.add(approval.value.authorityBasis.path);
+      for (const item of approval.value.resolvedDecisions) decisionPaths.add(item.record.path);
+    }
+  }
+  const ordered: RunTextInput[] = [fileRunInput(shared, input.sharedInstruction.root, 'shared-instruction')];
+  ordered.push(...commonPrompts.map((snapshot) => fileRunInput(snapshot, 'prompt', 'common-role-instruction')));
+  for (const snapshot of loaded.snapshots) {
+    if (snapshot.status === 'error') continue;
+    let purpose: RunTextInput['purpose'];
+    if (snapshot.path === assurance.manifest.path) purpose = 'baseline-manifest';
+    else if (requirementPaths.has(snapshot.path)) purpose = 'requirement';
+    else if (roles.has(snapshot.path)) purpose = roles.get(snapshot.path) as 'source' | 'governance' | 'design' | 'allocation';
+    else if (snapshot.path === reviewPath) purpose = 'review';
+    else if (snapshot.path === approvalPath) purpose = 'approval';
+    else if (decisionPaths.has(snapshot.path)) purpose = 'decision';
+    else if (authorityPaths.has(snapshot.path)) purpose = 'authority';
+    else continue;
+    ordered.push(fileRunInput(snapshot, 'target', purpose));
+  }
+  return ordered;
+}
+
+async function roleSpecificInputs(args: {
+  input: TargetRelayInput;
+  deps: Pick<TargetRelayDeps, 'artifactStore' | 'computeDigest'>;
+  sliceDir: string;
+  packetRaw: string;
+  promptPaths: readonly string[];
+  directiveLabel: string;
+  directive: string;
+  extra?: readonly RunTextInput[];
+  capture?: ReviewedInputCapture;
+}): Promise<readonly RunTextInput[]> {
+  const capture = args.capture ?? captureReviewedInputs(args.input, args.deps);
+  const common = args.input.commonPromptPaths ?? [];
+  const rolePrompts = await Promise.all(args.promptPaths.filter((path) => !common.includes(path)).map((path) => readRequiredCapturedSnapshot(capture, 'prompt', path)));
+  const selectionPath = `.agent-manager/slices/${args.sliceDir.split(sep).pop() as string}/selection.md`;
+  const selection = await readRequiredCapturedSnapshot(capture, 'target', selectionPath);
+  if (decoded(selection) !== args.packetRaw) throw new Error(`digest-mismatch: ${selectionPath}: active selection packet changed during dispatch`);
+  return [
+    ...rolePrompts.map((snapshot) => fileRunInput(snapshot, 'prompt', 'role-instruction')),
+    fileRunInput(selection, 'target', 'selection-packet'),
+    ...(args.extra ?? []),
+    generatedRunInput(args.directiveLabel, 'task-directive', args.directive, args.deps.computeDigest),
+  ];
+}
+
+async function loadCandidateClosure(args: {
+  input: TargetRelayInput;
+  deps: Pick<TargetRelayDeps, 'artifactStore'>;
+  posture: Extract<WorkItemPosture, { kind: 'requirements-document' }>;
+  sliceDoc: string;
+  capture?: ReviewedInputCapture;
+}): Promise<{ manifest: BaselineManifestV2; manifestRef: ContentRef; inputs: readonly RunTextInput[] }> {
+  const snapshots = new Map<string, AssuranceSnapshot>();
+  const readOnce = async (path: string) => {
+    const existing = snapshots.get(path);
+    if (existing) return existing;
+    const value = args.capture
+      ? await args.capture.read('target', path)
+      : await args.deps.artifactStore.readContainedFile(args.input.targetDir, path);
+    snapshots.set(path, value);
+    return value;
+  };
+  const first = await readOnce(args.posture.reviewBaseline);
+  if (first.status === 'ok') {
+    const parsed = parseBaselineManifest(first);
+    if (parsed.ok) for (const ref of [...parsed.value.requirements, ...parsed.value.dependencies]) await readOnce(ref.path);
+  }
+  const result = validateBaselineCandidate({ manifestPath: args.posture.reviewBaseline, snapshots: [...snapshots.values()], allocationPath: args.sliceDoc, submittedObligationIds: args.posture.reviewObligationIds });
+  if (!result.ok) throw new Error(result.errors.map(renderAssuranceError).join('\n'));
+  const inputs = [...snapshots.values()].flatMap((snapshot) => snapshot.status === 'ok' ? [fileRunInput(snapshot, 'target', 'review-subject')] : []);
+  return { manifest: result.candidate.manifest, manifestRef: result.candidate.manifestRef, inputs };
+}
+
+/**
+ * Prepare the no-spawn reviewed deliveries an explicit assured slice can reach.
+ * A pre-author document item has real builder delivery but only a pending
+ * reviewer subject; ordinary v1 work returns undefined. This reuses the live
+ * snapshot/closure rules, and the CLI passes each available value through the
+ * selected adapter's public `prepareRunDelivery` seam.
+ */
+export async function prepareReviewedTargetDryRunDeliveries(args: {
+  input: TargetRelayInput;
+  deps: Pick<TargetRelayDeps, 'artifactStore' | 'computeDigest'>;
+  baselinePath: string;
+  sliceId: string;
+  sliceDoc: string;
+  packetRaw: string;
+  documentCandidateAvailability: 'not-yet-authored' | 'expected';
+}): Promise<{
+  manifest: ContentRef;
+  builder: Extract<RunRequest['delivery'], { kind: 'reviewed-input-snapshots' }>;
+  reviewer:
+    | {
+        kind: 'available';
+        delivery: Extract<RunRequest['delivery'], { kind: 'reviewed-input-snapshots' }>;
+      }
+    | {
+        kind: 'pending-authored-review-subject';
+        reviewBaseline: string;
+        sliceDoc: string;
+      };
+} | undefined> {
+  const admitted = await admitBaseline(args.input.targetDir, args.baselinePath, args.deps.artifactStore);
+  if (!admitted.ok) throw new Error(renderAdmissionFailure(admitted));
+  const capture = captureReviewedInputs(args.input, args.deps);
+  const assurance: AnyPersistedAssurance = admitted.admission.enforcement === 'reviewed-inputs'
+    ? persistedAssuranceV2(admitted.admission, await resolveInstructionSet(args.input, args.deps, capture))
+    : persistedAssurance(admitted.admission);
+  const posture = parseWorkItemPosture(args.packetRaw, assurance);
+  if (assurance.contract !== 'requirements-assurance/v2-stage2' && posture.kind !== 'requirements-document') {
+    return undefined;
+  }
+  const allocationPath = posture.kind === 'requirements-document' ? posture.admissionAllocation : args.sliceDoc;
+  const allocationAdmission = await admitBaseline(args.input.targetDir, assurance.manifest.path, args.deps.artifactStore, { expectedManifest: assurance.manifest, allocationPath });
+  if (!allocationAdmission.ok) throw new Error(renderAdmissionFailure(allocationAdmission));
+  const common = await acceptedCommonInputs(args.input, args.deps, assurance, allocationPath, capture);
+  const sliceDir = join(args.input.targetDir, '.agent-manager', 'slices', args.sliceId);
+  const builderDirective = buildBuilderContext(args.input.targetDir, args.packetRaw, 0);
+  const builder = {
+    kind: 'reviewed-input-snapshots' as const,
+    contract: 'requirements-assurance/v2-input-delivery' as const,
+    common,
+    roleSpecific: await roleSpecificInputs({ input: args.input, deps: args.deps, sliceDir, packetRaw: args.packetRaw, promptPaths: args.input.builderPromptPaths, directiveLabel: posture.kind === 'requirements-document' ? 'requirements-author-task' : 'implementation-builder-task', directive: builderDirective, capture }),
+  };
+  const reviewerExtra: RunTextInput[] = [];
+  if (posture.kind === 'requirements-document') {
+    const candidateManifest = await capture.read('target', posture.reviewBaseline);
+    if (candidateManifest.status === 'error') {
+      if (candidateManifest.code !== 'missing' || args.documentCandidateAvailability === 'expected') {
+        throw new Error(`${candidateManifest.code}: ${posture.reviewBaseline}: ${candidateManifest.detail}`);
+      }
+      return {
+        manifest: assurance.manifest,
+        builder,
+        reviewer: {
+          kind: 'pending-authored-review-subject',
+          reviewBaseline: posture.reviewBaseline,
+          sliceDoc: args.sliceDoc,
+        },
+      };
+    }
+    const candidate = await loadCandidateClosure({ input: args.input, deps: args.deps, posture, sliceDoc: args.sliceDoc, capture });
+    reviewerExtra.push(...candidate.inputs);
+  }
+  const reviewerDirective = buildReviewerContext(args.input.targetDir, args.packetRaw);
+  const reviewer = {
+    kind: 'reviewed-input-snapshots' as const,
+    contract: 'requirements-assurance/v2-input-delivery' as const,
+    common,
+    roleSpecific: await roleSpecificInputs({ input: args.input, deps: args.deps, sliceDir, packetRaw: args.packetRaw, promptPaths: args.input.reviewerPromptPaths, directiveLabel: posture.kind === 'requirements-document' ? 'requirements-reviewer-task' : 'implementation-reviewer-task', directive: reviewerDirective, extra: reviewerExtra, capture }),
+  };
+  return { manifest: assurance.manifest, builder, reviewer: { kind: 'available', delivery: reviewer } };
+}
+
+export interface RecordReviewedBaselineApprovalInput {
+  targetDir: string;
+  manifestPath: string;
+  approvalId: string;
+  projectId: string;
+  approvedBy: { actorType: 'human' | 'operator'; actorId: string };
+  recordedBy: { actorType: 'human' | 'operator'; actorId: string };
+  authorityBasisPath: string;
+  decisionRecords: readonly { id: string; path: string }[];
+  rationale: string;
+}
+
+/** Validate and create only the fixed v2 approval record; never dispatches a role. */
+export async function recordReviewedBaselineApproval(
+  input: RecordReviewedBaselineApprovalInput,
+  deps: { clock: ClockPort; artifactStore: ArtifactStorePort; computeDigest: (content: string) => string }
+): Promise<{ outputPath: string; approval: ApprovalRecordV2 }> {
+  const manifestSnapshot = await readRequiredSnapshot(input.targetDir, input.manifestPath, deps.artifactStore);
+  const parsedManifest = parseBaselineManifest(manifestSnapshot);
+  if (!parsedManifest.ok) throw new Error(parsedManifest.errors.map(renderAssuranceError).join('\n'));
+  if (parsedManifest.value.formatVersion !== 2) throw new Error('unsupported-version: reviewed-baseline approval requires a v2 manifest');
+  const manifest = parsedManifest.value;
+  if (manifest.target.projectId !== input.projectId) throw new Error(`subject-mismatch: project '${input.projectId}' does not equal manifest project '${manifest.target.projectId}'`);
+  const snapshots: AssuranceSnapshot[] = [manifestSnapshot];
+  for (const ref of [...manifest.requirements, ...manifest.dependencies]) snapshots.push(await deps.artifactStore.readContainedFile(input.targetDir, ref.path));
+  const allocation = manifest.dependencies.find((item) => item.role === 'allocation');
+  if (!allocation) throw new Error('invalid-field: v2 candidate contains no allocation dependency');
+  const candidate = validateBaselineCandidate({ manifestPath: input.manifestPath, snapshots, allocationPath: allocation.path, submittedObligationIds: manifest.reviewObligationIds });
+  if (!candidate.ok) throw new Error(candidate.errors.map(renderAssuranceError).join('\n'));
+  const reviewPath = `docs/assurance/${manifest.baselineId}/requirements-review.json`;
+  const reviewSnapshot = await readRequiredSnapshot(input.targetDir, reviewPath, deps.artifactStore);
+  const review = parseRequirementsReviewRecord(reviewSnapshot, manifest.reviewObligationIds);
+  if (!review.ok) throw new Error(review.errors.map(renderAssuranceError).join('\n'));
+  if (review.value.subject.path !== input.manifestPath || review.value.subject.sha256 !== manifestSnapshot.sha256) throw new Error('subject-mismatch: durable review does not bind the selected manifest');
+  const authority = await readRequiredSnapshot(input.targetDir, input.authorityBasisPath, deps.artifactStore);
+  const duplicateDecisionIds = input.decisionRecords.map((item) => item.id);
+  if (new Set(duplicateDecisionIds).size !== duplicateDecisionIds.length) throw new Error('duplicate-identity: duplicate --decision-record ID');
+  const required = new Set(manifest.requiredDecisionIds);
+  const provided = new Set(duplicateDecisionIds);
+  for (const id of required) if (!provided.has(id)) throw new Error(`subject-mismatch: required decision '${id}' was not provided`);
+  for (const id of provided) if (!required.has(id)) throw new Error(`subject-mismatch: decision '${id}' is not required by the manifest`);
+  const resolvedDecisions: ApprovalRecordV2['resolvedDecisions'] = [];
+  for (const decision of input.decisionRecords) {
+    const snapshot = await readRequiredSnapshot(input.targetDir, decision.path, deps.artifactStore);
+    resolvedDecisions.push({ id: decision.id, record: { path: decision.path, sha256: snapshot.sha256 } });
+  }
+  const approval: ApprovalRecordV2 = {
+    formatVersion: 2,
+    kind: 'requirements-baseline-approval',
+    approvalId: input.approvalId,
+    target: manifest.target,
+    subject: { path: input.manifestPath, sha256: manifestSnapshot.sha256 },
+    review: { path: reviewPath, sha256: reviewSnapshot.sha256 },
+    decision: 'approved',
+    approvedBy: input.approvedBy,
+    recordedBy: input.recordedBy,
+    authorityBasis: { path: input.authorityBasisPath, sha256: authority.sha256 },
+    resolvedDecisions,
+    decidedAt: deps.clock.now(),
+    rationale: input.rationale,
+  };
+  const raw = `${JSON.stringify(approval, null, 2)}\n`;
+  const structural = parseApprovalRecordV2({ status: 'ok', path: 'approval-candidate', bytes: new TextEncoder().encode(raw), sha256: deps.computeDigest(raw) });
+  if (!structural.ok) throw new Error(structural.errors.map(renderAssuranceError).join('\n'));
+  const outputPath = `docs/assurance/${manifest.baselineId}/baseline-approval.json`;
+  await mkdir(join(input.targetDir, 'docs', 'assurance', manifest.baselineId), { recursive: true });
+  try { await writeFile(join(input.targetDir, outputPath), raw, { encoding: 'utf-8', flag: 'wx' }); }
+  catch (cause) { throw new Error(`approval-already-exists: ${outputPath}: ${cause instanceof Error ? cause.message : String(cause)}`); }
+  return { outputPath, approval };
 }
 
 function parseSelectionStatus(raw: string): 'selected' | 'blocked' | 'unknown' {
@@ -489,13 +929,12 @@ async function readJsonState(path: string): Promise<JsonFileState> {
     : { status: 'malformed', detail: parsed.errors.map(renderAssuranceError).join('\n') };
 }
 
-function sameAssurance(a: PersistedAssurance, b: PersistedAssurance): boolean {
-  return (
-    a.contract === b.contract &&
-    a.enforcement === b.enforcement &&
-    a.manifest.path === b.manifest.path &&
-    a.manifest.sha256 === b.manifest.sha256
-  );
+function sameAssurance(a: AnyPersistedAssurance, b: AnyPersistedAssurance): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function sameInputProvenanceContext(a: RunInputProvenance, b: RunInputProvenance): boolean {
+  return a.baseline.path === b.baseline.path && a.baseline.sha256 === b.baseline.sha256 && JSON.stringify(a.commonInputs) === JSON.stringify(b.commonInputs);
 }
 
 const TARGET_PHASE_VALUES: Readonly<Record<TargetPhase, true>> = {
@@ -567,14 +1006,32 @@ async function writeCurrent(
   );
 }
 
+function assertRunDeliveryConsistency(request: RunRequest, result: RunResult): void {
+  if (request.runId !== result.runId) throw new Error('role-context-mismatch: provider result runId does not match request');
+  if (request.delivery.kind !== result.deliveryReceipt.kind) throw new Error('role-context-mismatch: provider delivery receipt kind does not match request');
+  if (request.delivery.kind === 'reviewed-input-snapshots') {
+    if (result.deliveryReceipt.kind !== 'reviewed-input-snapshots' || result.deliveryReceipt.contract !== request.delivery.contract) throw new Error('role-context-mismatch: reviewed request completed without matching delivery contract');
+    const sharedInputs = request.delivery.common.filter((item) => item.purpose === 'shared-instruction');
+    const sharedChannels = result.deliveryReceipt.channels.filter((item) => item.channel === 'shared-instruction');
+    const stdinChannels = result.deliveryReceipt.channels.filter((item) => item.channel === 'stdin');
+    const channelIdentityValid = result.deliveryReceipt.channels.every((item) => item.mechanism.length > 0 && /^sha256:[0-9a-f]{64}$/.test(item.sha256) && Number.isInteger(item.byteLength) && item.byteLength >= 0);
+    if (sharedInputs.length !== 1 || sharedChannels.length !== 1 || stdinChannels.length !== 1 || result.deliveryReceipt.channels.length !== 2 || !channelIdentityValid || sharedChannels[0]?.sha256 !== sharedInputs[0]?.sha256 || sharedChannels[0]?.byteLength !== sharedInputs[0]?.bytes.byteLength) {
+      throw new Error('role-context-mismatch: provider delivery receipt does not identify the requested shared and stdin channels');
+    }
+  }
+}
+
 /** Build a run record from a request/result pair. */
 function makeRunRecord(
   phase: TargetPhase,
   provider: TargetActor,
   request: RunRequest,
   result: RunResult,
-  targetDir: string
+  targetDir: string,
+  promptRoot?: string,
+  baseline?: ContentRef
 ): TargetRunRecord {
+  assertRunDeliveryConsistency(request, result);
   const base: TargetRunRecord = {
     runId: request.runId,
     phase,
@@ -588,10 +1045,32 @@ function makeRunRecord(
     startedAt: result.startedAt,
     completedAt: result.completedAt,
     logPath: toTargetRelative(result.logPath, targetDir),
-    prompts: request.prompts.map((p) => ({ path: p.path, digest: p.digest })),
+    prompts: request.delivery.kind === 'legacy-live-inputs'
+      ? request.delivery.prompts.map((p) => ({ path: p.path, digest: p.digest }))
+      : [...request.delivery.common, ...request.delivery.roleSpecific]
+        .filter((p) => p.origin === 'file' && (p.purpose === 'shared-instruction' || p.purpose === 'common-role-instruction' || p.purpose === 'role-instruction'))
+        .map((p) => ({ path: p.origin === 'file' ? p.path : '', digest: p.sha256 })),
     workingDir: targetDir,
   };
-  return result.error !== undefined ? { ...base, error: result.error } : base;
+  let record = result.error !== undefined ? { ...base, error: result.error } : base;
+  if (request.delivery.kind === 'reviewed-input-snapshots') {
+    if (result.deliveryReceipt.kind !== 'reviewed-input-snapshots' || !promptRoot || !baseline) throw new Error('role-context-mismatch: reviewed request completed without identified roots/baseline');
+    const project = (item: RunTextInput): RunInputProvenance['commonInputs'][number] => item.origin === 'file'
+      ? { origin: 'file', root: item.root, purpose: item.purpose, path: item.path, sha256: item.sha256, byteLength: item.bytes.byteLength }
+      : { origin: 'generated', purpose: item.purpose, label: item.label, sha256: item.sha256, byteLength: item.bytes.byteLength };
+    record = {
+      ...record,
+      inputProvenance: {
+        contract: request.delivery.contract,
+        roots: { target: targetDir, prompt: promptRoot },
+        baseline,
+        commonInputs: request.delivery.common.map(project),
+        roleSpecificInputs: request.delivery.roleSpecific.map(project),
+        channels: result.deliveryReceipt.channels,
+      },
+    };
+  }
+  return record;
 }
 
 async function writeRunRecord(
@@ -684,7 +1163,8 @@ async function runWithRetry(
 async function runSelectSlice(
   input: TargetRelayInput,
   deps: TargetRelayDeps,
-  amDir: string
+  amDir: string,
+  assurance?: AnyPersistedAssurance
 ): Promise<{
   status: 'selected' | 'blocked';
   sliceId?: string;
@@ -694,11 +1174,25 @@ async function runSelectSlice(
   result: RunResult;
   request: RunRequest;
 }> {
-  const prompts = await loadPrompts(
-    input.promptRoot,
-    input.selectPromptPaths,
-    deps.computeDigest
-  );
+  let delivery: RunRequest['delivery'];
+  if (assurance?.contract === 'requirements-assurance/v2-stage2') {
+    const capture = captureReviewedInputs(input, deps);
+    const common = await acceptedCommonInputs(input, deps, assurance, undefined, capture);
+    const commonPaths = input.commonPromptPaths ?? [];
+    const roleSnapshots = await Promise.all(input.selectPromptPaths.filter((path) => !commonPaths.includes(path)).map((path) => readRequiredCapturedSnapshot(capture, 'prompt', path)));
+    delivery = {
+      kind: 'reviewed-input-snapshots',
+      contract: 'requirements-assurance/v2-input-delivery',
+      common,
+      roleSpecific: [
+        ...roleSnapshots.map((snapshot) => fileRunInput(snapshot, 'prompt', 'role-instruction')),
+        generatedRunInput('selection-task', 'task-directive', cwdHeader(input.targetDir), deps.computeDigest),
+      ],
+    };
+  } else {
+    const prompts = await loadPrompts(input.promptRoot, input.selectPromptPaths, deps.computeDigest);
+    delivery = { kind: 'legacy-live-inputs', prompts, contextText: cwdHeader(input.targetDir) };
+  }
 
   const request: RunRequest = {
     runId: `select-${deps.clock.now()}`,
@@ -711,11 +1205,11 @@ async function runSelectSlice(
     workingDir: input.targetDir,
     model: input.supervisorModel,
     effort: input.supervisorEffort,
-    prompts,
-    contextText: cwdHeader(input.targetDir),
+    delivery,
     inputArtifacts: [],
   };
   const result = await runWithRetry(deps.supervisor, request, 'select-slice');
+  assertRunDeliveryConsistency(request, result);
 
   if (result.status !== RunStatus.COMPLETED) {
     return {
@@ -761,13 +1255,29 @@ async function runImplement(
   deps: TargetRelayDeps,
   sliceDir: string,
   status: TargetRelayStatus,
-  packetRaw: string
+  packetRaw: string,
+  posture: WorkItemPosture,
+  dispatchCapture: ReviewedInputCapture | undefined
 ): Promise<TargetRelayStatus> {
-  const prompts = await loadPrompts(
-    input.promptRoot,
-    input.builderPromptPaths,
-    deps.computeDigest
-  );
+  let delivery: RunRequest['delivery'];
+  const useSnapshots = status.assurance !== undefined && (status.assurance.contract === 'requirements-assurance/v2-stage2' || posture.kind === 'requirements-document');
+  if (useSnapshots && status.assurance) {
+    if (!dispatchCapture) throw new Error('invalid-field: reviewed builder dispatch has no admitted input capture');
+    const capture = dispatchCapture;
+    const allocationPath = posture.kind === 'requirements-document' ? posture.admissionAllocation : status.sliceDoc ?? '';
+    const common = await acceptedCommonInputs(input, deps, status.assurance, allocationPath, capture);
+    const prior: RunTextInput[] = [];
+    if (status.iteration > 0) {
+      const priorPath = `.agent-manager/slices/${status.sliceId}/review-${status.iteration - 1}.json`;
+      const priorSnapshot = await readRequiredCapturedSnapshot(capture, 'target', priorPath);
+      prior.push(fileRunInput(priorSnapshot, 'target', 'prior-review'));
+    }
+    const roleSpecific = await roleSpecificInputs({ input, deps, sliceDir, packetRaw, promptPaths: input.builderPromptPaths, directiveLabel: posture.kind === 'requirements-document' ? 'requirements-author-task' : 'implementation-builder-task', directive: buildBuilderContext(input.targetDir, packetRaw, status.iteration), extra: prior, capture });
+    delivery = { kind: 'reviewed-input-snapshots', contract: 'requirements-assurance/v2-input-delivery', common, roleSpecific };
+  } else {
+    const prompts = await loadPrompts(input.promptRoot, input.builderPromptPaths, deps.computeDigest);
+    delivery = { kind: 'legacy-live-inputs', prompts, contextText: buildBuilderContext(input.targetDir, packetRaw, status.iteration) };
+  }
   const request: RunRequest = {
     runId: `build-${status.sliceId}-${status.iteration}`,
     sliceId: status.sliceId,
@@ -777,8 +1287,7 @@ async function runImplement(
     workingDir: input.targetDir,
     model: input.builderModel,
     effort: input.builderEffort,
-    prompts,
-    contextText: buildBuilderContext(input.targetDir, packetRaw, status.iteration),
+    delivery,
     inputArtifacts: [],
   };
   const result = await runWithRetry(
@@ -790,7 +1299,7 @@ async function runImplement(
   await writeRunRecord(
     sliceDir,
     `build-${status.iteration}`,
-    makeRunRecord('implement', input.builderProvider, request, result, input.targetDir)
+    makeRunRecord('implement', input.builderProvider, request, result, input.targetDir, input.promptRoot, status.assurance?.manifest)
   );
 
   if (result.status !== RunStatus.COMPLETED) {
@@ -825,13 +1334,10 @@ async function runReview(
   deps: TargetRelayDeps,
   sliceDir: string,
   status: TargetRelayStatus,
-  packetRaw: string
+  packetRaw: string,
+  posture: WorkItemPosture,
+  dispatchCapture: ReviewedInputCapture | undefined
 ): Promise<TargetRelayStatus> {
-  const prompts = await loadPrompts(
-    input.promptRoot,
-    input.reviewerPromptPaths,
-    deps.computeDigest
-  );
   // Inline this iteration's build report (gitignored — invisible to the
   // reviewer's git-based inspection). Absent file (e.g. legacy resume) is fine.
   let buildReport: string | undefined;
@@ -843,6 +1349,27 @@ async function runReview(
   } catch {
     buildReport = undefined;
   }
+  let candidate: Awaited<ReturnType<typeof loadCandidateClosure>> | undefined;
+  let delivery: RunRequest['delivery'];
+  const useSnapshots = status.assurance !== undefined && (status.assurance.contract === 'requirements-assurance/v2-stage2' || posture.kind === 'requirements-document');
+  if (useSnapshots && status.assurance) {
+    if (!dispatchCapture) throw new Error('invalid-field: reviewed reviewer dispatch has no admitted input capture');
+    const capture = dispatchCapture;
+    const allocationPath = posture.kind === 'requirements-document' ? posture.admissionAllocation : status.sliceDoc ?? '';
+    const common = await acceptedCommonInputs(input, deps, status.assurance, allocationPath, capture);
+    const extra: RunTextInput[] = [];
+    if (buildReport !== undefined) extra.push(generatedRunInput(`build-report-${status.iteration}`, 'build-report', buildReport, deps.computeDigest));
+    if (posture.kind === 'requirements-document') {
+      if (!status.sliceDoc) throw new Error('invalid-field: requirements document status has no SLICE_DOC');
+      candidate = await loadCandidateClosure({ input, deps, posture, sliceDoc: status.sliceDoc, capture });
+      extra.push(...candidate.inputs);
+    }
+    const roleSpecific = await roleSpecificInputs({ input, deps, sliceDir, packetRaw, promptPaths: input.reviewerPromptPaths, directiveLabel: posture.kind === 'requirements-document' ? 'requirements-reviewer-task' : 'implementation-reviewer-task', directive: buildReviewerContext(input.targetDir, packetRaw, buildReport), extra, capture });
+    delivery = { kind: 'reviewed-input-snapshots', contract: 'requirements-assurance/v2-input-delivery', common, roleSpecific };
+  } else {
+    const prompts = await loadPrompts(input.promptRoot, input.reviewerPromptPaths, deps.computeDigest);
+    delivery = { kind: 'legacy-live-inputs', prompts, contextText: buildReviewerContext(input.targetDir, packetRaw, buildReport) };
+  }
   const request: RunRequest = {
     runId: `review-${status.sliceId}-${status.iteration}`,
     sliceId: status.sliceId,
@@ -852,8 +1379,7 @@ async function runReview(
     workingDir: input.targetDir,
     model: input.supervisorModel,
     effort: input.supervisorEffort,
-    prompts,
-    contextText: buildReviewerContext(input.targetDir, packetRaw, buildReport),
+    delivery,
     inputArtifacts: [],
   };
   const result = await runWithRetry(
@@ -862,10 +1388,11 @@ async function runReview(
     `review ${status.sliceId} iter ${status.iteration}`
   );
 
+  const reviewRunRecord = makeRunRecord('review-impl', input.supervisorProvider, request, result, input.targetDir, input.promptRoot, status.assurance?.manifest);
   await writeRunRecord(
     sliceDir,
     `review-${status.iteration}`,
-    makeRunRecord('review-impl', input.supervisorProvider, request, result, input.targetDir)
+    reviewRunRecord
   );
 
   if (result.status !== RunStatus.COMPLETED) {
@@ -881,7 +1408,64 @@ async function runReview(
     );
   }
 
+  if (posture.kind === 'requirements-document' && (result.outputArtifacts.length !== 1 || typeof result.outputArtifacts[0]?.content !== 'string')) {
+    return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'invalid-field: provider-result /: requirements reviewer must return exactly one text artifact');
+  }
   const raw = String(result.outputArtifacts[0]?.content ?? '');
+  if (posture.kind === 'requirements-document') {
+    if (!candidate) throw new Error('invalid-field: requirements review has no candidate snapshot');
+    // The provider assessed the pre-dispatch snapshot. Re-read the complete
+    // candidate before consuming its result so an edit made during the review
+    // cannot be published under a stale subject identity.
+    const currentCandidate = await loadCandidateClosure({ input, deps, posture, sliceDoc: status.sliceDoc ?? '' });
+    if (currentCandidate.manifestRef.path !== candidate.manifestRef.path || currentCandidate.manifestRef.sha256 !== candidate.manifestRef.sha256) {
+      return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'subject-mismatch: requirements candidate changed during review');
+    }
+    const parsed = parseRequirementsReviewResult({ status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(raw), sha256: deps.computeDigest(raw) }, candidate.manifestRef, posture.reviewObligationIds);
+    await writeFile(join(sliceDir, `review-${status.iteration}.json`), JSON.stringify({ iteration: status.iteration, raw, parsed: parsed.ok ? parsed.value : { errors: parsed.errors } }, null, 2), 'utf-8');
+    if (!parsed.ok) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `Invalid structured requirements review:\n${parsed.errors.map(renderAssuranceError).join('\n')}`);
+    if (parsed.value.result === 'refinement-required') {
+      const revise: TargetRelayStatus = { ...status, phase: 'implement', iteration: status.iteration + 1, updatedAt: deps.clock.now(), lastActor: input.supervisorProvider };
+      await writeStatus(sliceDir, revise);
+      return revise;
+    }
+    if (parsed.value.result === 'decision-required') {
+      const matrix = parsed.value.decisions.map((decision) => [
+        `- ID: ${decision.decisionId}`,
+        `  QUESTION: ${decision.question}`,
+        '  OPTIONS:',
+        ...decision.options.map((option) => `  - ${option.option}: REWARD ${option.reward}; RISK ${option.risk}`),
+        `  RECOMMENDED: ${decision.recommendation}`,
+        `  BLOCKING_REASON: ${decision.blockingReason}`,
+      ].join('\n')).join('\n');
+      return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `DECISION_REQUIRED:\n${matrix}`);
+    }
+    const authorState = await readJsonState(join(sliceDir, 'runs', `build-${status.iteration}.json`));
+    if (authorState.status !== 'ok' || !authorState.value || typeof authorState.value !== 'object' || Array.isArray(authorState.value)) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'role-context-mismatch: completed requirements author run record is unavailable');
+    const authorRecord = authorState.value as Partial<TargetRunRecord>;
+    if (!authorRecord.inputProvenance || !reviewRunRecord.inputProvenance || !sameInputProvenanceContext(authorRecord.inputProvenance, reviewRunRecord.inputProvenance)) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'role-context-mismatch: requirements author and reviewer common input identities differ');
+    const durable: RequirementsReviewRecord = {
+      formatVersion: 2,
+      kind: 'requirements-review',
+      reviewId: request.runId,
+      subject: candidate.manifestRef,
+      author: { role: 'requirements-author', provider: authorRecord.provider ?? '', model: authorRecord.model ?? '', effort: authorRecord.effort ?? '', runId: authorRecord.runId ?? '' },
+      reviewer: { role: 'requirements-reviewer', provider: input.supervisorProvider, model: input.supervisorModel, effort: input.supervisorEffort, runId: request.runId },
+      independence: { invocations: 'separate', providerDiversity: authorRecord.provider === input.supervisorProvider ? 'same-provider' : 'different-provider' },
+      authorInputProvenance: authorRecord.inputProvenance,
+      reviewerInputProvenance: reviewRunRecord.inputProvenance,
+      result: 'accepted', assessments: parsed.value.assessments, findings: parsed.value.findings, decisions: parsed.value.decisions,
+      completedAt: result.completedAt,
+      report: parsed.value.report,
+    };
+    const durablePath = join(input.targetDir, 'docs', 'assurance', candidate.manifest.baselineId, 'requirements-review.json');
+    await mkdir(join(input.targetDir, 'docs', 'assurance', candidate.manifest.baselineId), { recursive: true });
+    try { await writeFile(durablePath, `${JSON.stringify(durable, null, 2)}\n`, { encoding: 'utf-8', flag: 'wx' }); }
+    catch (cause) { return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `approval-already-exists: requirements review output is create-only: ${cause instanceof Error ? cause.message : String(cause)}`); }
+    const done: TargetRelayStatus = { ...status, phase: 'done', updatedAt: deps.clock.now(), lastActor: input.supervisorProvider };
+    await writeStatus(sliceDir, done);
+    return done;
+  }
   const verdict = parseVerdict(raw);
 
   await writeFile(
@@ -1605,7 +2189,8 @@ async function runDecisionReview(
   deps: TargetRelayDeps,
   sliceDir: string,
   status: TargetRelayStatus,
-  packetRaw: string
+  packetRaw: string,
+  posture: WorkItemPosture
 ): Promise<TargetRelayStatus> {
   // The recommended cells live in the build summary and/or the SLICE_DOC spec
   // (review-0 fix: a SPEC slice's matrix is in SLICE_DOC). Read both; the
@@ -1625,17 +2210,34 @@ async function runDecisionReview(
   // Mined independently (NOT concatenated) so the build summary cannot bleed
   // into the spec's last decision block.
   const recommendationSources = [specArtifact, buildArtifact].filter((s) => s.trim());
+  const reviewedDecisionDelivery = async (
+    promptPaths: readonly string[],
+    directiveLabel: string,
+    directive: string,
+    capture: ReviewedInputCapture | undefined,
+    extra: readonly RunTextInput[] = []
+  ): Promise<RunRequest['delivery']> => {
+    if (status.assurance?.contract !== 'requirements-assurance/v2-stage2') {
+      const prompts = await loadPrompts(input.promptRoot, promptPaths, deps.computeDigest);
+      return { kind: 'legacy-live-inputs', prompts, contextText: directive };
+    }
+    if (!capture) throw new Error('invalid-field: reviewed decision dispatch has no admitted input capture');
+    const allocationPath = posture.kind === 'requirements-document' ? posture.admissionAllocation : status.sliceDoc ?? '';
+    return {
+      kind: 'reviewed-input-snapshots',
+      contract: 'requirements-assurance/v2-input-delivery',
+      common: await acceptedCommonInputs(input, deps, status.assurance, allocationPath, capture),
+      roleSpecific: await roleSpecificInputs({ input, deps, sliceDir, packetRaw, promptPaths, directiveLabel, directive, extra, capture }),
+    };
+  };
 
   // --- 1) Supervisor challenges the recommendations (read-only). ---
-  const challengeAdmissionFailure = await assuredDispatchFailure(input, deps, status);
+  const challengeCapture = status.assurance ? captureReviewedInputs(input, deps) : undefined;
+  const challengeAdmissionFailure = await assuredDispatchFailure(input, deps, status, posture, challengeCapture);
   if (challengeAdmissionFailure) {
     return blockSlice(sliceDir, status, deps.clock, 'human', `Baseline drift blocked decision-challenge dispatch:\n${challengeAdmissionFailure}`);
   }
-  const challengerPrompts = await loadPrompts(
-    input.promptRoot,
-    input.challengerPromptPaths,
-    deps.computeDigest
-  );
+  const challengeContext = buildChallengerContext(input.targetDir, packetRaw, sources);
   const challengeRequest: RunRequest = {
     runId: `decision-challenge-${status.sliceId}-${status.iteration}`,
     sliceId: status.sliceId,
@@ -1645,8 +2247,7 @@ async function runDecisionReview(
     workingDir: input.targetDir,
     model: input.supervisorModel,
     effort: input.supervisorEffort,
-    prompts: challengerPrompts,
-    contextText: buildChallengerContext(input.targetDir, packetRaw, sources),
+    delivery: await reviewedDecisionDelivery(input.challengerPromptPaths, 'decision-challenger-task', challengeContext, challengeCapture),
     inputArtifacts: [],
   };
   const challengeResult = await runWithRetry(
@@ -1657,7 +2258,7 @@ async function runDecisionReview(
   await writeRunRecord(
     sliceDir,
     'decision-challenge',
-    makeRunRecord('decision-review', input.supervisorProvider, challengeRequest, challengeResult, input.targetDir)
+    makeRunRecord('decision-review', input.supervisorProvider, challengeRequest, challengeResult, input.targetDir, input.promptRoot, status.assurance?.manifest)
   );
   if (challengeResult.status !== RunStatus.COMPLETED) {
     return blockSlice(
@@ -1672,15 +2273,12 @@ async function runDecisionReview(
   await writeFile(join(sliceDir, 'decision-challenge.md'), challengeRaw, 'utf-8');
 
   // --- 2) Builder rebuts each challenge (read-only). ---
-  const rebuttalAdmissionFailure = await assuredDispatchFailure(input, deps, status);
+  const rebuttalCapture = status.assurance ? captureReviewedInputs(input, deps) : undefined;
+  const rebuttalAdmissionFailure = await assuredDispatchFailure(input, deps, status, posture, rebuttalCapture);
   if (rebuttalAdmissionFailure) {
     return blockSlice(sliceDir, status, deps.clock, 'human', `Baseline drift blocked decision-rebuttal dispatch:\n${rebuttalAdmissionFailure}`);
   }
-  const rebutterPrompts = await loadPrompts(
-    input.promptRoot,
-    input.rebutterPromptPaths,
-    deps.computeDigest
-  );
+  const rebuttalContext = buildRebutterContext(input.targetDir, packetRaw, sources, challengeRaw);
   const rebutRequest: RunRequest = {
     runId: `decision-rebuttal-${status.sliceId}-${status.iteration}`,
     sliceId: status.sliceId,
@@ -1690,8 +2288,13 @@ async function runDecisionReview(
     workingDir: input.targetDir,
     model: input.builderModel,
     effort: input.builderEffort,
-    prompts: rebutterPrompts,
-    contextText: buildRebutterContext(input.targetDir, packetRaw, sources, challengeRaw),
+    delivery: await reviewedDecisionDelivery(
+      input.rebutterPromptPaths,
+      'decision-rebutter-task',
+      rebuttalContext,
+      rebuttalCapture,
+      [generatedRunInput('decision-challenge', 'prior-review', challengeRaw, deps.computeDigest)]
+    ),
     inputArtifacts: [],
   };
   const rebutResult = await runWithRetry(
@@ -1702,7 +2305,7 @@ async function runDecisionReview(
   await writeRunRecord(
     sliceDir,
     'decision-rebuttal',
-    makeRunRecord('decision-review', input.builderProvider, rebutRequest, rebutResult, input.targetDir)
+    makeRunRecord('decision-review', input.builderProvider, rebutRequest, rebutResult, input.targetDir, input.promptRoot, status.assurance?.manifest)
   );
   if (rebutResult.status !== RunStatus.COMPLETED) {
     return blockSlice(
@@ -1772,7 +2375,7 @@ export async function targetRelayLoop(
 
   // An explicit baseline is checked before scaffold writes or provider calls.
   // Allocation is checked later, once the selected/resumed sliceDoc is known.
-  let requestedAssurance: PersistedAssurance | undefined;
+  let requestedAssurance: AnyPersistedAssurance | undefined;
   if (input.baselinePath !== undefined) {
     const initialAdmission = await admitBaseline(
       input.targetDir,
@@ -1786,7 +2389,13 @@ export async function targetRelayLoop(
         reason: `Baseline admission failed before provider dispatch:\n${renderAdmissionFailure(initialAdmission)}`,
       };
     }
-    requestedAssurance = persistedAssurance(initialAdmission.admission);
+    if (initialAdmission.admission.enforcement === 'reviewed-inputs') {
+      try {
+        requestedAssurance = persistedAssuranceV2(initialAdmission.admission, await resolveInstructionSet(input, deps));
+      } catch (cause) {
+        return { phase: 'blocked', stopped: true, reason: `Reviewed-input instruction admission failed before provider dispatch: ${cause instanceof Error ? cause.message : String(cause)}` };
+      }
+    } else requestedAssurance = persistedAssurance(initialAdmission.admission);
   }
 
   await ensureScaffold(amDir);
@@ -1858,7 +2467,9 @@ export async function targetRelayLoop(
   // --- Fresh selection if no slice resolved ---
   if (!sliceId) {
     console.log(`  [select-slice] supervisor=${input.supervisorProvider} (read-only)`);
-    const selection = await runSelectSlice(input, deps, amDir);
+    let selection: Awaited<ReturnType<typeof runSelectSlice>>;
+    try { selection = await runSelectSlice(input, deps, amDir, requestedAssurance); }
+    catch (cause) { return { phase: 'blocked', stopped: true, reason: `Selection input preparation failed before provider dispatch: ${cause instanceof Error ? cause.message : String(cause)}` }; }
     await writeFile(join(amDir, 'pending-selection.md'), selection.raw, 'utf-8');
 
     if (selection.status === 'blocked') {
@@ -1870,7 +2481,9 @@ export async function targetRelayLoop(
           input.supervisorProvider,
           selection.request,
           selection.result,
-          input.targetDir
+          input.targetDir,
+          input.promptRoot,
+          requestedAssurance?.manifest
         )
       );
       await writeFile(
@@ -1886,13 +2499,16 @@ export async function targetRelayLoop(
     }
 
     if (requestedAssurance !== undefined) {
+      let selectedPosture: WorkItemPosture;
+      try { selectedPosture = parseWorkItemPosture(selection.raw, requestedAssurance); }
+      catch (cause) { return { phase: 'blocked', stopped: true, reason: cause instanceof Error ? cause.message : String(cause) }; }
       const allocationAdmission = await admitBaseline(
         input.targetDir,
         requestedAssurance.manifest.path,
         deps.artifactStore,
         {
           expectedManifest: requestedAssurance.manifest,
-          allocationPath: selection.sliceDoc ?? '',
+          allocationPath: selectedPosture.kind === 'requirements-document' ? selectedPosture.admissionAllocation : selection.sliceDoc ?? '',
         }
       );
       if (!allocationAdmission.ok) {
@@ -1900,7 +2516,7 @@ export async function targetRelayLoop(
         await writeFile(join(amDir, 'notes-for-human.md'), `# Blocked at baseline admission\n\n${reason}\n`, 'utf-8');
         return { phase: 'blocked', stopped: true, reason };
       }
-      requestedAssurance = persistedAssurance(allocationAdmission.admission);
+      if (requestedAssurance.contract === 'requirements-assurance/v1-stage1') requestedAssurance = persistedAssurance(allocationAdmission.admission);
     }
 
     sliceId = sanitizeId(selection.sliceId as string);
@@ -1930,7 +2546,9 @@ export async function targetRelayLoop(
         input.supervisorProvider,
         selection.request,
         selection.result,
-        input.targetDir
+        input.targetDir,
+        input.promptRoot,
+        requestedAssurance?.manifest
       )
     );
 
@@ -2036,17 +2654,33 @@ export async function targetRelayLoop(
     return { phase: 'blocked', sliceId, stopped: true, reason: `Baseline conflict: --baseline resolved to ${requestedAssurance.manifest.path} ${requestedAssurance.manifest.sha256}, but status.json persists ${persistedMode.manifest.path} ${persistedMode.manifest.sha256}.` };
   }
   const activeMode = persistedMode ?? requestedAssurance;
+  let packetRaw: string;
+  try { packetRaw = await readFile(join(sliceDir, 'selection.md'), 'utf-8'); }
+  catch (cause) {
+    if (activeMode) return { phase: 'blocked', sliceId, stopped: true, reason: `missing: active assured selection.md is required: ${cause instanceof Error ? cause.message : String(cause)}` };
+    packetRaw = '';
+  }
+  let posture: WorkItemPosture;
+  try { posture = parseWorkItemPosture(packetRaw, activeMode); }
+  catch (cause) { return { phase: 'blocked', sliceId, stopped: true, reason: cause instanceof Error ? cause.message : String(cause) }; }
   if (activeMode) {
-    const allocationAdmission = await admitBaseline(
+    const loadedAdmission = await loadBaselineClosure(
       input.targetDir,
       activeMode.manifest.path,
       deps.artifactStore,
-      { expectedManifest: activeMode.manifest, allocationPath: status.sliceDoc ?? '' }
+      { expectedManifest: activeMode.manifest, allocationPath: posture.kind === 'requirements-document' ? posture.admissionAllocation : status.sliceDoc ?? '' }
     );
+    const allocationAdmission = loadedAdmission.result;
     if (!allocationAdmission.ok) {
       return { phase: 'blocked', sliceId, stopped: true, reason: `Baseline admission failed for active slice:\n${renderAdmissionFailure(allocationAdmission)}` };
     }
-    const mode = persistedAssurance(allocationAdmission.admission);
+    if (activeMode.contract === 'requirements-assurance/v2-stage2' && loadedAdmission.manifest?.formatVersion === 2 && posture.kind === 'implementation') {
+      const allowed = new Set(loadedAdmission.manifest.reviewObligationIds);
+      for (const id of posture.implementObligationIds ?? []) if (!allowed.has(id)) return { phase: 'blocked', sliceId, stopped: true, reason: `review-coverage-unknown: IMPLEMENT_OBLIGATION_IDS '${id}' was not in the reviewed manifest scope` };
+    }
+    const mode = activeMode.contract === 'requirements-assurance/v2-stage2'
+      ? persistedAssuranceV2(allocationAdmission.admission, activeMode.instructions)
+      : persistedAssurance(allocationAdmission.admission);
     status = { ...status, assurance: mode };
     await writeStatus(sliceDir, status);
     await writeCurrent(amDir, {
@@ -2055,7 +2689,7 @@ export async function targetRelayLoop(
       updatedAt: deps.clock.now(),
       assurance: mode,
     });
-    console.log(`  [assurance] baseline-admission ${mode.manifest.path} ${mode.manifest.sha256}`);
+    console.log(`  [assurance] ${mode.enforcement} ${mode.manifest.path} ${mode.manifest.sha256}`);
   } else {
     if (currentPointer?.assurance !== undefined) {
       return { phase: 'blocked', sliceId, stopped: true, reason: 'Assured current.json cannot resume a legacy status.json.' };
@@ -2101,10 +2735,6 @@ export async function targetRelayLoop(
     }
   }
 
-  const packetRaw = await readFile(join(sliceDir, 'selection.md'), 'utf-8').catch(
-    () => ''
-  );
-
   // --- Build/review CYCLES, then (ADDITIVELY) decision-review when earned. ---
   //
   // Additive-parity invariant: for a slice WITHOUT the DECISION_REQUIRED marker,
@@ -2128,14 +2758,16 @@ export async function targetRelayLoop(
       console.log(
         `  [decision-review] adversarial challenge -> rebuttal (one round) for ${status.sliceId}`
       );
-      status = await runDecisionReview(input, deps, sliceDir, status, packetRaw);
+      try { status = await runDecisionReview(input, deps, sliceDir, status, packetRaw, posture); }
+      catch (cause) { status = await blockSlice(sliceDir, status, deps.clock, 'human', cause instanceof Error ? cause.message : String(cause)); }
       continue;
     }
 
     // Run implement only if this cycle has not built yet (handles resume at
     // review-impl, where the builder already ran).
     if (status.phase === 'implement') {
-      const admissionFailure = await assuredDispatchFailure(input, deps, status);
+      const dispatchCapture = status.assurance ? captureReviewedInputs(input, deps) : undefined;
+      const admissionFailure = await assuredDispatchFailure(input, deps, status, posture, dispatchCapture);
       if (admissionFailure) {
         status = await blockSlice(
           sliceDir,
@@ -2149,12 +2781,16 @@ export async function targetRelayLoop(
       console.log(
         `  [cycle ${status.iteration + 1}/${maxIterations}] implement builder=${input.builderProvider}`
       );
-      status = await runImplement(input, deps, sliceDir, status, packetRaw);
+      try { status = await runImplement(input, deps, sliceDir, status, packetRaw, posture, dispatchCapture); }
+      catch (cause) { status = await blockSlice(sliceDir, status, deps.clock, 'human', cause instanceof Error ? cause.message : String(cause)); }
       if (status.phase === 'blocked') break;
     }
 
     if (status.phase === 'review-impl') {
-      const admissionFailure = await assuredDispatchFailure(input, deps, status);
+      // A new role gets a fresh snapshot attempt so drift after the builder is
+      // detected, while the guard and DTO for this reviewer share exact bytes.
+      const dispatchCapture = status.assurance ? captureReviewedInputs(input, deps) : undefined;
+      const admissionFailure = await assuredDispatchFailure(input, deps, status, posture, dispatchCapture);
       if (admissionFailure) {
         status = await blockSlice(
           sliceDir,
@@ -2168,7 +2804,8 @@ export async function targetRelayLoop(
       console.log(
         `  [cycle ${status.iteration + 1}/${maxIterations}] review-impl supervisor=${input.supervisorProvider}`
       );
-      status = await runReview(input, deps, sliceDir, status, packetRaw);
+      try { status = await runReview(input, deps, sliceDir, status, packetRaw, posture, dispatchCapture); }
+      catch (cause) { status = await blockSlice(sliceDir, status, deps.clock, 'human', cause instanceof Error ? cause.message : String(cause)); }
     }
   }
 
@@ -2191,7 +2828,9 @@ export async function targetRelayLoop(
     sliceId,
     stopped: true,
   };
-  if (status.phase === 'done') return result;
+  if (status.phase === 'done') return posture.kind === 'requirements-document'
+    ? { ...result, reason: 'reviewed baseline awaiting operator approval' }
+    : result;
   if (status.phase === 'awaiting-ratification') {
     return {
       ...result,

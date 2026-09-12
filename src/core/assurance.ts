@@ -10,8 +10,12 @@
  * @maturity PROTOTYPE
  */
 
+import type { RunInputProvenance } from './run-record.js';
+
 export const STAGE1_CONTRACT = 'requirements-assurance/v1-stage1' as const;
 export const BASELINE_ADMISSION = 'baseline-admission' as const;
+export const STAGE2_CONTRACT = 'requirements-assurance/v2-stage2' as const;
+export const REVIEWED_INPUTS = 'reviewed-inputs' as const;
 
 export type AssuranceErrorCode =
   | 'missing'
@@ -33,7 +37,12 @@ export type AssuranceErrorCode =
   | 'parent-mismatch'
   | 'review-not-accepted'
   | 'approval-not-approved'
-  | 'subject-mismatch';
+  | 'subject-mismatch'
+  | 'review-coverage-missing'
+  | 'review-coverage-unknown'
+  | 'review-result-mismatch'
+  | 'role-context-mismatch'
+  | 'approval-already-exists';
 
 type DuplicateErrorCode = 'duplicate-field' | 'duplicate-identity';
 type NonDuplicateErrorCode = Exclude<AssuranceErrorCode, DuplicateErrorCode>;
@@ -69,7 +78,7 @@ export interface ContentRef {
   sha256: string;
 }
 
-interface DependencyRef extends ContentRef {
+export interface DependencyRef extends ContentRef {
   role: 'source' | 'governance' | 'design' | 'allocation';
 }
 
@@ -92,7 +101,7 @@ interface RequirementRecord {
   lowLevelRequirements: LowLevelRef[];
 }
 
-export interface BaselineManifest {
+export interface BaselineManifestV1 {
   formatVersion: 1;
   kind: 'requirements-baseline-manifest';
   baselineId: string;
@@ -101,6 +110,19 @@ export interface BaselineManifest {
   dependencies: DependencyRef[];
   requiredDecisionIds: string[];
 }
+
+export interface BaselineManifestV2 {
+  formatVersion: 2;
+  kind: 'requirements-baseline-manifest';
+  baselineId: string;
+  target: { projectId: string; root: '.' };
+  requirements: ContentRef[];
+  dependencies: DependencyRef[];
+  reviewObligationIds: string[];
+  requiredDecisionIds: string[];
+}
+
+export type BaselineManifest = BaselineManifestV1 | BaselineManifestV2;
 
 interface ReviewRecord {
   formatVersion: 1;
@@ -114,7 +136,7 @@ interface ReviewRecord {
   report: string;
 }
 
-interface RoleIdentity {
+export interface RoleIdentity {
   role: 'builder' | 'reviewer';
   provider: string;
   model: string;
@@ -137,6 +159,72 @@ export interface ApprovalRecord {
   rationale: string;
 }
 
+export type ReviewOutcome = 'accepted' | 'refinement-required' | 'decision-required';
+export interface ReviewAssessment {
+  obligationId: string;
+  result: ReviewOutcome;
+  findingIds: string[];
+  decisionIds: string[];
+}
+export interface ReviewFinding {
+  findingId: string;
+  obligationId: string;
+  category: 'correctness' | 'completeness' | 'consistency' | 'feasibility' | 'verifiability' | 'necessity' | 'traceability' | 'naming' | 'architecture';
+  evidence: string;
+  consequence: string;
+  requiredAction: string;
+}
+export interface ReviewDecision {
+  decisionId: string;
+  obligationIds: string[];
+  question: string;
+  options: { option: string; reward: string; risk: string }[];
+  recommendation: string;
+  blockingReason: string;
+}
+export interface RequirementsReviewResult {
+  formatVersion: 2;
+  kind: 'requirements-review-result';
+  subject: ContentRef;
+  result: ReviewOutcome;
+  assessments: ReviewAssessment[];
+  findings: ReviewFinding[];
+  decisions: ReviewDecision[];
+  report: string;
+}
+export interface RequirementsReviewRecord {
+  formatVersion: 2;
+  kind: 'requirements-review';
+  reviewId: string;
+  subject: ContentRef;
+  author: { role: 'requirements-author'; provider: string; model: string; effort: string; runId: string };
+  reviewer: { role: 'requirements-reviewer'; provider: string; model: string; effort: string; runId: string };
+  independence: { invocations: 'separate'; providerDiversity: 'same-provider' | 'different-provider' };
+  authorInputProvenance: RunInputProvenance;
+  reviewerInputProvenance: RunInputProvenance;
+  result: 'accepted';
+  assessments: ReviewAssessment[];
+  findings: ReviewFinding[];
+  decisions: ReviewDecision[];
+  completedAt: string;
+  report: string;
+}
+export interface ApprovalRecordV2 {
+  formatVersion: 2;
+  kind: 'requirements-baseline-approval';
+  approvalId: string;
+  target: { projectId: string; root: '.' };
+  subject: ContentRef;
+  review: ContentRef;
+  decision: 'approved';
+  approvedBy: ActorIdentity;
+  recordedBy: ActorIdentity;
+  authorityBasis: ContentRef;
+  resolvedDecisions: { id: string; record: ContentRef }[];
+  decidedAt: string;
+  rationale: string;
+}
+
 interface ActorIdentity {
   actorType: 'human' | 'operator';
   actorId: string;
@@ -148,8 +236,29 @@ export interface PersistedAssurance {
   manifest: ContentRef;
 }
 
+export interface RootedContentRef extends ContentRef {
+  root: 'target' | 'prompt';
+}
+
+export interface PersistedAssuranceV2 {
+  contract: typeof STAGE2_CONTRACT;
+  enforcement: typeof REVIEWED_INPUTS;
+  manifest: ContentRef;
+  instructions: {
+    shared: RootedContentRef;
+    commonRole: RootedContentRef[];
+    selectorRole: RootedContentRef[];
+    builderRole: RootedContentRef[];
+    reviewerRole: RootedContentRef[];
+    challengerRole: RootedContentRef[];
+    rebutterRole: RootedContentRef[];
+  };
+}
+
+export type AnyPersistedAssurance = PersistedAssurance | PersistedAssuranceV2;
+
 export interface BaselineAdmission {
-  enforcement: typeof BASELINE_ADMISSION;
+  enforcement: typeof BASELINE_ADMISSION | typeof REVIEWED_INPUTS;
   manifest: ContentRef;
   baselineId: string;
   allocationPaths: readonly string[];
@@ -157,6 +266,10 @@ export interface BaselineAdmission {
 
 export type BaselineAdmissionResult =
   | { ok: true; admission: BaselineAdmission }
+  | { ok: false; errors: AssuranceError[] };
+
+export type BaselineCandidateResult =
+  | { ok: true; candidate: { manifest: BaselineManifestV2; manifestRef: ContentRef; allocationPaths: readonly string[]; declaredObligationIds: readonly string[] } }
   | { ok: false; errors: AssuranceError[] };
 
 export type ParsedRecord<T> =
@@ -248,6 +361,10 @@ function validString(value: unknown, allowEmpty = false): value is string {
   );
 }
 
+function validAbsolutePath(value: unknown): value is string {
+  return validString(value) && (value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value));
+}
+
 function checkPath(
   value: unknown,
   recordPath: string,
@@ -272,13 +389,14 @@ function checkPath(
 
 function checkLiteralVersionKind(
   object: Record<string, unknown>,
+  expectedVersion: 1 | 2,
   expectedKind: string,
   recordPath: string,
   errors: AssuranceError[]
 ): void {
   if (typeof object.formatVersion !== 'number' || !Number.isInteger(object.formatVersion)) {
     errors.push(error('invalid-field', recordPath, '/formatVersion', 'formatVersion must be an integer'));
-  } else if (object.formatVersion !== 1) {
+  } else if (object.formatVersion !== expectedVersion) {
     errors.push(error('unsupported-version', recordPath, '/formatVersion', `unsupported formatVersion ${object.formatVersion}`));
   }
   if (typeof object.kind !== 'string') {
@@ -508,11 +626,15 @@ export function parseBaselineManifest(snapshot: AssuranceFileSnapshot): ParsedRe
       errors
     );
   }
-  if (!isObjectAndCollectClosedFieldErrors(rawValue, ['formatVersion', 'kind', 'baselineId', 'target', 'requirements', 'dependencies', 'requiredDecisionIds'], snapshot.path, '', errors)) {
+  const version = isObject(rawValue) && rawValue.formatVersion === 2 ? 2 : 1;
+  const fields = version === 2
+    ? ['formatVersion', 'kind', 'baselineId', 'target', 'requirements', 'dependencies', 'reviewObligationIds', 'requiredDecisionIds']
+    : ['formatVersion', 'kind', 'baselineId', 'target', 'requirements', 'dependencies', 'requiredDecisionIds'];
+  if (!isObjectAndCollectClosedFieldErrors(rawValue, fields, snapshot.path, '', errors)) {
     return { ok: false, errors };
   }
   const value = rawValue;
-  checkLiteralVersionKind(value, 'requirements-baseline-manifest', snapshot.path, errors);
+  checkLiteralVersionKind(value, version, 'requirements-baseline-manifest', snapshot.path, errors);
   const baselineOk = checkId(value.baselineId, snapshot.path, '/baselineId', errors);
 
   let targetOk = false;
@@ -554,16 +676,44 @@ export function parseBaselineManifest(snapshot: AssuranceFileSnapshot): ParsedRe
       if (checkId(item, snapshot.path, `/requiredDecisionIds/${index}`, errors)) decisions.push(item);
     });
   }
+  const reviewObligationIds: string[] = [];
+  if (version === 2) {
+    duplicateValues(
+      Array.isArray(value.reviewObligationIds)
+        ? value.reviewObligationIds.flatMap((item, index) => typeof item === 'string' ? [{ value: item, location: `/reviewObligationIds/${index}` }] : [])
+        : [],
+      snapshot.path,
+      errors
+    );
+    if (!Array.isArray(value.reviewObligationIds) || value.reviewObligationIds.length === 0) {
+      errors.push(error('invalid-field', snapshot.path, '/reviewObligationIds', 'reviewObligationIds must be a non-empty array'));
+    } else {
+      value.reviewObligationIds.forEach((item, index) => {
+        if (typeof item !== 'string' || (!H_ID.test(item) && !/^[A-Z][A-Z0-9-]*-REQ-[0-9]{3}-L[0-9]{2}$/.test(item))) {
+          errors.push(error('invalid-field', snapshot.path, `/reviewObligationIds/${index}`, 'expected an H or L obligation identifier'));
+        } else reviewObligationIds.push(item);
+      });
+    }
+  }
   if (!baselineOk || !targetOk || errors.length > 0) return { ok: false, errors };
   return {
     ok: true,
-    value: {
-      formatVersion: 1,
+    value: version === 1 ? {
+      formatVersion: 1 as const,
       kind: 'requirements-baseline-manifest',
       baselineId: value.baselineId as string,
       target: value.target as { projectId: string; root: '.' },
       requirements,
       dependencies,
+      requiredDecisionIds: decisions,
+    } : {
+      formatVersion: 2 as const,
+      kind: 'requirements-baseline-manifest',
+      baselineId: value.baselineId as string,
+      target: value.target as { projectId: string; root: '.' },
+      requirements,
+      dependencies,
+      reviewObligationIds,
       requiredDecisionIds: decisions,
     },
     errors,
@@ -610,7 +760,7 @@ function parseReview(snapshot: AssuranceFileSnapshot): ParsedRecord<ReviewRecord
   }
   if (!isObjectAndCollectClosedFieldErrors(rawValue, ['formatVersion', 'kind', 'reviewId', 'subject', 'author', 'reviewer', 'result', 'completedAt', 'report'], snapshot.path, '', errors)) return { ok: false, errors };
   const value = rawValue;
-  checkLiteralVersionKind(value, 'manual-requirements-review', snapshot.path, errors);
+  checkLiteralVersionKind(value, 1, 'manual-requirements-review', snapshot.path, errors);
   const idOk = checkId(value.reviewId, snapshot.path, '/reviewId', errors);
   const subject = parseContentRef(value.subject, snapshot.path, '/subject', errors);
   const author = parseRoleIdentity(value.author, 'builder', snapshot.path, '/author', errors);
@@ -644,7 +794,7 @@ export function parseApprovalRecord(snapshot: AssuranceFileSnapshot): ParsedReco
   }
   if (!isObjectAndCollectClosedFieldErrors(rawValue, ['formatVersion', 'kind', 'approvalId', 'subject', 'review', 'decision', 'approvedBy', 'recordedBy', 'authorityBasis', 'resolvedDecisions', 'decidedAt', 'rationale'], snapshot.path, '', errors)) return { ok: false, errors };
   const value = rawValue;
-  checkLiteralVersionKind(value, 'requirements-baseline-approval', snapshot.path, errors);
+  checkLiteralVersionKind(value, 1, 'requirements-baseline-approval', snapshot.path, errors);
   const idOk = checkId(value.approvalId, snapshot.path, '/approvalId', errors);
   const subject = parseContentRef(value.subject, snapshot.path, '/subject', errors);
   const review = parseContentRef(value.review, snapshot.path, '/review', errors);
@@ -676,6 +826,274 @@ export function parseApprovalRecord(snapshot: AssuranceFileSnapshot): ParsedReco
     },
     errors,
   };
+}
+
+const REVIEW_OUTCOMES = new Set<ReviewOutcome>(['accepted', 'refinement-required', 'decision-required']);
+const FINDING_CATEGORIES = new Set<ReviewFinding['category']>(['correctness', 'completeness', 'consistency', 'feasibility', 'verifiability', 'necessity', 'traceability', 'naming', 'architecture']);
+const INPUT_PURPOSES = new Set(['shared-instruction', 'common-role-instruction', 'baseline-manifest', 'requirement', 'source', 'governance', 'design', 'allocation', 'review', 'approval', 'authority', 'decision', 'role-instruction', 'selection-packet', 'review-subject', 'build-report', 'prior-review', 'task-directive']);
+
+function parseIdArray(value: unknown, recordPath: string, at: string, errors: AssuranceError[], allowEmpty: boolean): string[] {
+  const values: string[] = [];
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
+    errors.push(error('invalid-field', recordPath, at, `expected ${allowEmpty ? 'an' : 'a non-empty'} array`));
+    return values;
+  }
+  value.forEach((item, index) => {
+    if (checkId(item, recordPath, `${at}/${index}`, errors)) values.push(item);
+  });
+  duplicateValues(values.map((item, index) => ({ value: item, location: `${at}/${index}` })), recordPath, errors);
+  return values;
+}
+
+function parseReviewPayload(
+  value: Record<string, unknown>,
+  recordPath: string,
+  expectedIds: readonly string[],
+  errors: AssuranceError[]
+): Pick<RequirementsReviewResult, 'result' | 'assessments' | 'findings' | 'decisions' | 'report'> | undefined {
+  const expected = new Set(expectedIds);
+  const assessments: ReviewAssessment[] = [];
+  const findings: ReviewFinding[] = [];
+  const decisions: ReviewDecision[] = [];
+  const resultOk = typeof value.result === 'string' && REVIEW_OUTCOMES.has(value.result as ReviewOutcome);
+  if (!resultOk) errors.push(error('invalid-field', recordPath, '/result', 'unsupported requirements-review outcome'));
+
+  if (!Array.isArray(value.assessments) || value.assessments.length === 0) {
+    errors.push(error('invalid-field', recordPath, '/assessments', 'assessments must be a non-empty array'));
+  } else {
+    duplicateValues(stringMemberIdentities(value.assessments, 'obligationId', '/assessments'), recordPath, errors);
+    value.assessments.forEach((item, index) => {
+      const at = `/assessments/${index}`;
+      if (!isObjectAndCollectClosedFieldErrors(item, ['obligationId', 'result', 'findingIds', 'decisionIds'], recordPath, at, errors)) return;
+      const obligationOk = typeof item.obligationId === 'string' && (H_ID.test(item.obligationId) || /^[A-Z][A-Z0-9-]*-REQ-[0-9]{3}-L[0-9]{2}$/.test(item.obligationId));
+      if (!obligationOk) errors.push(error('invalid-field', recordPath, `${at}/obligationId`, 'invalid obligation identifier'));
+      else if (!expected.has(item.obligationId as string)) errors.push(error('review-coverage-unknown', recordPath, `${at}/obligationId`, `obligation '${item.obligationId}' is outside the submitted review scope`));
+      const assessmentResultOk = typeof item.result === 'string' && REVIEW_OUTCOMES.has(item.result as ReviewOutcome);
+      if (!assessmentResultOk) errors.push(error('invalid-field', recordPath, `${at}/result`, 'unsupported assessment outcome'));
+      const findingIds = parseIdArray(item.findingIds, recordPath, `${at}/findingIds`, errors, true);
+      const decisionIds = parseIdArray(item.decisionIds, recordPath, `${at}/decisionIds`, errors, true);
+      if (assessmentResultOk) {
+        if (item.result === 'accepted' && (findingIds.length > 0 || decisionIds.length > 0)) errors.push(error('review-result-mismatch', recordPath, at, 'accepted assessment cannot reference findings or decisions'));
+        if (item.result === 'refinement-required' && (findingIds.length === 0 || decisionIds.length > 0)) errors.push(error('review-result-mismatch', recordPath, at, 'refinement-required assessment needs findings and no decisions'));
+        if (item.result === 'decision-required' && decisionIds.length === 0) errors.push(error('review-result-mismatch', recordPath, at, 'decision-required assessment needs at least one decision'));
+      }
+      if (obligationOk && assessmentResultOk) assessments.push({ obligationId: item.obligationId as string, result: item.result as ReviewOutcome, findingIds, decisionIds });
+    });
+  }
+  const covered = new Set(assessments.map((assessment) => assessment.obligationId));
+  for (const id of expectedIds) if (!covered.has(id)) errors.push(error('review-coverage-missing', recordPath, '/assessments', `submitted obligation '${id}' has no assessment`));
+
+  if (!Array.isArray(value.findings)) errors.push(error('invalid-field', recordPath, '/findings', 'findings must be an array'));
+  else {
+    duplicateValues(stringMemberIdentities(value.findings, 'findingId', '/findings'), recordPath, errors);
+    value.findings.forEach((item, index) => {
+      const at = `/findings/${index}`;
+      if (!isObjectAndCollectClosedFieldErrors(item, ['findingId', 'obligationId', 'category', 'evidence', 'consequence', 'requiredAction'], recordPath, at, errors)) return;
+      const idOk = checkId(item.findingId, recordPath, `${at}/findingId`, errors);
+      const obligationOk = typeof item.obligationId === 'string' && expected.has(item.obligationId);
+      if (!obligationOk) errors.push(error('review-coverage-unknown', recordPath, `${at}/obligationId`, 'finding obligation is outside the submitted review scope'));
+      const categoryOk = typeof item.category === 'string' && FINDING_CATEGORIES.has(item.category as ReviewFinding['category']);
+      if (!categoryOk) errors.push(error('invalid-field', recordPath, `${at}/category`, 'unsupported finding category'));
+      let proseOk = true;
+      for (const field of ['evidence', 'consequence', 'requiredAction'] as const) if (!validString(item[field])) { errors.push(error('invalid-field', recordPath, `${at}/${field}`, `${field} must be non-empty`)); proseOk = false; }
+      if (idOk && obligationOk && categoryOk && proseOk) findings.push(item as unknown as ReviewFinding);
+    });
+  }
+
+  if (!Array.isArray(value.decisions)) errors.push(error('invalid-field', recordPath, '/decisions', 'decisions must be an array'));
+  else {
+    duplicateValues(stringMemberIdentities(value.decisions, 'decisionId', '/decisions'), recordPath, errors);
+    value.decisions.forEach((item, index) => {
+      const at = `/decisions/${index}`;
+      if (!isObjectAndCollectClosedFieldErrors(item, ['decisionId', 'obligationIds', 'question', 'options', 'recommendation', 'blockingReason'], recordPath, at, errors)) return;
+      const idOk = checkId(item.decisionId, recordPath, `${at}/decisionId`, errors);
+      const obligationIds = parseIdArray(item.obligationIds, recordPath, `${at}/obligationIds`, errors, false);
+      for (const id of obligationIds) if (!expected.has(id)) errors.push(error('review-coverage-unknown', recordPath, `${at}/obligationIds`, `decision obligation '${id}' is outside the submitted review scope`));
+      const options: ReviewDecision['options'] = [];
+      if (!Array.isArray(item.options) || item.options.length === 0) errors.push(error('invalid-field', recordPath, `${at}/options`, 'options must be a non-empty array'));
+      else {
+        duplicateValues(stringMemberIdentities(item.options, 'option', `${at}/options`), recordPath, errors);
+        item.options.forEach((option, optionIndex) => {
+          const oat = `${at}/options/${optionIndex}`;
+          if (!isObjectAndCollectClosedFieldErrors(option, ['option', 'reward', 'risk'], recordPath, oat, errors)) return;
+          if (validString(option.option) && validString(option.reward) && validString(option.risk)) options.push(option as unknown as ReviewDecision['options'][number]);
+          else errors.push(error('invalid-field', recordPath, oat, 'option, reward and risk must be non-empty strings'));
+        });
+      }
+      const proseOk = validString(item.question) && validString(item.recommendation) && validString(item.blockingReason);
+      if (!proseOk) errors.push(error('invalid-field', recordPath, at, 'question, recommendation and blockingReason must be non-empty strings'));
+      if (typeof item.recommendation === 'string' && !options.some((option) => option.option === item.recommendation)) errors.push(error('review-result-mismatch', recordPath, `${at}/recommendation`, 'recommendation must name one option'));
+      if (idOk && obligationIds.length > 0 && options.length > 0 && proseOk) decisions.push({ ...(item as unknown as ReviewDecision), obligationIds, options });
+    });
+  }
+
+  const findingIds = new Set(findings.map((finding) => finding.findingId));
+  const decisionIds = new Set(decisions.map((decision) => decision.decisionId));
+  const referencedFindings = new Set(assessments.flatMap((assessment) => assessment.findingIds));
+  const referencedDecisions = new Set(assessments.flatMap((assessment) => assessment.decisionIds));
+  for (const id of referencedFindings) if (!findingIds.has(id)) errors.push(error('review-result-mismatch', recordPath, '/assessments', `referenced finding '${id}' does not exist`));
+  for (const id of referencedDecisions) if (!decisionIds.has(id)) errors.push(error('review-result-mismatch', recordPath, '/assessments', `referenced decision '${id}' does not exist`));
+  for (const id of findingIds) if (!referencedFindings.has(id)) errors.push(error('review-result-mismatch', recordPath, '/findings', `finding '${id}' is not referenced by an assessment`));
+  for (const id of decisionIds) if (!referencedDecisions.has(id)) errors.push(error('review-result-mismatch', recordPath, '/decisions', `decision '${id}' is not referenced by an assessment`));
+
+  const aggregate: ReviewOutcome = assessments.some((a) => a.result === 'decision-required')
+    ? 'decision-required'
+    : assessments.some((a) => a.result === 'refinement-required') ? 'refinement-required' : 'accepted';
+  if (resultOk && value.result !== aggregate) errors.push(error('review-result-mismatch', recordPath, '/result', `result '${String(value.result)}' does not equal aggregate '${aggregate}'`));
+  if (!validString(value.report)) errors.push(error('invalid-field', recordPath, '/report', 'report must be a non-empty string'));
+  if (!resultOk || !validString(value.report)) return undefined;
+  return { result: value.result as ReviewOutcome, assessments, findings, decisions, report: value.report };
+}
+
+/** Parse and validate the provider's complete v2 requirements-review artifact. */
+export function parseRequirementsReviewResult(snapshot: AssuranceFileSnapshot, expectedSubject: ContentRef, expectedIds: readonly string[]): ParsedRecord<RequirementsReviewResult> {
+  const decodeErrors: AssuranceError[] = [];
+  const content = decodeJsonBearingSnapshot(snapshot, decodeErrors);
+  if (content === undefined) return { ok: false, errors: decodeErrors };
+  const parsed = parseAssuranceJson(content, snapshot.path);
+  if (!parsed.ok) return parsed;
+  const errors: AssuranceError[] = [];
+  if (!isObjectAndCollectClosedFieldErrors(parsed.value, ['formatVersion', 'kind', 'subject', 'result', 'assessments', 'findings', 'decisions', 'report'], snapshot.path, '', errors)) return { ok: false, errors };
+  const value = parsed.value;
+  checkLiteralVersionKind(value, 2, 'requirements-review-result', snapshot.path, errors);
+  const subject = parseContentRef(value.subject, snapshot.path, '/subject', errors);
+  if (subject && !sameRef(subject, expectedSubject)) errors.push(error('subject-mismatch', snapshot.path, '/subject', 'review result subject does not equal the candidate manifest snapshot'));
+  const payload = parseReviewPayload(value, snapshot.path, expectedIds, errors);
+  if (!subject || !payload || errors.length > 0) return { ok: false, errors };
+  return { ok: true, value: { formatVersion: 2, kind: 'requirements-review-result', subject, ...payload }, errors };
+}
+
+function parseInputProvenance(value: unknown, recordPath: string, at: string, errors: AssuranceError[]): RunInputProvenance | undefined {
+  if (!isObjectAndCollectClosedFieldErrors(value, ['contract', 'roots', 'baseline', 'commonInputs', 'roleSpecificInputs', 'channels'], recordPath, at, errors)) return undefined;
+  let ok = true;
+  if (value.contract !== 'requirements-assurance/v2-input-delivery') { errors.push(error('unsupported-version', recordPath, `${at}/contract`, 'unsupported input provenance contract')); ok = false; }
+  if (!isObjectAndCollectClosedFieldErrors(value.roots, ['target', 'prompt'], recordPath, `${at}/roots`, errors) || !validAbsolutePath(value.roots.target) || !validAbsolutePath(value.roots.prompt)) { errors.push(error('invalid-field', recordPath, `${at}/roots`, 'roots must contain absolute target and prompt paths')); ok = false; }
+  const baseline = parseContentRef(value.baseline, recordPath, `${at}/baseline`, errors);
+  const parseInputs = (raw: unknown, where: string): RunInputProvenance['commonInputs'] => {
+    const out: RunInputProvenance['commonInputs'][number][] = [];
+    if (!Array.isArray(raw) || raw.length === 0) { errors.push(error('invalid-field', recordPath, where, 'input identities must be a non-empty array')); return out; }
+    raw.forEach((item, index) => {
+      const iat = `${where}/${index}`;
+      if (!isObject(item)) { errors.push(error('invalid-field', recordPath, iat, 'input identity must be an object')); return; }
+      const origin = item.origin;
+      const fields = origin === 'file' ? ['origin', 'root', 'purpose', 'path', 'sha256', 'byteLength'] : ['origin', 'purpose', 'label', 'sha256', 'byteLength'];
+      if (!isObjectAndCollectClosedFieldErrors(item, fields, recordPath, iat, errors)) return;
+      const purposeOk = typeof item.purpose === 'string' && INPUT_PURPOSES.has(item.purpose);
+      const hashOk = typeof item.sha256 === 'string' && SHA256.test(item.sha256);
+      const lengthOk = typeof item.byteLength === 'number' && Number.isInteger(item.byteLength) && item.byteLength >= 0;
+      if (!purposeOk || !hashOk || !lengthOk) errors.push(error('invalid-field', recordPath, iat, 'invalid input purpose, digest or byteLength'));
+      if (origin === 'file') {
+        const rootOk = item.root === 'target' || item.root === 'prompt';
+        const pathOk = checkPath(item.path, recordPath, `${iat}/path`, errors);
+        if (!rootOk) errors.push(error('invalid-field', recordPath, `${iat}/root`, 'root must be target or prompt'));
+        if (purposeOk && hashOk && lengthOk && rootOk && pathOk) out.push(item as unknown as RunInputProvenance['commonInputs'][number]);
+      } else if (origin === 'generated') {
+        if (!validString(item.label)) errors.push(error('invalid-field', recordPath, `${iat}/label`, 'label must be non-empty'));
+        else if (purposeOk && hashOk && lengthOk) out.push(item as unknown as RunInputProvenance['commonInputs'][number]);
+      } else { errors.push(error('invalid-field', recordPath, `${iat}/origin`, 'origin must be file or generated')); }
+    });
+    return out;
+  };
+  const commonInputs = parseInputs(value.commonInputs, `${at}/commonInputs`);
+  const roleSpecificInputs = parseInputs(value.roleSpecificInputs, `${at}/roleSpecificInputs`);
+  const channels: RunInputProvenance['channels'][number][] = [];
+  if (!Array.isArray(value.channels) || value.channels.length === 0) { errors.push(error('invalid-field', recordPath, `${at}/channels`, 'channels must be a non-empty array')); ok = false; }
+  else {
+    duplicateValues(stringMemberIdentities(value.channels, 'channel', `${at}/channels`), recordPath, errors);
+    value.channels.forEach((item, index) => {
+      const cat = `${at}/channels/${index}`;
+      if (!isObjectAndCollectClosedFieldErrors(item, ['channel', 'mechanism', 'sha256', 'byteLength'], recordPath, cat, errors)) return;
+      if ((item.channel !== 'shared-instruction' && item.channel !== 'stdin') || !validString(item.mechanism) || typeof item.sha256 !== 'string' || !SHA256.test(item.sha256) || typeof item.byteLength !== 'number' || !Number.isInteger(item.byteLength) || item.byteLength < 0) errors.push(error('invalid-field', recordPath, cat, 'invalid channel identity'));
+      else channels.push(item as unknown as RunInputProvenance['channels'][number]);
+    });
+  }
+  if (!baseline || !ok || errors.length > 0) return undefined;
+  const roots = value.roots as { target: string; prompt: string };
+  return { contract: 'requirements-assurance/v2-input-delivery', roots, baseline, commonInputs, roleSpecificInputs, channels };
+}
+
+function parseRequirementsRole(value: unknown, role: 'requirements-author' | 'requirements-reviewer', recordPath: string, at: string, errors: AssuranceError[]): RequirementsReviewRecord['author'] | RequirementsReviewRecord['reviewer'] | undefined {
+  if (!isObjectAndCollectClosedFieldErrors(value, ['role', 'provider', 'model', 'effort', 'runId'], recordPath, at, errors)) return undefined;
+  let ok = true;
+  if (value.role !== role) { errors.push(error('invalid-field', recordPath, `${at}/role`, `role must equal '${role}'`)); ok = false; }
+  for (const field of ['provider', 'model', 'effort'] as const) if (!validString(value[field])) { errors.push(error('invalid-field', recordPath, `${at}/${field}`, `${field} must be non-empty`)); ok = false; }
+  if (!checkId(value.runId, recordPath, `${at}/runId`, errors)) ok = false;
+  return ok ? value as RequirementsReviewRecord['author'] : undefined;
+}
+
+/** Parse a published accepted v2 review and recheck its full per-ID payload. */
+export function parseRequirementsReviewRecord(snapshot: AssuranceFileSnapshot, expectedIds: readonly string[]): ParsedRecord<RequirementsReviewRecord> {
+  const decodeErrors: AssuranceError[] = [];
+  const content = decodeJsonBearingSnapshot(snapshot, decodeErrors);
+  if (content === undefined) return { ok: false, errors: decodeErrors };
+  const parsed = parseAssuranceJson(content, snapshot.path);
+  if (!parsed.ok) return parsed;
+  const errors: AssuranceError[] = [];
+  const fields = ['formatVersion', 'kind', 'reviewId', 'subject', 'author', 'reviewer', 'independence', 'authorInputProvenance', 'reviewerInputProvenance', 'result', 'assessments', 'findings', 'decisions', 'completedAt', 'report'];
+  if (!isObjectAndCollectClosedFieldErrors(parsed.value, fields, snapshot.path, '', errors)) return { ok: false, errors };
+  const value = parsed.value;
+  checkLiteralVersionKind(value, 2, 'requirements-review', snapshot.path, errors);
+  const idOk = checkId(value.reviewId, snapshot.path, '/reviewId', errors);
+  const subject = parseContentRef(value.subject, snapshot.path, '/subject', errors);
+  const author = parseRequirementsRole(value.author, 'requirements-author', snapshot.path, '/author', errors) as RequirementsReviewRecord['author'] | undefined;
+  const reviewer = parseRequirementsRole(value.reviewer, 'requirements-reviewer', snapshot.path, '/reviewer', errors) as RequirementsReviewRecord['reviewer'] | undefined;
+  if (author && reviewer && author.runId === reviewer.runId) errors.push(error('duplicate-identity', snapshot.path, '/reviewer/runId', 'author and reviewer runId must differ', '/author/runId'));
+  let independenceOk = false;
+  if (isObjectAndCollectClosedFieldErrors(value.independence, ['invocations', 'providerDiversity'], snapshot.path, '/independence', errors)) {
+    independenceOk = value.independence.invocations === 'separate' && (value.independence.providerDiversity === 'same-provider' || value.independence.providerDiversity === 'different-provider');
+    if (!independenceOk) errors.push(error('invalid-field', snapshot.path, '/independence', 'invalid independence classification'));
+    if (author && reviewer) {
+      const expected = author.provider === reviewer.provider ? 'same-provider' : 'different-provider';
+      if (value.independence.providerDiversity !== expected) errors.push(error('review-result-mismatch', snapshot.path, '/independence/providerDiversity', `provider diversity must equal '${expected}'`));
+    }
+  }
+  const authorInputProvenance = parseInputProvenance(value.authorInputProvenance, snapshot.path, '/authorInputProvenance', errors);
+  const reviewerInputProvenance = parseInputProvenance(value.reviewerInputProvenance, snapshot.path, '/reviewerInputProvenance', errors);
+  if (reviewer && idOk && value.reviewId !== reviewer.runId) errors.push(error('subject-mismatch', snapshot.path, '/reviewId', 'reviewId must equal reviewer runId'));
+  if (authorInputProvenance && reviewerInputProvenance && !sameInputContext(authorInputProvenance, reviewerInputProvenance)) errors.push(error('role-context-mismatch', snapshot.path, '/', 'author and reviewer accepted-baseline/common input identities differ'));
+  const payload = parseReviewPayload(value, snapshot.path, expectedIds, errors);
+  if (value.result !== 'accepted') errors.push(error('review-not-accepted', snapshot.path, '/result', `review result is '${String(value.result)}'`));
+  checkTimestamp(value.completedAt, snapshot.path, '/completedAt', errors);
+  if (!idOk || !subject || !author || !reviewer || !independenceOk || !authorInputProvenance || !reviewerInputProvenance || !payload || errors.length > 0) return { ok: false, errors };
+  return { ok: true, value: { formatVersion: 2, kind: 'requirements-review', reviewId: value.reviewId as string, subject, author, reviewer, independence: value.independence as RequirementsReviewRecord['independence'], authorInputProvenance, reviewerInputProvenance, result: 'accepted', assessments: payload.assessments, findings: payload.findings, decisions: payload.decisions, completedAt: value.completedAt as string, report: payload.report }, errors };
+}
+
+export function parseApprovalRecordV2(snapshot: AssuranceFileSnapshot): ParsedRecord<ApprovalRecordV2> {
+  const decodeErrors: AssuranceError[] = [];
+  const content = decodeJsonBearingSnapshot(snapshot, decodeErrors);
+  if (content === undefined) return { ok: false, errors: decodeErrors };
+  const parsed = parseAssuranceJson(content, snapshot.path);
+  if (!parsed.ok) return parsed;
+  const errors: AssuranceError[] = [];
+  const rawValue = parsed.value;
+  if (isObject(rawValue)) duplicateValues(stringMemberIdentities(rawValue.resolvedDecisions, 'id', '/resolvedDecisions'), snapshot.path, errors);
+  const fields = ['formatVersion', 'kind', 'approvalId', 'target', 'subject', 'review', 'decision', 'approvedBy', 'recordedBy', 'authorityBasis', 'resolvedDecisions', 'decidedAt', 'rationale'];
+  if (!isObjectAndCollectClosedFieldErrors(rawValue, fields, snapshot.path, '', errors)) return { ok: false, errors };
+  const value = rawValue;
+  checkLiteralVersionKind(value, 2, 'requirements-baseline-approval', snapshot.path, errors);
+  const idOk = checkId(value.approvalId, snapshot.path, '/approvalId', errors);
+  let targetOk = false;
+  if (isObjectAndCollectClosedFieldErrors(value.target, ['projectId', 'root'], snapshot.path, '/target', errors)) targetOk = checkId(value.target.projectId, snapshot.path, '/target/projectId', errors) && value.target.root === '.';
+  if (!targetOk) errors.push(error('invalid-field', snapshot.path, '/target', "target requires a valid projectId and root '.'"));
+  const subject = parseContentRef(value.subject, snapshot.path, '/subject', errors);
+  const review = parseContentRef(value.review, snapshot.path, '/review', errors);
+  const approvedBy = parseActor(value.approvedBy, snapshot.path, '/approvedBy', errors);
+  const recordedBy = parseActor(value.recordedBy, snapshot.path, '/recordedBy', errors);
+  const authorityBasis = parseContentRef(value.authorityBasis, snapshot.path, '/authorityBasis', errors);
+  if (value.decision !== 'approved') errors.push(error('approval-not-approved', snapshot.path, '/decision', `approval decision is '${String(value.decision)}'`));
+  const resolvedDecisions: ApprovalRecordV2['resolvedDecisions'] = [];
+  if (!Array.isArray(value.resolvedDecisions)) errors.push(error('invalid-field', snapshot.path, '/resolvedDecisions', 'resolvedDecisions must be an array'));
+  else value.resolvedDecisions.forEach((item, index) => {
+    const at = `/resolvedDecisions/${index}`;
+    if (!isObjectAndCollectClosedFieldErrors(item, ['id', 'record'], snapshot.path, at, errors)) return;
+    const did = checkId(item.id, snapshot.path, `${at}/id`, errors);
+    const record = parseContentRef(item.record, snapshot.path, `${at}/record`, errors);
+    if (did && record) resolvedDecisions.push({ id: item.id as string, record });
+  });
+  checkTimestamp(value.decidedAt, snapshot.path, '/decidedAt', errors);
+  if (!validString(value.rationale)) errors.push(error('invalid-field', snapshot.path, '/rationale', 'rationale must be non-empty'));
+  if (!idOk || !targetOk || !subject || !review || !approvedBy || !recordedBy || !authorityBasis || errors.length > 0) return { ok: false, errors };
+  return { ok: true, value: { formatVersion: 2, kind: 'requirements-baseline-approval', approvalId: value.approvalId as string, target: value.target as ApprovalRecordV2['target'], subject, review, decision: 'approved', approvedBy, recordedBy, authorityBasis, resolvedDecisions, decidedAt: value.decidedAt as string, rationale: value.rationale as string }, errors };
 }
 
 function parseRequirement(snapshot: AssuranceFileSnapshot): ParsedRecord<RequirementRecord> & {
@@ -773,7 +1191,7 @@ function parseRequirement(snapshot: AssuranceFileSnapshot): ParsedRecord<Require
     return { ok: false, errors, highLevelIdentities, lowLevelIdentities, sourceCandidates };
   }
   const value = rawValue;
-  checkLiteralVersionKind(value, 'requirement', snapshot.path, errors);
+  checkLiteralVersionKind(value, 1, 'requirement', snapshot.path, errors);
   const hOk = typeof value.requirementId === 'string' && H_ID.test(value.requirementId);
   if (!hOk) errors.push(error('invalid-field', snapshot.path, '/requirementId', 'invalid H requirement id'));
 
@@ -907,6 +1325,74 @@ function sameRef(a: ContentRef, b: ContentRef): boolean {
   return a.path === b.path && a.sha256 === b.sha256;
 }
 
+/** Validate a v2 candidate and its upstream closure before any review exists. */
+export function validateBaselineCandidate(args: {
+  manifestPath: string;
+  snapshots: readonly AssuranceSnapshot[];
+  allocationPath: string;
+  submittedObligationIds: readonly string[];
+}): BaselineCandidateResult {
+  const errors: AssuranceError[] = [];
+  const byPath = new Map(args.snapshots.map((item) => [item.path, item]));
+  const manifestSnapshot = byPath.get(args.manifestPath);
+  if (!manifestSnapshot) return { ok: false, errors: [error('missing', args.manifestPath, '/', 'candidate manifest snapshot was not loaded')] };
+  if (manifestSnapshot.status === 'error') return { ok: false, errors: [snapshotError(manifestSnapshot)] };
+  const parsedManifest = parseBaselineManifest(manifestSnapshot);
+  errors.push(...parsedManifest.errors);
+  if (!parsedManifest.ok) return { ok: false, errors };
+  if (parsedManifest.value.formatVersion !== 2) return { ok: false, errors: [error('unsupported-version', args.manifestPath, '/formatVersion', 'requirements review requires a v2 candidate manifest')] };
+  const manifest = parsedManifest.value;
+  const expectedPath = `docs/requirements/baselines/${manifest.baselineId}.json`;
+  if (args.manifestPath !== expectedPath) errors.push(error('subject-mismatch', args.manifestPath, '/', `baselineId '${manifest.baselineId}' requires manifest path '${expectedPath}'`));
+  for (const ref of [...manifest.requirements, ...manifest.dependencies]) {
+    const input = byPath.get(ref.path);
+    if (!input) errors.push(error('missing', ref.path, '/', 'referenced candidate input was not loaded'));
+    else if (input.status === 'error') errors.push(snapshotError(input));
+    else if (input.sha256 !== ref.sha256) errors.push(error('digest-mismatch', ref.path, '/', `computed ${input.sha256}; expected ${ref.sha256}`));
+  }
+  const high: IdentityCandidate[] = [];
+  const low: IdentityCandidate[] = [];
+  const requirementSources: { path: string; sources: SourceRef[] }[] = [];
+  for (const ref of manifest.requirements) {
+    const input = byPath.get(ref.path);
+    if (!input || input.status === 'error') continue;
+    const parsed = parseRequirement(input);
+    errors.push(...parsed.errors);
+    high.push(...parsed.highLevelIdentities.map((item) => ({ value: item.value, location: `${ref.path}#${item.location}` })));
+    low.push(...parsed.lowLevelIdentities.map((item) => ({ value: item.value, location: `${ref.path}#${item.location}` })));
+    requirementSources.push({ path: ref.path, sources: parsed.sourceCandidates });
+  }
+  duplicateValues(high, args.manifestPath, errors);
+  duplicateValues(low, args.manifestPath, errors);
+  const declared = [...high, ...low].map((item) => item.value);
+  const declaredSet = new Set(declared);
+  const scope = new Set(manifest.reviewObligationIds);
+  for (const id of manifest.reviewObligationIds) {
+    if (!declaredSet.has(id)) errors.push(error('review-coverage-unknown', args.manifestPath, '/reviewObligationIds', `obligation '${id}' is not declared by the candidate requirements`));
+    const parent = id.match(/^(.+-REQ-[0-9]{3})-L[0-9]{2}$/)?.[1];
+    if (parent && !scope.has(parent)) errors.push(error('review-coverage-missing', args.manifestPath, '/reviewObligationIds', `L obligation '${id}' requires parent '${parent}' in review scope`));
+  }
+  duplicateValues(args.submittedObligationIds.map((value, index) => ({ value, location: `selection.md#REVIEW_OBLIGATION_IDS/${index}` })), args.manifestPath, errors);
+  const submitted = new Set(args.submittedObligationIds);
+  for (const id of manifest.reviewObligationIds) if (!submitted.has(id)) errors.push(error('review-coverage-missing', args.manifestPath, '/reviewObligationIds', `candidate obligation '${id}' is absent from the selection packet`));
+  for (const id of submitted) if (!scope.has(id)) errors.push(error('review-coverage-unknown', args.manifestPath, '/reviewObligationIds', `selection obligation '${id}' is absent from the candidate manifest`));
+  const requirementPaths = new Set(manifest.requirements.map((r) => r.path));
+  const sourcePaths = new Set(manifest.dependencies.filter((d) => d.role === 'source').map((d) => d.path));
+  for (const requirement of requirementSources) for (const source of requirement.sources) {
+    const inRequirements = requirementPaths.has(source.path);
+    const inSources = sourcePaths.has(source.path);
+    if (inRequirements === inSources) errors.push(error(inRequirements ? 'source-ambiguous' : 'source-not-found', requirement.path, '/sources', `source path '${source.path}' must occur in exactly one requirements or role-source entry`));
+    else {
+      const sourceSnapshot = byPath.get(source.path);
+      validateSource(source, requirement.path, sourceSnapshot?.status === 'ok' ? sourceSnapshot : undefined, errors);
+    }
+  }
+  const allocationPaths = manifest.dependencies.filter((d) => d.role === 'allocation').map((d) => d.path);
+  if (allocationPaths.filter((path) => path === args.allocationPath).length !== 1) errors.push(error('subject-mismatch', args.manifestPath, '/dependencies', `authored slice '${args.allocationPath}' must occur exactly once as an allocation dependency`));
+  if (errors.length > 0) return { ok: false, errors };
+  return { ok: true, candidate: { manifest, manifestRef: { path: args.manifestPath, sha256: manifestSnapshot.sha256 }, allocationPaths, declaredObligationIds: declared } };
+}
+
 /** Validate one complete, already-read baseline closure. */
 export function validateBaselineAdmission(args: {
   manifestPath: string;
@@ -963,6 +1449,15 @@ export function validateBaselineAdmission(args: {
   }
   duplicateValues(highLevelIdentities, args.manifestPath, errors);
   duplicateValues(lowLevelIdentities, args.manifestPath, errors);
+  if (manifest.formatVersion === 2) {
+    const declared = new Set([...highLevelIdentities, ...lowLevelIdentities].map((item) => item.value));
+    const scope = new Set(manifest.reviewObligationIds);
+    for (const id of manifest.reviewObligationIds) {
+      if (!declared.has(id)) errors.push(error('review-coverage-unknown', args.manifestPath, '/reviewObligationIds', `obligation '${id}' is not declared by the manifest requirements`));
+      const parent = id.match(/^(.+-REQ-[0-9]{3})-L[0-9]{2}$/)?.[1];
+      if (parent && !scope.has(parent)) errors.push(error('review-coverage-missing', args.manifestPath, '/reviewObligationIds', `L obligation '${id}' requires parent '${parent}' in review scope`));
+    }
+  }
 
   const requirementPaths = new Set(manifest.requirements.map((r) => r.path));
   const sourcePaths = new Set(manifest.dependencies.filter((d) => d.role === 'source').map((d) => d.path));
@@ -983,19 +1478,23 @@ export function validateBaselineAdmission(args: {
   const approvalPath = `docs/assurance/${manifest.baselineId}/baseline-approval.json`;
   const reviewSnapshot = byPath.get(reviewPath);
   const approvalSnapshot = byPath.get(approvalPath);
-  let review: ReviewRecord | undefined;
-  let approval: ApprovalRecord | undefined;
+  let review: ReviewRecord | RequirementsReviewRecord | undefined;
+  let approval: ApprovalRecord | ApprovalRecordV2 | undefined;
   if (!reviewSnapshot) errors.push(error('missing', reviewPath, '/', 'fixed review record was not loaded'));
   else if (reviewSnapshot.status === 'error') errors.push(snapshotError(reviewSnapshot));
   else {
-    const parsed = parseReview(reviewSnapshot);
+    const parsed = manifest.formatVersion === 1
+      ? parseReview(reviewSnapshot)
+      : parseRequirementsReviewRecord(reviewSnapshot, manifest.reviewObligationIds);
     errors.push(...parsed.errors);
     if (parsed.ok) review = parsed.value;
   }
   if (!approvalSnapshot) errors.push(error('missing', approvalPath, '/', 'fixed approval record was not loaded'));
   else if (approvalSnapshot.status === 'error') errors.push(snapshotError(approvalSnapshot));
   else {
-    const parsed = parseApprovalRecord(approvalSnapshot);
+    const parsed = manifest.formatVersion === 1
+      ? parseApprovalRecord(approvalSnapshot)
+      : parseApprovalRecordV2(approvalSnapshot);
     errors.push(...parsed.errors);
     if (parsed.ok) approval = parsed.value;
   }
@@ -1004,11 +1503,15 @@ export function validateBaselineAdmission(args: {
   if (review) {
     if (!sameRef(review.subject, manifestRef)) errors.push(error('subject-mismatch', reviewPath, '/subject', 'review subject does not equal selected manifest path and digest'));
     if (review.result !== 'accepted') errors.push(error('review-not-accepted', reviewPath, '/result', `review result is '${review.result}'`));
+    if (manifest.formatVersion === 2 && review.kind === 'requirements-review') {
+      if (!sameInputContext(review.authorInputProvenance, review.reviewerInputProvenance)) errors.push(error('role-context-mismatch', reviewPath, '/', 'author and reviewer accepted-baseline/common input identities differ'));
+    }
   }
   if (approval) {
     if (!sameRef(approval.subject, manifestRef)) errors.push(error('subject-mismatch', approvalPath, '/subject', 'approval subject does not equal selected manifest path and digest'));
     if (reviewSnapshot?.status === 'ok' && !sameRef(approval.review, { path: reviewPath, sha256: reviewSnapshot.sha256 })) errors.push(error('subject-mismatch', approvalPath, '/review', 'approval review reference does not equal the fixed review record and digest'));
     if (approval.decision !== 'approved') errors.push(error('approval-not-approved', approvalPath, '/decision', `approval decision is '${approval.decision}'`));
+    if (manifest.formatVersion === 2 && approval.formatVersion === 2 && (approval.target.projectId !== manifest.target.projectId || approval.target.root !== manifest.target.root)) errors.push(error('subject-mismatch', approvalPath, '/target', 'approval target does not equal manifest target'));
     const actualDecisions = new Set(approval.resolvedDecisions.map((d) => d.id));
     const requiredDecisions = new Set(manifest.requiredDecisionIds);
     for (const id of requiredDecisions) if (!actualDecisions.has(id)) errors.push(error('subject-mismatch', approvalPath, '/resolvedDecisions', `required decision '${id}' is unresolved`));
@@ -1026,29 +1529,84 @@ export function validateBaselineAdmission(args: {
     errors.push(error('subject-mismatch', args.manifestPath, '/dependencies', `sliceDoc '${args.allocationPath}' is not an allocation dependency`));
   }
   if (errors.length > 0) return { ok: false, errors };
-  return { ok: true, admission: { enforcement: BASELINE_ADMISSION, manifest: manifestRef, baselineId: manifest.baselineId, allocationPaths } };
+  return { ok: true, admission: { enforcement: manifest.formatVersion === 1 ? BASELINE_ADMISSION : REVIEWED_INPUTS, manifest: manifestRef, baselineId: manifest.baselineId, allocationPaths } };
+}
+
+function sameInputContext(a: RunInputProvenance, b: RunInputProvenance): boolean {
+  return a.baseline.path === b.baseline.path && a.baseline.sha256 === b.baseline.sha256 && JSON.stringify(a.commonInputs) === JSON.stringify(b.commonInputs);
 }
 
 /** Parse the closed persisted mode object without accepting partial assurance. */
-export function parsePersistedAssurance(value: unknown, recordPath: string, location = '/assurance'): ParsedRecord<PersistedAssurance> {
+export function parsePersistedAssurance(value: unknown, recordPath: string, location = '/assurance'): ParsedRecord<AnyPersistedAssurance> {
   const errors: AssuranceError[] = [];
-  if (!isObjectAndCollectClosedFieldErrors(value, ['contract', 'enforcement', 'manifest'], recordPath, location, errors)) return { ok: false, errors };
+  const isV2 = isObject(value) && value.contract === STAGE2_CONTRACT;
+  const fields = isV2 ? ['contract', 'enforcement', 'manifest', 'instructions'] : ['contract', 'enforcement', 'manifest'];
+  if (!isObjectAndCollectClosedFieldErrors(value, fields, recordPath, location, errors)) return { ok: false, errors };
   let literalsOk = true;
-  if (value.contract !== STAGE1_CONTRACT) {
+  if (value.contract !== (isV2 ? STAGE2_CONTRACT : STAGE1_CONTRACT)) {
     errors.push(error('unsupported-version', recordPath, `${location}/contract`, `unsupported assurance contract '${String(value.contract)}'`));
     literalsOk = false;
   }
-  if (value.enforcement !== BASELINE_ADMISSION) {
-    errors.push(error('invalid-field', recordPath, `${location}/enforcement`, `enforcement must equal '${BASELINE_ADMISSION}'`));
+  const expectedEnforcement = isV2 ? REVIEWED_INPUTS : BASELINE_ADMISSION;
+  if (value.enforcement !== expectedEnforcement) {
+    errors.push(error('invalid-field', recordPath, `${location}/enforcement`, `enforcement must equal '${expectedEnforcement}'`));
     literalsOk = false;
   }
   const manifest = parseContentRef(value.manifest, recordPath, `${location}/manifest`, errors);
-  if (!literalsOk || !manifest || errors.length > 0) return { ok: false, errors };
-  return { ok: true, value: { contract: STAGE1_CONTRACT, enforcement: BASELINE_ADMISSION, manifest }, errors };
+  if (!isV2) {
+    if (!literalsOk || !manifest || errors.length > 0) return { ok: false, errors };
+    return { ok: true, value: { contract: STAGE1_CONTRACT, enforcement: BASELINE_ADMISSION, manifest }, errors };
+  }
+  const instructions = parsePersistedInstructions(value.instructions, recordPath, `${location}/instructions`, errors);
+  if (!literalsOk || !manifest || !instructions || errors.length > 0) return { ok: false, errors };
+  return { ok: true, value: { contract: STAGE2_CONTRACT, enforcement: REVIEWED_INPUTS, manifest, instructions }, errors };
 }
 
 export function persistedAssurance(admission: BaselineAdmission): PersistedAssurance {
+  if (admission.enforcement !== BASELINE_ADMISSION) throw new Error('v2 admission requires persistedAssuranceV2 with explicit instruction identities');
   return { contract: STAGE1_CONTRACT, enforcement: BASELINE_ADMISSION, manifest: admission.manifest };
+}
+
+export function persistedAssuranceV2(admission: BaselineAdmission, instructions: PersistedAssuranceV2['instructions']): PersistedAssuranceV2 {
+  if (admission.enforcement !== REVIEWED_INPUTS) throw new Error('v1 admission cannot be persisted as reviewed-inputs');
+  return { contract: STAGE2_CONTRACT, enforcement: REVIEWED_INPUTS, manifest: admission.manifest, instructions };
+}
+
+function parseRootedRef(value: unknown, recordPath: string, at: string, errors: AssuranceError[]): RootedContentRef | undefined {
+  if (!isObjectAndCollectClosedFieldErrors(value, ['root', 'path', 'sha256'], recordPath, at, errors)) return undefined;
+  const rootOk = value.root === 'target' || value.root === 'prompt';
+  if (!rootOk) errors.push(error('invalid-field', recordPath, `${at}/root`, 'root must be target or prompt'));
+  const ref = parseContentRef({ path: value.path, sha256: value.sha256 }, recordPath, at, errors);
+  return rootOk && ref ? { root: value.root as RootedContentRef['root'], ...ref } : undefined;
+}
+
+function parsePersistedInstructions(value: unknown, recordPath: string, at: string, errors: AssuranceError[]): PersistedAssuranceV2['instructions'] | undefined {
+  const names = ['shared', 'commonRole', 'selectorRole', 'builderRole', 'reviewerRole', 'challengerRole', 'rebutterRole'] as const;
+  if (!isObjectAndCollectClosedFieldErrors(value, names, recordPath, at, errors)) return undefined;
+  const shared = parseRootedRef(value.shared, recordPath, `${at}/shared`, errors);
+  const parsedArrays: Record<string, RootedContentRef[]> = {};
+  const all: IdentityCandidate[] = [];
+  for (const name of names.slice(1)) {
+    const raw = value[name];
+    const refs: RootedContentRef[] = [];
+    if (!Array.isArray(raw) || raw.length === 0) errors.push(error('invalid-field', recordPath, `${at}/${name}`, `${name} must be a non-empty array`));
+    else raw.forEach((item, index) => {
+      const ref = parseRootedRef(item, recordPath, `${at}/${name}/${index}`, errors);
+      if (ref) { refs.push(ref); all.push({ value: `${ref.root}:${ref.path}`, location: `${at}/${name}/${index}` }); }
+    });
+    parsedArrays[name] = refs;
+  }
+  duplicateValues(all, recordPath, errors);
+  if (!shared || errors.length > 0) return undefined;
+  return {
+    shared,
+    commonRole: parsedArrays['commonRole'] ?? [],
+    selectorRole: parsedArrays['selectorRole'] ?? [],
+    builderRole: parsedArrays['builderRole'] ?? [],
+    reviewerRole: parsedArrays['reviewerRole'] ?? [],
+    challengerRole: parsedArrays['challengerRole'] ?? [],
+    rebutterRole: parsedArrays['rebutterRole'] ?? [],
+  };
 }
 
 /** Exhaustive stable rendering for CLI/operator blocking output. */
@@ -1075,6 +1633,11 @@ export function renderAssuranceError(value: AssuranceError): string {
     case 'review-not-accepted': label = 'review-not-accepted'; break;
     case 'approval-not-approved': label = 'approval-not-approved'; break;
     case 'subject-mismatch': label = 'subject-mismatch'; break;
+    case 'review-coverage-missing': label = 'review-coverage-missing'; break;
+    case 'review-coverage-unknown': label = 'review-coverage-unknown'; break;
+    case 'review-result-mismatch': label = 'review-result-mismatch'; break;
+    case 'role-context-mismatch': label = 'role-context-mismatch'; break;
+    case 'approval-already-exists': label = 'approval-already-exists'; break;
   }
   const other = value.code === 'duplicate-field' || value.code === 'duplicate-identity'
     ? `; first location ${value.otherLocation}`

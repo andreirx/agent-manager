@@ -33,8 +33,8 @@
 
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { resolve, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -46,6 +46,8 @@ import { CopilotAdapter } from '../adapters/providers/copilot/index.js';
 import {
   targetRelayLoop,
   admitBaseline,
+  prepareReviewedTargetDryRunDeliveries,
+  recordReviewedBaselineApproval,
   type TargetActor,
   type TargetPhase,
   type TargetRelayInput,
@@ -172,6 +174,18 @@ interface Args {
   builderModel?: string;
   supervisorModel?: string;
   baseline?: string;
+  approval?: {
+    manifest: string;
+    approvalId: string;
+    projectId: string;
+    approvedByType: 'human' | 'operator';
+    approvedById: string;
+    recordedByType: 'human' | 'operator';
+    recordedById: string;
+    authorityBasis: string;
+    decisionRecords: { id: string; path: string }[];
+    rationale: string;
+  };
 }
 
 function parseProvider(value: string, flag: string): TargetActor {
@@ -197,6 +211,16 @@ function parseArgs(argv: string[]): Args {
   let builderModel: string | undefined;
   let supervisorModel: string | undefined;
   let baseline: string | undefined;
+  const approvalValues: Record<string, string> = {};
+  const decisionRecords: { id: string; path: string }[] = [];
+  let runtimeFlagExplicit = false;
+  const approvalValue = (name: string, flag: string, read: () => string): void => {
+    if (Object.prototype.hasOwnProperty.call(approvalValues, name)) {
+      console.error(`${flag} must occur exactly once.`);
+      process.exit(1);
+    }
+    approvalValues[name] = read();
+  };
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -216,27 +240,35 @@ function parseArgs(argv: string[]): Args {
 
     switch (a) {
       case '--builder':
+        runtimeFlagExplicit = true;
         builder = parseProvider(value('--builder'), '--builder');
         break;
       case '--supervisor':
+        runtimeFlagExplicit = true;
         supervisor = parseProvider(value('--supervisor'), '--supervisor');
         break;
       case '--builder-model':
+        runtimeFlagExplicit = true;
         builderModel = value('--builder-model');
         break;
       case '--supervisor-model':
+        runtimeFlagExplicit = true;
         supervisorModel = value('--supervisor-model');
         break;
       case '--shared-prompt':
+        runtimeFlagExplicit = true;
         sharedPrompt = value('--shared-prompt');
         break;
       case '--baseline':
+        runtimeFlagExplicit = true;
         baseline = value('--baseline');
         break;
       case '--max-iter':
+        runtimeFlagExplicit = true;
         maxIter = Number.parseInt(value('--max-iter'), 10);
         break;
       case '--timeout': {
+        runtimeFlagExplicit = true;
         const mins = Number.parseInt(value('--timeout'), 10);
         if (!Number.isFinite(mins) || mins < 1) {
           console.error('--timeout must be a positive integer (minutes).');
@@ -246,15 +278,19 @@ function parseArgs(argv: string[]): Args {
         break;
       }
       case '--slice':
+        runtimeFlagExplicit = true;
         slice = value('--slice');
         break;
       case '--reselect':
+        runtimeFlagExplicit = true;
         reselect = true;
         break;
       case '--reviewer-write':
+        runtimeFlagExplicit = true;
         reviewerWrite = true;
         break;
       case '--until': {
+        runtimeFlagExplicit = true;
         const u = value('--until');
         if (u !== 'select-slice') {
           console.error(`--until currently supports only 'select-slice' (got '${u}').`);
@@ -264,8 +300,25 @@ function parseArgs(argv: string[]): Args {
         break;
       }
       case '--dry-run':
+        runtimeFlagExplicit = true;
         dryRun = true;
         break;
+      case '--record-reviewed-baseline-approval': approvalValue('manifest', a, () => value(a)); break;
+      case '--approval-id': approvalValue('approvalId', a, () => value(a)); break;
+      case '--project-id': approvalValue('projectId', a, () => value(a)); break;
+      case '--approved-by-type': approvalValue('approvedByType', a, () => value(a)); break;
+      case '--approved-by-id': approvalValue('approvedById', a, () => value(a)); break;
+      case '--recorded-by-type': approvalValue('recordedByType', a, () => value(a)); break;
+      case '--recorded-by-id': approvalValue('recordedById', a, () => value(a)); break;
+      case '--authority-basis': approvalValue('authorityBasis', a, () => value(a)); break;
+      case '--rationale': approvalValue('rationale', a, () => value(a)); break;
+      case '--decision-record': {
+        const raw = value(a);
+        const split = raw.indexOf('=');
+        if (split <= 0 || split === raw.length - 1) { console.error('--decision-record requires <decision-id>=<target-relative-path>.'); process.exit(1); }
+        decisionRecords.push({ id: raw.slice(0, split), path: raw.slice(split + 1) });
+        break;
+      }
       default:
         if (a.startsWith('--')) {
           console.error(`Unknown option: ${a}`);
@@ -295,7 +348,18 @@ function parseArgs(argv: string[]): Args {
   const withUntil = until !== undefined ? { ...withSlice, until } : withSlice;
   const withBM = builderModel !== undefined ? { ...withUntil, builderModel } : withUntil;
   const withSM = supervisorModel !== undefined ? { ...withBM, supervisorModel } : withBM;
-  return baseline !== undefined ? { ...withSM, baseline } : withSM;
+  const ordinary = baseline !== undefined ? { ...withSM, baseline } : withSM;
+  const approvalRequested = Object.keys(approvalValues).length > 0 || decisionRecords.length > 0;
+  if (!approvalRequested) return ordinary;
+  if (runtimeFlagExplicit) { console.error('--record-reviewed-baseline-approval is mutually exclusive with dispatch/dry-run/provider/model/permission/cycle flags.'); process.exit(1); }
+  const required = ['manifest', 'approvalId', 'projectId', 'approvedByType', 'approvedById', 'recordedByType', 'recordedById', 'authorityBasis', 'rationale'] as const;
+  for (const name of required) if (!approvalValues[name]) { console.error(`Approval operation missing required ${name}.`); process.exit(1); }
+  const actorType = (name: 'approvedByType' | 'recordedByType') => {
+    const raw = approvalValues[name];
+    if (raw !== 'human' && raw !== 'operator') { console.error(`${name} must be human or operator.`); process.exit(1); }
+    return raw;
+  };
+  return { ...ordinary, approval: { manifest: approvalValues['manifest'] as string, approvalId: approvalValues['approvalId'] as string, projectId: approvalValues['projectId'] as string, approvedByType: actorType('approvedByType'), approvedById: approvalValues['approvedById'] as string, recordedByType: actorType('recordedByType'), recordedById: approvalValues['recordedById'] as string, authorityBasis: approvalValues['authorityBasis'] as string, decisionRecords, rationale: approvalValues['rationale'] as string } };
 }
 
 /** Elide the long developer_instructions value so dry-run stays readable. */
@@ -313,6 +377,7 @@ async function printDryRun(
   args: Args,
   targetDir: string,
   sharedInstructionPath: string | undefined,
+  sharedInstruction: TargetRelayInput['sharedInstruction'],
   builderRaw: RawAdapter,
   supervisorRaw: RawAdapter,
   store: FilesystemArtifactStore
@@ -347,7 +412,10 @@ async function printDryRun(
     if (typeof sliceDoc !== 'string' || sliceDoc.length === 0) {
       throw new Error(`invalid-field: ${statusPath} /sliceDoc: assured dry-run requires a non-empty SLICE_DOC`);
     }
-    const admission = await admitBaseline(targetDir, args.baseline, store, { allocationPath: sliceDoc });
+    // First validate only the accepted input closure. The active packet decides
+    // whether allocation means the existing SLICE_DOC (ordinary v1/v2 work) or
+    // ADMISSION_ALLOCATION (the admitted document-authoring bridge).
+    const admission = await admitBaseline(targetDir, args.baseline, store);
     if (!admission.ok) {
       throw new Error(admission.errors.map((e) => `${e.code}: ${e.recordPath} ${e.location}: ${e.detail}`).join('\n'));
     }
@@ -362,6 +430,92 @@ async function printDryRun(
       ) {
         throw new Error(`subject-mismatch: ${statusPath} /assurance/manifest: persisted assurance conflicts with --baseline`);
       }
+    }
+    const selectionPath = `.agent-manager/slices/${args.slice}/selection.md`;
+    const selectionSnapshot = await store.readContainedFile(targetDir, selectionPath);
+    if (selectionSnapshot.status === 'error' && admission.admission.enforcement === 'reviewed-inputs') {
+      throw new Error(`${selectionSnapshot.code}: ${selectionPath}: ${selectionSnapshot.detail}`);
+    }
+    const packetRaw = selectionSnapshot.status === 'ok'
+      ? new TextDecoder('utf-8', { fatal: true }).decode(selectionSnapshot.bytes)
+      : undefined;
+    let planned: Awaited<ReturnType<typeof prepareReviewedTargetDryRunDeliveries>>;
+    if (packetRaw !== undefined) {
+      const builderDef = resolvedDefaults(args.builder, 'builder', args);
+      const supervisorDef = resolvedDefaults(args.supervisor, 'supervisor', args);
+      const relayInput: TargetRelayInput = {
+        targetDir,
+        promptRoot,
+        selectPromptPaths: ['prompts/system/base.md', 'prompts/roles/supervisor-select.md'],
+        builderPromptPaths: ['prompts/system/base.md', 'prompts/roles/builder-target.md'],
+        reviewerPromptPaths: ['prompts/system/base.md', 'prompts/roles/reviewer-target.md'],
+        challengerPromptPaths: ['prompts/system/base.md', 'prompts/roles/decision-challenger.md'],
+        rebutterPromptPaths: ['prompts/system/base.md', 'prompts/roles/decision-rebutter.md'],
+        builderProvider: args.builder,
+        supervisorProvider: args.supervisor,
+        builderModel: builderDef.model,
+        builderEffort: builderDef.effort,
+        supervisorModel: supervisorDef.model,
+        supervisorEffort: supervisorDef.effort,
+        commonPromptPaths: ['prompts/system/base.md'],
+        ...(sharedInstruction ? { sharedInstruction } : {}),
+      };
+      planned = await prepareReviewedTargetDryRunDeliveries({
+        input: relayInput,
+        deps: { artifactStore: store, computeDigest },
+        baselinePath: args.baseline,
+        sliceId: args.slice,
+        sliceDoc,
+        packetRaw,
+        documentCandidateAvailability:
+          statusRecord.phase === 'implement' && statusRecord.iteration === 0
+            ? 'not-yet-authored'
+            : 'expected',
+      });
+    }
+    if (planned) {
+      const builderDef = resolvedDefaults(args.builder, 'builder', args);
+      const supervisorDef = resolvedDefaults(args.supervisor, 'supervisor', args);
+      console.log(`Enforcement: ${admission.admission.enforcement}`);
+      console.log(`Manifest   : ${planned.manifest.path} ${planned.manifest.sha256}`);
+      console.log(`Target root: ${targetDir}`);
+      console.log(`Prompt root: ${promptRoot}`);
+      console.log(`Roles      : builder=${args.builder}/${builderDef.model}/${builderDef.effort}; reviewer=${args.supervisor}/${supervisorDef.model}/${supervisorDef.effort}`);
+      console.log(`Independence: ${args.builder === args.supervisor ? 'same-provider' : 'different-provider'}\n`);
+      const reviewedPhases = [
+        { label: 'implement' as const, adapter: builderRaw, provider: args.builder, role: 'builder', mode: 'edit' as const, permission: 'write' as const, model: builderDef.model, effort: builderDef.effort, delivery: planned.builder },
+        ...(planned.reviewer.kind === 'available' ? [{ label: 'review-impl' as const, adapter: supervisorRaw, provider: args.supervisor, role: 'reviewer', mode: 'review' as const, permission: args.reviewerWrite ? 'write' as const : 'read-only' as const, model: supervisorDef.model, effort: supervisorDef.effort, delivery: planned.reviewer.delivery }] : []),
+      ];
+      console.log('=== DRY RUN: planned reviewed-input provider deliveries (no processes spawned, no snapshot files written) ===\n');
+      for (const phase of reviewedPhases) {
+        const request: RunRequest = { runId: `dry-run-${phase.label}`, sliceId: args.slice, role: phase.role, mode: phase.mode, permission: phase.permission, workingDir: targetDir, model: phase.model, effort: phase.effort, delivery: phase.delivery, inputArtifacts: [] };
+        const prepared = await phase.adapter.prepareRunDelivery(request);
+        console.log(`# ${phase.label}  (${phase.provider}, mode=${phase.mode}, permission=${phase.permission})`);
+        console.log(`  cwd : ${prepared.invocation.cwd}`);
+        console.log(`  cmd : ${prepared.invocation.command} ${prepared.invocation.args.map(formatArg).join(' ')}`);
+        if (prepared.sharedSnapshot) console.log(`  eventual-shared-snapshot: ${prepared.sharedSnapshot.path}`);
+        for (const input of [...phase.delivery.common, ...phase.delivery.roleSpecific]) {
+          const identity = input.origin === 'file' ? `${input.root}:${input.path}` : `generated:${input.label}`;
+          console.log(`  input: ${input.purpose} ${identity} ${input.sha256} bytes=${input.bytes.byteLength}`);
+        }
+        if (prepared.receipt.kind !== 'reviewed-input-snapshots') throw new Error('role-context-mismatch: reviewed dry-run produced a legacy receipt');
+        for (const channel of prepared.receipt.channels) console.log(`  channel: ${channel.channel} mechanism=${channel.mechanism} ${channel.sha256} bytes=${channel.byteLength}`);
+        console.log('');
+      }
+      if (planned.reviewer.kind === 'pending-authored-review-subject') {
+        console.log('# review-impl  (pending authored review subject; no provider delivery available)');
+        console.log(`  missing REVIEW_BASELINE          : ${planned.reviewer.reviewBaseline}`);
+        console.log(`  declared SLICE_DOC (not validated): ${planned.reviewer.sliceDoc}`);
+        console.log('  next step: author must produce the candidate closure; relay will then validate its SLICE_DOC allocation before reviewer dispatch\n');
+      }
+      return;
+    }
+    const allocationAdmission = await admitBaseline(targetDir, args.baseline, store, {
+      expectedManifest: admission.admission.manifest,
+      allocationPath: sliceDoc,
+    });
+    if (!allocationAdmission.ok) {
+      throw new Error(allocationAdmission.errors.map((e) => `${e.code}: ${e.recordPath} ${e.location}: ${e.detail}`).join('\n'));
     }
     console.log(`Enforcement: baseline-admission`);
     console.log(`Manifest   : ${admission.admission.manifest.path} ${admission.admission.manifest.sha256}\n`);
@@ -419,7 +573,7 @@ async function printDryRun(
       workingDir: targetDir,
       model: def.model,
       effort: def.effort,
-      prompts: [],
+      delivery: { kind: 'legacy-live-inputs', prompts: [] },
       inputArtifacts: [],
     });
     console.log(`# ${p.label}  (${p.provider}, mode=${p.mode}, permission=${p.permission})`);
@@ -441,16 +595,51 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  if (args.approval) {
+    const clock = new SystemClock();
+    const store = new FilesystemArtifactStore();
+    try {
+      const recorded = await recordReviewedBaselineApproval({ targetDir, manifestPath: args.approval.manifest, approvalId: args.approval.approvalId, projectId: args.approval.projectId, approvedBy: { actorType: args.approval.approvedByType, actorId: args.approval.approvedById }, recordedBy: { actorType: args.approval.recordedByType, actorId: args.approval.recordedById }, authorityBasisPath: args.approval.authorityBasis, decisionRecords: args.approval.decisionRecords, rationale: args.approval.rationale }, { clock, artifactStore: store, computeDigest });
+      console.log('recorded reviewed-baseline approval');
+      console.log(`Target     : ${targetDir}`);
+      console.log(`Project    : ${recorded.approval.target.projectId}`);
+      console.log(`Manifest   : ${recorded.approval.subject.path} ${recorded.approval.subject.sha256}`);
+      console.log(`Review     : ${recorded.approval.review.path} ${recorded.approval.review.sha256}`);
+      console.log(`Output     : ${recorded.outputPath}`);
+      console.log('commit: not performed');
+    } catch (cause) {
+      console.error(`Approval recording failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+      process.exit(1);
+    }
+    return;
+  }
+
   // Shared system prompt is optional: warn and continue if absent.
   let sharedInstructionPath: string | undefined = resolve(
     process.cwd(),
     args.sharedPrompt
   );
   if (!existsSync(sharedInstructionPath)) {
-    console.warn(
-      `Shared prompt file not found: ${sharedInstructionPath} — proceeding without it.`
-    );
+    if (args.baseline === undefined) {
+      console.warn(`Shared prompt file not found: ${sharedInstructionPath} — proceeding without it.`);
+    }
     sharedInstructionPath = undefined;
+  }
+
+  let sharedInstruction: TargetRelayInput['sharedInstruction'];
+  if (sharedInstructionPath) {
+    const targetReal = realpathSync(targetDir);
+    const promptReal = realpathSync(promptRoot);
+    const sharedReal = realpathSync(sharedInstructionPath);
+    const within = (root: string) => sharedReal === root || sharedReal.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
+    const inTarget = within(targetReal);
+    const inPrompt = within(promptReal);
+    if (inTarget && inPrompt && targetReal !== promptReal) {
+      console.error('Shared prompt is ambiguously contained by distinct target and prompt roots.');
+      process.exit(1);
+    }
+    if (inPrompt || (inTarget && targetReal === promptReal)) sharedInstruction = { root: 'prompt', path: relative(promptReal, sharedReal).split(sep).join('/') };
+    else if (inTarget) sharedInstruction = { root: 'target', path: relative(targetReal, sharedReal).split(sep).join('/') };
   }
 
   console.log(`=== Target-owned relay ===`);
@@ -471,6 +660,7 @@ async function main(): Promise<void> {
   const adapterConfig = {
     logsDir: resolve(targetDir, '.agent-manager', 'logs'),
     promptRoot,
+    commonPromptPaths: ['prompts/system/base.md'],
     defaultTimeout: args.timeoutMs,
     ...(sharedInstructionPath ? { sharedInstructionPath } : {}),
   };
@@ -480,7 +670,7 @@ async function main(): Promise<void> {
 
   if (args.dryRun) {
     try {
-      await printDryRun(args, targetDir, sharedInstructionPath, builderRaw, supervisorRaw, store);
+      await printDryRun(args, targetDir, sharedInstructionPath, sharedInstruction, builderRaw, supervisorRaw, store);
     } catch (cause) {
       console.error(`Baseline admission failed: ${cause instanceof Error ? cause.message : String(cause)}`);
       process.exit(1);
@@ -510,6 +700,7 @@ async function main(): Promise<void> {
     maxIterations: args.maxIter,
     reselect: args.reselect,
     reviewerPermission: args.reviewerWrite ? 'write' : 'read-only',
+    ...(sharedInstruction ? { sharedInstruction } : {}),
     ...(args.baseline !== undefined ? { baselinePath: args.baseline } : {}),
   };
   const withSlice = args.slice !== undefined ? { ...base, sliceId: args.slice } : base;

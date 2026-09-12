@@ -105,7 +105,7 @@ export async function runBuilder(
     runId: input.runId,
     sliceId: input.sliceId,
     role: 'builder',
-    prompts,
+    delivery: { kind: 'legacy-live-inputs', prompts },
     inputArtifacts: [
       {
         path: briefPath,

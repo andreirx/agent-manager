@@ -1,0 +1,842 @@
+{
+  "recordedAt": "2026-09-12T19:37:18.428Z",
+  "actor": "in-place-manager",
+  "scope": "ASSURANCE-2 runtime plus required A2-C09 document demonstration",
+  "baseline": {
+    "path": "docs/requirements/baselines/ASSURANCE-2-INPUT-1.json",
+    "sha256": "sha256:e0ae3b39bca92b9121de9f35265401b2334d2d7a314dd3dc7f96ede801cfeec3"
+  },
+  "startingHead": "322eba42b1687b15f288a2099af909207aa32211",
+  "runtimeDiffSha256": "sha256:1731887114d2aab8ffee7327b648478d94cb133bfcbe1610d34cb0ef0d3102ae",
+  "candidate": [
+    {
+      "path": ".gitignore",
+      "sha256": "sha256:41378c5b38ee632bfc2f6ac9595e05334ea79ca726db5fd974649f4b94762689"
+    },
+    {
+      "path": "CLAUDE.md",
+      "sha256": "sha256:4a09c6119ec4c3970ebd0d91e4d122dbd75854054a54a8c3e173ce90e9a77538"
+    },
+    {
+      "path": "README.md",
+      "sha256": "sha256:a4c57973bc992ea8d4111c535f89992d33f4acb2894f462c4da778bc98669c37"
+    },
+    {
+      "path": "SYSTEM.txt",
+      "sha256": "sha256:fbb99b8cb7349562236bf289e33f9850a8412e1272746ba53d8dc7c9f6894f75"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "sha256:51971b54c59cd15ab07fc1a3af848ad36426b925e72507b97f6dc60222ecf4f1"
+    },
+    {
+      "path": "docs/MANAGER.md",
+      "sha256": "sha256:9ab870f7a32b4bdfc138cbc1c43654325bfac820f6a0b6f6d5580e7c8ce08d18"
+    },
+    {
+      "path": "docs/PROCESS.md",
+      "sha256": "sha256:4fbc7672c02cee0c4445d2485e58759ba870d6726501626ee490642838858703"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "sha256": "sha256:cf4662180c3030eede51bfc39e57192b86e31f709d594f50df99623d02c191b6"
+    },
+    {
+      "path": "docs/TECH-DEBT.md",
+      "sha256": "sha256:e8d8ef174c80012d85dc0928b68a1bd390fe415a3a49b9ab693c294a36b3e06f"
+    },
+    {
+      "path": "docs/VISION.md",
+      "sha256": "sha256:af3d5685b30b122da8720fb622bf8381869c7b920ff5affb33a89d5480cb4a98"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-0/approved-draft-identities.json",
+      "sha256": "sha256:ed5617953398673783349ff86b6cb63aae9e1a8992f0723b35f2052e67c4e7ce"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-0/build-final.md",
+      "sha256": "sha256:cb1b9705a6357898065e135430f97992318314c8ae131176f33ded101b03f9c7"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-0/human-authorization.md",
+      "sha256": "sha256:1118cada251abeca0130538b75059ada794988fbfdb55016a19321abdfcc4704"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-0/manager-acceptance.md",
+      "sha256": "sha256:19928e3b6d1a6dcd13289391345e740d5e63c5a59e4db96f7b5e77407b8535e3"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-0/manager-checks.json",
+      "sha256": "sha256:5835a2c5baa496755bdd937785612c7f62fbec81d5dc43b31addb44bf2028a06"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-0/publication-correction.json",
+      "sha256": "sha256:e84a84329e31e86ed5fd248987ebc9267acfce336a08468033b7beb21973366a"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-0/review-0.json",
+      "sha256": "sha256:dbe3831d09ca555fe4ca641f11c5bb86b607e2855ef9767bec55242fc7571219"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-0/review-1.json",
+      "sha256": "sha256:714ef683a923668539e1c22fa31b1e6e9b02b2aa7b97043b2031e9110cb2afe4"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-0/review-2.json",
+      "sha256": "sha256:47772f87b775e806ba9f8d6bf6ebe11f3c604954df77bad6e03a3280924fcd42"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-0/review-3.json",
+      "sha256": "sha256:c094c9f5d6924c3a951c5940dca9d2c76dc2ed7cd7edab205f7b5d3b5df597a8"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-DIAGNOSTICS/manager-acceptance.md",
+      "sha256": "sha256:99018ac3cf2bfc638a3188fb80ff91f44cceabbca72d4d7c14c451c2120d3d33"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-DIAGNOSTICS/review-0.json",
+      "sha256": "sha256:9d937c47d451e7d46858074f83ad0cdc19b38feede7144ab4e24eed2c06e7a26"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-DIAGNOSTICS/run-provenance.json",
+      "sha256": "sha256:cf3627e5e07d98789f84ac9772a18f80f8753501cd6e6146b2089a7fef1e4c53"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-INPUT-1/baseline-approval.json",
+      "sha256": "sha256:9dc1d0e157b4b6214e023a3fcdc7a039320dc573e7b13484f8b43433bf098497"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-INPUT-1/requirements-review.json",
+      "sha256": "sha256:b3c0c3329bc06ca228dd7bda06d6546c2ba20d1b89981c15b1a5bfb01c95e967"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-INPUT-2/baseline-approval.json",
+      "sha256": "sha256:5bcabd7d66970dfdba357df2308195acea9fb850434e5ebec2436bf1618a8583"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-INPUT-2/requirements-review.json",
+      "sha256": "sha256:7c6b1a76fe10ef105dca7274bd564124099f521e0f4ccf257602e87c213ff0fd"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-INPUT-3/baseline-approval.json",
+      "sha256": "sha256:e79c9f4433a6a8595f909006a6235bac3301564cede015665ef0e712345b966d"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-INPUT-3/requirements-review.json",
+      "sha256": "sha256:e0205c31d3fc732a43b9aa54ed4bdc79f9e2e25a24a87f0af82c91ec96f87546"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-RECOVERY/manager-acceptance.md",
+      "sha256": "sha256:bca05a8e86bc8c999133d653a5017249b36f9b4d3feca27d754ed39c655a4448"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-RECOVERY/review-0.json",
+      "sha256": "sha256:e0c2f245a9dd9251a39b0db7070ae61702b14aab64cde1e213ed5d7ef98814d7"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-RECOVERY/review-1.json",
+      "sha256": "sha256:323d95686660ab7fca696a7db8570953f7660a412df9e6afd5a2c9772f013983"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1-RECOVERY/run-provenance.json",
+      "sha256": "sha256:910ccae068b3fa91e0c8d2cff699fcaf197f249f65abce63202841883f4efd5c"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1/diagnostics-ratification.md",
+      "sha256": "sha256:e402cd4d47aa163ddefe06a07fb83bbcaba4c85e635f56b14928d38115f1a325"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1/manager-acceptance.md",
+      "sha256": "sha256:08261fca0ee6e8abff457467dfca90395fba800d10905659868c096dd935576a"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1/manager-checkpoint.md",
+      "sha256": "sha256:1d666e1bccac395992c327c9c3a43ec787e2286441f544c8eb96d4e21059697d"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1/manager-diagnostic-probe.json",
+      "sha256": "sha256:c1ca206071ac99292d9e6737c10c29f1fd61feaf39058873326e2be6e32a0929"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1/manager-final-probes.json",
+      "sha256": "sha256:39dd024b50450e2faa6997538746ccc638bc7763186c4b2445fe745fc7a58377"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1/recovery-ratification.md",
+      "sha256": "sha256:0f26f786cb022bd059324b8d41072cae340d599759257921f7254f9b22670644"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1/review-7.json",
+      "sha256": "sha256:8c01dd31938f710e4c59ac99ab90538e624a38714c99aeca49973708a05938b9"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1/review-8.json",
+      "sha256": "sha256:93d3e771254713b8942268823ef7423efbb8b9b2965daa051556c11f148c7a20"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1/run-provenance.json",
+      "sha256": "sha256:3825a9e78df86e21e227a7e6a6b85254a8a25d13246ad67b648791aa3e4efe50"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-1/verification.json",
+      "sha256": "sha256:fae851c3f62e572b32af4c6cbefb48ce4ca7fcacf494c32e7178646296a26992"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-2-INPUT-1/baseline-approval.json",
+      "sha256": "sha256:34d6f00bfd29ac6bae8364f389f13195262547ed87c4f699b6c5b8c8d512fbc8"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-2-INPUT-1/requirements-review.json",
+      "sha256": "sha256:01e3f1f39b4b4cf3a7865387d6eac18b6915f7e4d1ecaaed7bbb8beb0552f3c2"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-2-PREP/admission-probes.json",
+      "sha256": "sha256:e5653907b3ecc6ff1b93ddf17bbce5d18ca0e2701c776aa4b3a980027cc0c6c8"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-2-PREP/manager-acceptance.md",
+      "sha256": "sha256:78ddba91b302cc5d901b618b018d6daad80e5dc938151b273a09266afe0589ac"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-2-PREP/manager-checkpoint.md",
+      "sha256": "sha256:9f1d1ad8465542f4c0f8618983746ad7dd64a2bbf4f28028b28988a0915c19d5"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-2-PREP/preparation-evidence.json",
+      "sha256": "sha256:e849e40d5decf8301edbab646d73ad8e0e28085460dd020132952c99594e7da2"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-2-PREP/review-0.json",
+      "sha256": "sha256:76c5421e205cdf22ccfc41cf7b398a0212c3d11cddaa8a4231d7b75b0790a077"
+    },
+    {
+      "path": "docs/assurance/ASSURANCE-2-PREP/review-1.json",
+      "sha256": "sha256:c50e93080caa041a73d438f5e40b0572068f88b1c18926be016de1dbb8aa1eab"
+    },
+    {
+      "path": "docs/contracts/artifact-naming.md",
+      "sha256": "sha256:434912b636495f7108dd50c995999a2ccd2030eab8e739084ea378c84c1acc8e"
+    },
+    {
+      "path": "docs/contracts/first-slice-definition.md",
+      "sha256": "sha256:856aa9e96288b40d4d15ad0b9a449d7f221a994a88851df77335364899f78471"
+    },
+    {
+      "path": "docs/contracts/log-naming.md",
+      "sha256": "sha256:29d933eadca0b1d112bc83cf0cb8c4d7cd4df6471f8c67f221f1eb4203d18a37"
+    },
+    {
+      "path": "docs/contracts/prompt-assets.md",
+      "sha256": "sha256:e0c668f66ae0e39b75d6853bf9ff6df5b9fc50bb2478a1fb35c6d460ff9153c7"
+    },
+    {
+      "path": "docs/contracts/provider-adapter.md",
+      "sha256": "sha256:05665986cf52bdee7df3158bdac6f584c428ab4d0f5adbf8d2b8f9bc7cafa5c1"
+    },
+    {
+      "path": "docs/contracts/requirements-assurance-v1.md",
+      "sha256": "sha256:2003d54cfaa529a7d8f8757975d03f95f720fcc877b2ed3fcf1554a1802c3cae"
+    },
+    {
+      "path": "docs/contracts/requirements-assurance-v2.md",
+      "sha256": "sha256:60e26eec6642f4b089ed27eaf3d7142bd4e6902281041e033ac6d6381ed116b1"
+    },
+    {
+      "path": "docs/contracts/slice-directory.md",
+      "sha256": "sha256:629de785718ca88ada6ee84313926d7c1419a55628481170287c8535db6dd297"
+    },
+    {
+      "path": "docs/contracts/target-owned-relay.md",
+      "sha256": "sha256:b21a39f87b6e6338d43c4d240593c4e56ec528476d18c91d6235f4a221358e95"
+    },
+    {
+      "path": "docs/requirements/README.md",
+      "sha256": "sha256:6de7085ac1a9651e0b8c9add0fd635db145b8e8bd47d9a9dd92850bbb3b58c02"
+    },
+    {
+      "path": "docs/requirements/am-req-001-target-owned-requirements.md",
+      "sha256": "sha256:7935baedfcb38fcd89795baf449d520a5259f2ff9f06caa5a4bb4a545e4802e6"
+    },
+    {
+      "path": "docs/requirements/am-req-002-requirements-and-design-review.md",
+      "sha256": "sha256:913c463c67778ba1a6cc96d62225d7b2775b9b1f1359d196b203b208589984fb"
+    },
+    {
+      "path": "docs/requirements/am-req-003-traceable-delivery-planning.md",
+      "sha256": "sha256:6fcec488306cca8fef8f14f9839c89e0216d5185498552128353fe19e69aa6ce"
+    },
+    {
+      "path": "docs/requirements/am-req-004-baseline-bound-execution.md",
+      "sha256": "sha256:862d748dfdd396bda696faf7b17c80e21331582d1ee48831c1c7b50b1dbd6144"
+    },
+    {
+      "path": "docs/requirements/am-req-005-verification-and-acceptance.md",
+      "sha256": "sha256:cadfd915b567c80b0406bd2fbf4547504042bf5675768a536fc06478cbbb5268"
+    },
+    {
+      "path": "docs/requirements/am-req-006-controlled-requirement-change.md",
+      "sha256": "sha256:a1fc9426f5f91fb0c70a519da9423ffcfda4c57c489594858c847256e26f4f51"
+    },
+    {
+      "path": "docs/requirements/am-req-007-project-aware-engineering.md",
+      "sha256": "sha256:32b981c6e42d52971d029f4ed3bf53f3658ee76c3852361f66d14497034050da"
+    },
+    {
+      "path": "docs/requirements/am-req-008-self-hosting-and-adoption.md",
+      "sha256": "sha256:7d0aa8c15b8f5146d7d06bf25c35e77dce8ce7b0813764ba31c9605ece82169e"
+    },
+    {
+      "path": "docs/requirements/am-req-009-in-place-manager.md",
+      "sha256": "sha256:e1a983a79397c5f104075c8a9625fa834b8a9b23bc9489d5ad9314980c25c9a2"
+    },
+    {
+      "path": "docs/requirements/baselines/ASSURANCE-1-INPUT-1.json",
+      "sha256": "sha256:2b8f4f188317df74172ff31cb6e476cbcb19ee06eed6fda1b45dc914e218eeca"
+    },
+    {
+      "path": "docs/requirements/baselines/ASSURANCE-1-INPUT-2.json",
+      "sha256": "sha256:f188eb720f919a891db0cd60dbd25f9d95c03ed96eba3a46d7928aabf869d0ca"
+    },
+    {
+      "path": "docs/requirements/baselines/ASSURANCE-1-INPUT-3.json",
+      "sha256": "sha256:aa17d202261ddbde0c32c868befefb3dde6b6e7156097c71d28b5ae4e77c58de"
+    },
+    {
+      "path": "docs/requirements/baselines/ASSURANCE-2-INPUT-1.json",
+      "sha256": "sha256:e0ae3b39bca92b9121de9f35265401b2334d2d7a314dd3dc7f96ede801cfeec3"
+    },
+    {
+      "path": "docs/research.txt",
+      "sha256": "sha256:b740882c48b9cd06e1d9fa83f7b7bdff2f5a657b7b2236ca30b774823e8cfee5"
+    },
+    {
+      "path": "docs/slices/assurance-0-bootstrap.md",
+      "sha256": "sha256:ca0048c492a32ab8fdb8b203a4cd5ea52769d56d1d78718298aaf18de93f5c06"
+    },
+    {
+      "path": "docs/slices/assurance-1-baseline-admission.md",
+      "sha256": "sha256:1016ad78d742cc42690b6af0cb8d62f4067c59a7456c061cd88bc107523e6276"
+    },
+    {
+      "path": "docs/slices/assurance-1-conscious-recovery-amendment.md",
+      "sha256": "sha256:4df1c8ab09444614753f475ecd577aa3952ed7e07662e4565485a0b7141bb900"
+    },
+    {
+      "path": "docs/slices/assurance-1-diagnostics-amendment.md",
+      "sha256": "sha256:c66776f99341a81ae86004ccb5898ddae3a2dda0da0690a4a50713b8628d9cf5"
+    },
+    {
+      "path": "docs/slices/assurance-2-reviewed-inputs.md",
+      "sha256": "sha256:974af65604afcdd4bde390337f010d6afe73dd8aacc7e36d74723ce856aa1b8a"
+    },
+    {
+      "path": "docs/slices/decision-review-mode-1.md",
+      "sha256": "sha256:855f9757bd7f4165ccdffd1fd3849fa1c7302254af6552958f818d5a4246c837"
+    },
+    {
+      "path": "docs/slices/requirements-assurance-rollout.md",
+      "sha256": "sha256:bf6375d1730f8d8e62bb17cdf6538eee3ea5fa8733fe9b8a49ccfaf015f868f0"
+    },
+    {
+      "path": "jest.config.mjs",
+      "sha256": "sha256:c3cfda2628ef8a396872df7213f621679870876a3db4500cf53262cd75d9d82a"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "sha256:40611e61174e67f3aa27617d37b3e5a28c78b1eed090f70f2263a79edeb1da87"
+    },
+    {
+      "path": "package.json",
+      "sha256": "sha256:ebbf2f17189dff5e2b5e2d9195f3c25907e9bb9f32a6d0fd601d26de5194a4a0"
+    },
+    {
+      "path": "prompts/roles/builder-target.md",
+      "sha256": "sha256:6a25526b2e5eb7a4807fbed1d338836fa19a6ed024a9d674362b6d15f4feeada"
+    },
+    {
+      "path": "prompts/roles/builder.md",
+      "sha256": "sha256:2e4ee50c8f4f42789af239597e661d82453f261290a10db5cde0fd86b0ddea2a"
+    },
+    {
+      "path": "prompts/roles/decision-challenger.md",
+      "sha256": "sha256:03ea000a27d0662f4e87c2022238ad4c1040328ab26632073edd64f7970e20e0"
+    },
+    {
+      "path": "prompts/roles/decision-rebutter.md",
+      "sha256": "sha256:0869fe2ec6ed407d0a76ebd6ae1296e27d8fd354005ea08f99c5cdf472ae97c7"
+    },
+    {
+      "path": "prompts/roles/manager.md",
+      "sha256": "sha256:8c64dc0f4457a4ac8b2efcdaf27b8eb9aa1bbc0cfda0ed16fe4fb1ec92a2176d"
+    },
+    {
+      "path": "prompts/roles/reviewer-target.md",
+      "sha256": "sha256:5b6b2a4547d2ceaf94a47e1cb69007df000457308bf665382392ef77be1111ea"
+    },
+    {
+      "path": "prompts/roles/reviewer.md",
+      "sha256": "sha256:f26ffd549b677966ec6df44ee2c2bb8eb936f8265acef46a74eb5f39d149fbe8"
+    },
+    {
+      "path": "prompts/roles/supervisor-select.md",
+      "sha256": "sha256:a81d4ecaa9cf1f69a1468f39e1689658539afa5f1199b8493a182a0cbd60f7e4"
+    },
+    {
+      "path": "prompts/standalone-review.md",
+      "sha256": "sha256:062dc377a34334d18855f7e58c2113fbc3d44f4c65b39cd6f31e6c393412d138"
+    },
+    {
+      "path": "prompts/system/base.md",
+      "sha256": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+    },
+    {
+      "path": "scripts/audit18-grader-judge.md",
+      "sha256": "sha256:49106b23f870734b895c3ba64a8cb73b8e65bb7c807108f274be2ee6d6747105"
+    },
+    {
+      "path": "scripts/audit18-grader-matrix.md",
+      "sha256": "sha256:c11474a90ce8ebac1f151d04f4942c57187f3b351237f4b485f7df1af86988f7"
+    },
+    {
+      "path": "scripts/audit18-supplemental.sh",
+      "sha256": "sha256:4a85cf0968ceb2318a1ce1d9cd23f3c6e8583ae6a3fb112953a1297a2634f7e3"
+    },
+    {
+      "path": "scripts/repo-graph-gates.sh",
+      "sha256": "sha256:e7503e906ea2073ba088a6f1a304a5d0d75a04ce388ae8cf4b60c47768678c51"
+    },
+    {
+      "path": "scripts/repo-graph-release-cut.sh",
+      "sha256": "sha256:efa69b09409f01537aa77caa47b21eb412e7f4cffee75ff934a41a2439b080a7"
+    },
+    {
+      "path": "slices/AM-001/brief.md",
+      "sha256": "sha256:aaf0e79d9e2a2456ace140a53f167d6eeb14081f7999fc64845295d484936fc0"
+    },
+    {
+      "path": "slices/AM-001/design/design.md",
+      "sha256": "sha256:baf6439938d7d0785f4ba082de872ae18a9cb7bd4354ea1773b4ce697f563467"
+    },
+    {
+      "path": "slices/AM-001/status.json",
+      "sha256": "sha256:c46f924df37594d4127ae46d4c3172f872ae2800476244db3be793f87edad16b"
+    },
+    {
+      "path": "src/adapters/clock/index.ts",
+      "sha256": "sha256:6a62da30fa8e97eb5020fa7e53307bdccd8d7a4da772745434a2079ff12a8dda"
+    },
+    {
+      "path": "src/adapters/filesystem/artifact-store.ts",
+      "sha256": "sha256:c2780be2ee71a294a66875731f33074138ce0e95add7bcee136d0c1c0412a163"
+    },
+    {
+      "path": "src/adapters/filesystem/index.ts",
+      "sha256": "sha256:90d24e7d47e7cfc1cacd9d46cc7733c82550c6646c54856dd9c1877b81b4bdc9"
+    },
+    {
+      "path": "src/adapters/providers/claude-code/adapter.ts",
+      "sha256": "sha256:23dc066790b4156df17f21bd7f986758da4b520d9e20e89d74545ceb4aa1f649"
+    },
+    {
+      "path": "src/adapters/providers/claude-code/index.ts",
+      "sha256": "sha256:7d34fb3c1afcbf58431fbf513b8001f9b01c2cfb84ccb3f45a6a9725539b535e"
+    },
+    {
+      "path": "src/adapters/providers/codex/adapter.ts",
+      "sha256": "sha256:2dfd9a4e0c252ce9037bd491881683f03d94231bfab18a4b553769416cd52300"
+    },
+    {
+      "path": "src/adapters/providers/codex/index.ts",
+      "sha256": "sha256:3149afdd92eff22858a5d3840675823fa2c9e88a94028250f2a30a99968937b9"
+    },
+    {
+      "path": "src/adapters/providers/copilot/adapter.ts",
+      "sha256": "sha256:0e03b7a5d0bdc69219e223e13d8dff3e58a5c3d78d4985f85dd833952f1b6308"
+    },
+    {
+      "path": "src/adapters/providers/copilot/index.ts",
+      "sha256": "sha256:4837ac80c48d77304a83b501ff5a914aefde3a62a4d1108363277ba6ff8c1f3b"
+    },
+    {
+      "path": "src/application/ports/artifact-store.ts",
+      "sha256": "sha256:8ee80256b991f38157f6b550b53df3e63e6bad7dd57efa556e637fa6b61e6098"
+    },
+    {
+      "path": "src/application/ports/clock.ts",
+      "sha256": "sha256:ad43397f6924dddb2a403a85acdd5bce8c12bb450a44afcf04711da63a57a059"
+    },
+    {
+      "path": "src/application/ports/index.ts",
+      "sha256": "sha256:2041654c61e5445389a30303dd422c6844c03d798235724c02f79e7ffd0f60ca"
+    },
+    {
+      "path": "src/application/ports/provider-runner.ts",
+      "sha256": "sha256:49436dc20610de997904d39b01c3923cc0f8c38bba5855eab98e23f767bc1235"
+    },
+    {
+      "path": "src/application/use-cases/relay-shared.ts",
+      "sha256": "sha256:efae71f73a19f9c3ec7848b670afd5378380e8f0fd31b40c3ccd9e92e8d206aa"
+    },
+    {
+      "path": "src/application/use-cases/relay-target.test.ts",
+      "sha256": "sha256:af3219ae0f74c69c18157a17d39ca5bd000a4ae7c78613c7351040dfbbc08751"
+    },
+    {
+      "path": "src/application/use-cases/relay-target.ts",
+      "sha256": "sha256:4fe6bb0d9e87406a29b88b1c141e1653fb962c2a980be80c9b9f3b09ebbb9681"
+    },
+    {
+      "path": "src/application/use-cases/relay.ts",
+      "sha256": "sha256:9820865f87515077cfc01601d7796580babbf8c66804027216aac0c01f0d4ecb"
+    },
+    {
+      "path": "src/application/use-cases/run-builder.ts",
+      "sha256": "sha256:a7de52e0ff87e2303c26410833e5d2649c2fd700ca1979b520e26494598d6b2c"
+    },
+    {
+      "path": "src/cli/human-input.ts",
+      "sha256": "sha256:74855928f87858e9af1c954d8772334c1a1342b050273eef6261af6893445417"
+    },
+    {
+      "path": "src/cli/relay-target.ts",
+      "sha256": "sha256:dd1187a28640f1a4043168838872762dfcc16789a0b98f6fa88ddd96cb02bf02"
+    },
+    {
+      "path": "src/cli/relay.ts",
+      "sha256": "sha256:350f3ce2522467cc9f10c672f843b0e7bd0e12a80d73113e6534be0bc733a73c"
+    },
+    {
+      "path": "src/cli/run-am-001.ts",
+      "sha256": "sha256:bd06ec9968a36aa8feb54c11e9782b55bf0b2736d0f4fd6a25c323bd4b2be9ce"
+    },
+    {
+      "path": "src/core/artifact-ref.ts",
+      "sha256": "sha256:9cd2773425c88b2b554f1ad988e708dfc4c4933fcfb2389026218076afda631a"
+    },
+    {
+      "path": "src/core/assurance.ts",
+      "sha256": "sha256:24451b79b564d89e5e9c5371a2536977aed6854d7bb6bb6426ea13c777e861ae"
+    },
+    {
+      "path": "src/core/index.ts",
+      "sha256": "sha256:9e3fe7f31f0f559654d92e16f3db4592570fb4896713ed65a339e5b5a18f9e90"
+    },
+    {
+      "path": "src/core/role.ts",
+      "sha256": "sha256:4b9f662b466853892c509dc1b9f403ec517eacc85e22d9a0ccab6eff17651d69"
+    },
+    {
+      "path": "src/core/run-record.ts",
+      "sha256": "sha256:12baab76bb90571a350d9b1b75195bb01639f946912326bac2dcebc54b172aed"
+    },
+    {
+      "path": "src/core/slice.ts",
+      "sha256": "sha256:5c79a8b52546827bf006a052752d9360b199f6f73f671df1c3092d086e3d05b0"
+    },
+    {
+      "path": "src/core/workflow-phase.ts",
+      "sha256": "sha256:bcafcc1cb101b65345bd606c8dafc73133ce25b22f428141df6e0d72e55a499d"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "sha256:0619874bc5a8cbc1149263ad3da9bd7a50b13ef91915f26ef46eda16a541e35b"
+    }
+  ],
+  "runtimeOutputs": [
+    {
+      "path": "docs/contracts/target-owned-relay.md",
+      "sha256": "sha256:b21a39f87b6e6338d43c4d240593c4e56ec528476d18c91d6235f4a221358e95",
+      "obligations": [
+        "AM-REQ-002-L01",
+        "AM-REQ-009-L01"
+      ],
+      "purpose": "Document actual stage2 posture, approval, delivery and explicit limitations."
+    },
+    {
+      "path": "prompts/roles/builder-target.md",
+      "sha256": "sha256:6a25526b2e5eb7a4807fbed1d338836fa19a6ed024a9d674362b6d15f4feeada",
+      "obligations": [
+        "AM-REQ-002-L01",
+        "AM-REQ-007-L04"
+      ],
+      "purpose": "Declare bounded requirements authoring and explicit structured output without implementation authority."
+    },
+    {
+      "path": "prompts/roles/reviewer-target.md",
+      "sha256": "sha256:5b6b2a4547d2ceaf94a47e1cb69007df000457308bf665382392ef77be1111ea",
+      "obligations": [
+        "AM-REQ-002-L02",
+        "AM-REQ-002-L03"
+      ],
+      "purpose": "Require substantive per-ID review and correct named outcomes."
+    },
+    {
+      "path": "src/adapters/providers/claude-code/adapter.ts",
+      "sha256": "sha256:23dc066790b4156df17f21bd7f986758da4b520d9e20e89d74545ceb4aa1f649",
+      "obligations": [
+        "AM-REQ-007-L05",
+        "AM-REQ-007-L06",
+        "A2-C06"
+      ],
+      "purpose": "Map raw snapshots to this provider channel and receipt through tested live composition; preserve legacy loading."
+    },
+    {
+      "path": "src/adapters/providers/codex/adapter.ts",
+      "sha256": "sha256:2dfd9a4e0c252ce9037bd491881683f03d94231bfab18a4b553769416cd52300",
+      "obligations": [
+        "AM-REQ-007-L05",
+        "AM-REQ-007-L06",
+        "A2-C06"
+      ],
+      "purpose": "Map raw snapshots to this provider channel and receipt through tested live composition; preserve legacy loading."
+    },
+    {
+      "path": "src/adapters/providers/copilot/adapter.ts",
+      "sha256": "sha256:0e03b7a5d0bdc69219e223e13d8dff3e58a5c3d78d4985f85dd833952f1b6308",
+      "obligations": [
+        "AM-REQ-007-L05",
+        "AM-REQ-007-L06",
+        "A2-C06"
+      ],
+      "purpose": "Map raw snapshots to this provider channel and receipt through tested live composition; preserve legacy loading."
+    },
+    {
+      "path": "src/application/ports/provider-runner.ts",
+      "sha256": "sha256:49436dc20610de997904d39b01c3923cc0f8c38bba5855eab98e23f767bc1235",
+      "obligations": [
+        "AM-REQ-004-L03",
+        "AM-REQ-007-L05"
+      ],
+      "purpose": "Raw delivery/receipt sums and byte framing shared by all three adapter mechanisms."
+    },
+    {
+      "path": "src/application/use-cases/relay-target.test.ts",
+      "sha256": "sha256:af3219ae0f74c69c18157a17d39ca5bd000a4ae7c78613c7351040dfbbc08751",
+      "obligations": [
+        "A2-C01",
+        "A2-C02",
+        "A2-C03",
+        "A2-C04",
+        "A2-C05",
+        "A2-C06",
+        "A2-C07",
+        "A2-C08",
+        "A2-C10"
+      ],
+      "purpose": "Extend existing pure/headless/adapter/CLI tests, refusal cases, legacy captures and shared-capture regressions."
+    },
+    {
+      "path": "src/application/use-cases/relay-target.ts",
+      "sha256": "sha256:4fe6bb0d9e87406a29b88b1c141e1653fb962c2a980be80c9b9f3b09ebbb9681",
+      "obligations": [
+        "AM-REQ-002-L01",
+        "AM-REQ-002-L04",
+        "AM-REQ-004-L03",
+        "AM-REQ-009-L02"
+      ],
+      "purpose": "Snapshot/validate each role attempt once; admit document posture; bind actual actors; validate/publish review; explicit approval operation; preserve legacy branches."
+    },
+    {
+      "path": "src/application/use-cases/relay.ts",
+      "sha256": "sha256:9820865f87515077cfc01601d7796580babbf8c66804027216aac0c01f0d4ecb",
+      "obligations": [
+        "P-A2-02"
+      ],
+      "purpose": "Supply explicit legacy delivery variant; no legacy semantic change."
+    },
+    {
+      "path": "src/application/use-cases/run-builder.ts",
+      "sha256": "sha256:a7de52e0ff87e2303c26410833e5d2649c2fd700ca1979b520e26494598d6b2c",
+      "obligations": [
+        "P-A2-02"
+      ],
+      "purpose": "Supply explicit legacy delivery variant; no legacy semantic change."
+    },
+    {
+      "path": "src/cli/relay-target.ts",
+      "sha256": "sha256:dd1187a28640f1a4043168838872762dfcc16789a0b98f6fa88ddd96cb02bf02",
+      "obligations": [
+        "AM-REQ-009-L01",
+        "AM-REQ-007-L06"
+      ],
+      "purpose": "Compose mechanisms, approval-only flags, truthful dry-run pending reviewer state and bounded output."
+    },
+    {
+      "path": "src/core/assurance.ts",
+      "sha256": "sha256:24451b79b564d89e5e9c5371a2536977aed6854d7bb6bb6426ea13c777e861ae",
+      "obligations": [
+        "AM-REQ-002-L03",
+        "AM-REQ-002-L06"
+      ],
+      "purpose": "Pure v2 grammar, exact review coverage, baseline/approval validity and aggregate outcomes preserving v1."
+    },
+    {
+      "path": "src/core/run-record.ts",
+      "sha256": "sha256:12baab76bb90571a350d9b1b75195bb01639f946912326bac2dcebc54b172aed",
+      "obligations": [
+        "AM-REQ-004-L03",
+        "AM-REQ-007-L06"
+      ],
+      "purpose": "Persist rooted common/role/channel byte identities, not an authority claim."
+    }
+  ],
+  "gates": [
+    {
+      "environment": "clean source copy without local operational state",
+      "recordedAt": "2026-09-12T17:35:59.467Z",
+      "results": [
+        {
+          "label": "typecheck",
+          "command": [
+            "npm",
+            "run",
+            "typecheck"
+          ],
+          "exit": 0,
+          "signal": null,
+          "log": ".agent-manager/slices/ASSURANCE-2/manager-cycle3-clean-typecheck.log",
+          "logSha256": "sha256:3d00a16c73fe850946a95e7f19ec80bf8a3ab92172358e0afbf1193410776a4e"
+        },
+        {
+          "label": "tests",
+          "command": [
+            "npm",
+            "test",
+            "--",
+            "--runInBand"
+          ],
+          "exit": 0,
+          "signal": null,
+          "log": ".agent-manager/slices/ASSURANCE-2/manager-cycle3-clean-tests.log",
+          "logSha256": "sha256:30e8f2548905d85e9ee06341e7d2188399c5aa112c56ee92a46087f42c4c635e",
+          "passedTests": 138,
+          "totalTests": 138
+        },
+        {
+          "label": "build",
+          "command": [
+            "npm",
+            "run",
+            "build"
+          ],
+          "exit": 0,
+          "signal": null,
+          "log": ".agent-manager/slices/ASSURANCE-2/manager-cycle3-clean-build.log",
+          "logSha256": "sha256:68c92c276a9df88d1bafcf4de7c31c2159652480004c410382541bf6de50e9ed"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "environment": "primary working checkout",
+      "recordedAt": "2026-09-12T17:36:15.943Z",
+      "results": [
+        {
+          "label": "typecheck",
+          "exit": 0,
+          "log": ".agent-manager/slices/ASSURANCE-2/manager-cycle3-workspace-typecheck.log",
+          "logSha256": "sha256:3d00a16c73fe850946a95e7f19ec80bf8a3ab92172358e0afbf1193410776a4e"
+        },
+        {
+          "label": "tests",
+          "exit": 0,
+          "log": ".agent-manager/slices/ASSURANCE-2/manager-cycle3-workspace-tests.log",
+          "logSha256": "sha256:af976ee608c1bed35c5396b413c1cd0d6a4c007089f1d5621f592b4bad601bed",
+          "passedTests": 138,
+          "totalTests": 138
+        },
+        {
+          "label": "build",
+          "exit": 0,
+          "log": ".agent-manager/slices/ASSURANCE-2/manager-cycle3-workspace-build.log",
+          "logSha256": "sha256:68c92c276a9df88d1bafcf4de7c31c2159652480004c410382541bf6de50e9ed"
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "demonstration": {
+    "recordedAt": "2026-09-12T19:35:17.703Z",
+    "manager": "in-place-manager",
+    "target": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-C09-JDkJdR",
+    "primary": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager",
+    "checks": "17 accepted IDs, all19 candidate dependencies, common delivered input equality, separate completed role provenance, explicit create-only operator approval, all133 frozen files unchanged in both roots",
+    "outputs": [
+      {
+        "path": "docs/slices/assurance-3-evidence-linked-review.md",
+        "sha256": "sha256:70bb608fa565055e24dd323b63a30c72ee178f41642e0ee7ac18b34da89f7025"
+      },
+      {
+        "path": "docs/requirements/baselines/ASSURANCE-3-INPUT-1.json",
+        "sha256": "sha256:fc9b5c6b5cb25acde572d571ee1e1fbdd7cc05ec52a0dd21fd5d743bbdc05dfb"
+      },
+      {
+        "path": "docs/assurance/ASSURANCE-3-INPUT-1/requirements-review.json",
+        "sha256": "sha256:e40ab6fa172d2cb9d94b139a00e34bb7f735e1c64d40e82b62816eae1412ceeb"
+      },
+      {
+        "path": "docs/assurance/ASSURANCE-3-INPUT-1/baseline-approval.json",
+        "sha256": "sha256:b4bb4f67d5a9940c532f1b7ae125e82b6e1ec89eac7f5b7191f851677cbd88a0"
+      }
+    ],
+    "localProcessTrail": ".agent-manager/slices/ASSURANCE-2/c09-process-trail",
+    "roadmapNote": "Current ROADMAP is a frozen dependency of the accepted Stage3 baseline. Preserve its bytes during Stage3; report accepted predecessor/current stage in separate tracked manager acceptance and operational handoff, not a silent edit invalidating the baseline.",
+    "limits": [
+      "C09 demonstration complete; Stage2 manager runtime acceptance not yet recorded",
+      "Stage3 document and baseline approved; no Stage3 runtime implemented"
+    ]
+  },
+  "documentReviewChecks": {
+    "recordedAt": "2026-09-12T19:34:26.781Z",
+    "actor": "in-place-manager",
+    "target": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-2-C09-JDkJdR",
+    "checks": {
+      "reviewAccepted": true,
+      "exactAcceptedIdCount": 17,
+      "allManifestDependenciesMatch": true,
+      "dependencyCount": 19,
+      "commonInputEquality": true,
+      "commonInputCount": 23,
+      "completedRunProvenanceMatches": true,
+      "allFrozenFilesMatch": true
+    },
+    "subject": {
+      "path": "docs/requirements/baselines/ASSURANCE-3-INPUT-1.json",
+      "sha256": "sha256:fc9b5c6b5cb25acde572d571ee1e1fbdd7cc05ec52a0dd21fd5d743bbdc05dfb"
+    },
+    "review": {
+      "path": "docs/assurance/ASSURANCE-3-INPUT-1/requirements-review.json",
+      "sha256": "sha256:e40ab6fa172d2cb9d94b139a00e34bb7f735e1c64d40e82b62816eae1412ceeb"
+    },
+    "limits": [
+      "Document review only; operator baseline approval separate",
+      "Delivery record proves adapter-reported supplied bytes, not model obedience",
+      "V1 admission bridge retains baseline-admission label; stage3 runtime not implemented"
+    ]
+  },
+  "returnedBaselineAdmission": {
+    "recordedAt": "2026-09-12T19:36:11.627Z",
+    "actor": "in-place-manager",
+    "method": "actual built admitBaseline against returned four-file chain, no dispatch",
+    "result": {
+      "ok": true,
+      "admission": {
+        "enforcement": "reviewed-inputs",
+        "manifest": {
+          "path": "docs/requirements/baselines/ASSURANCE-3-INPUT-1.json",
+          "sha256": "sha256:fc9b5c6b5cb25acde572d571ee1e1fbdd7cc05ec52a0dd21fd5d743bbdc05dfb"
+        },
+        "baselineId": "ASSURANCE-3-INPUT-1",
+        "allocationPaths": [
+          "docs/slices/assurance-3-evidence-linked-review.md"
+        ]
+      }
+    }
+  },
+  "limits": [
+    "Manager tests executed on exact runtime candidate before document outputs returned; all133 runtime/context identities rechecked afterwards. Document-only return changes no software tested.",
+    "Reviewer relied on builder gates because its sandbox could not run write-requiring Jest/build; manager executed clean and working gates separately.",
+    "Actual provider roundtrip is Codex Sol/Terra, separate invocations/same provider. Claude/Copilot are verified at parameterized adapter composition seams, not live provider sessions.",
+    "No Stage3-5 runtime, full assurance, certification, deployment or release claim."
+  ]
+}

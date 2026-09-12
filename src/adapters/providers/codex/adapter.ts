@@ -9,6 +9,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, isAbsolute } from 'node:path';
 
@@ -17,7 +18,10 @@ import type {
   ProviderRunnerPort,
   RunRequest,
   RunResult,
+  PreparedRunDelivery,
+  RunTextInput,
 } from '../../../application/ports/provider-runner.js';
+import { frameReviewedInputs } from '../../../application/ports/provider-runner.js';
 import { RunStatus } from '../../../core/run-record.js';
 
 /**
@@ -121,49 +125,53 @@ export class CodexAdapter implements ProviderRunnerPort {
 
   async run(request: RunRequest): Promise<RunResult> {
     const startedAt = this.clock.now();
-
-    await this.loadSharedInstruction();
-
-    // Validate and read all prompt contents
-    const promptContents: string[] = [];
-    for (const prompt of request.prompts) {
-      if (isAbsolute(prompt.path)) {
-        throw new CodexAdapterCompositionError(
-          `Prompt path must be repo-relative, got absolute path: ${prompt.path}`
-        );
-      }
-
-      const fullPath = join(this.config.promptRoot, prompt.path);
-      const asset = await this.store.readPromptAsset(fullPath);
-
-      if (asset.digest !== prompt.digest) {
-        throw new CodexAdapterCompositionError(
-          `Prompt digest mismatch for ${prompt.path}. ` +
-          `Expected ${prompt.digest}, got ${asset.digest}.`
-        );
-      }
-
-      promptContents.push(asset.content);
-    }
-
-    const parts = [...promptContents];
-    if (request.contextText) {
-      parts.push(request.contextText);
-    }
-    const fullPrompt = parts.join('\n\n---\n\n');
-
-    const invocation = this.buildInvocation(request);
+    const prepared = await this.prepareRunDelivery(request);
     const logPath = this.buildLogPath(request, startedAt);
 
     await mkdir(dirname(logPath), { recursive: true });
 
-    const execResult = await this.execute(invocation, request.timeout, fullPrompt);
+    const execResult = await this.execute(prepared.invocation, request.timeout, new TextDecoder().decode(prepared.stdinBytes));
 
     const completedAt = this.clock.now();
 
     await this.writeLog(logPath, request, execResult, startedAt, completedAt);
 
-    return this.buildResult(request, execResult, logPath, startedAt, completedAt);
+    return this.buildResult(request, execResult, logPath, startedAt, completedAt, prepared.receipt);
+  }
+
+  /** Compose and identify exactly what a live spawn will receive, without spawning. */
+  async prepareRunDelivery(request: RunRequest): Promise<PreparedRunDelivery> {
+    switch (request.delivery.kind) {
+      case 'legacy-live-inputs': {
+        await this.loadSharedInstruction();
+        const promptContents: string[] = [];
+        for (const prompt of request.delivery.prompts) {
+          if (isAbsolute(prompt.path)) throw new CodexAdapterCompositionError(`Prompt path must be repo-relative, got absolute path: ${prompt.path}`);
+          const asset = await this.store.readPromptAsset(join(this.config.promptRoot, prompt.path));
+          if (asset.digest !== prompt.digest) throw new CodexAdapterCompositionError(`Prompt digest mismatch for ${prompt.path}. Expected ${prompt.digest}, got ${asset.digest}.`);
+          promptContents.push(asset.content);
+        }
+        const parts = [...promptContents];
+        if (request.delivery.contextText) parts.push(request.delivery.contextText);
+        return { invocation: this.buildInvocation(request), stdinBytes: new TextEncoder().encode(parts.join('\n\n---\n\n')), receipt: { kind: 'legacy-live-inputs' } };
+      }
+      case 'reviewed-input-snapshots': {
+        verifyReviewedInputs(request.delivery.common, request.delivery.roleSpecific);
+        const shared = reviewedShared(request.delivery.common);
+        const stdinBytes = frameReviewedInputs([...request.delivery.common.filter((item) => item !== shared), ...request.delivery.roleSpecific]);
+        return {
+          invocation: this.buildInvocation(request, new TextDecoder('utf-8', { fatal: true }).decode(shared.bytes)),
+          stdinBytes,
+          receipt: {
+            kind: 'reviewed-input-snapshots', contract: request.delivery.contract,
+            channels: [
+              { channel: 'shared-instruction', mechanism: 'codex-developer-instructions', sha256: shared.sha256, byteLength: shared.bytes.byteLength },
+              { channel: 'stdin', mechanism: 'stdin', sha256: digest(stdinBytes), byteLength: stdinBytes.byteLength },
+            ],
+          },
+        };
+      }
+    }
   }
 
   /**
@@ -173,19 +181,19 @@ export class CodexAdapter implements ProviderRunnerPort {
    * process cwd; both are set to the target repo when `request.workingDir` is
    * provided so config/AGENTS.md resolution is unambiguous.
    */
-  buildInvocation(request: RunRequest): {
+  buildInvocation(request: RunRequest, sharedInstruction = this.sharedInstruction): {
     command: string;
     args: string[];
     cwd: string;
   } {
     return {
       command: this.config.command,
-      args: this.buildArgs(request),
+      args: this.buildArgs(request, sharedInstruction),
       cwd: request.workingDir ?? this.config.promptRoot,
     };
   }
 
-  private buildArgs(request: RunRequest): string[] {
+  private buildArgs(request: RunRequest, sharedInstruction = this.sharedInstruction): string[] {
     // exec = non-interactive headless run.
     const args: string[] = ['exec'];
 
@@ -203,10 +211,10 @@ export class CodexAdapter implements ProviderRunnerPort {
     // Shared house-rules layer delivered as developer-instructions (additive on
     // top of Codex base instructions). JSON-encoded so it is a valid TOML basic
     // string for `-c key=value` parsing (newlines/quotes safely escaped).
-    if (this.sharedInstruction !== undefined) {
+    if (sharedInstruction !== undefined) {
       args.push(
         '--config',
-        `developer_instructions=${JSON.stringify(this.sharedInstruction)}`
+        `developer_instructions=${JSON.stringify(sharedInstruction)}`
       );
     }
 
@@ -381,7 +389,9 @@ export class CodexAdapter implements ProviderRunnerPort {
       ``,
       `## Prompts`,
       ``,
-      ...request.prompts.map((p) => `- ${p.path} (${p.digest})`),
+      ...(request.delivery.kind === 'legacy-live-inputs'
+        ? request.delivery.prompts.map((p) => `- ${p.path} (${p.digest})`)
+        : [...request.delivery.common, ...request.delivery.roleSpecific].map((p) => `- ${p.origin === 'file' ? p.path : p.label} (${p.sha256})`)),
       ``,
       `## STDOUT`,
       ``,
@@ -404,7 +414,8 @@ export class CodexAdapter implements ProviderRunnerPort {
     execResult: ExecResult,
     logPath: string,
     startedAt: string,
-    completedAt: string
+    completedAt: string,
+    deliveryReceipt: RunResult['deliveryReceipt']
   ): RunResult {
     let status: RunStatus;
     if (execResult.timedOut) {
@@ -433,6 +444,7 @@ export class CodexAdapter implements ProviderRunnerPort {
       logPath,
       startedAt,
       completedAt,
+      deliveryReceipt,
     };
 
     if (status === RunStatus.FAILED || status === RunStatus.TIMEOUT) {
@@ -443,6 +455,25 @@ export class CodexAdapter implements ProviderRunnerPort {
 
     return result;
   }
+}
+
+function digest(bytes: Uint8Array): string {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+function verifyReviewedInputs(common: readonly RunTextInput[], roleSpecific: readonly RunTextInput[]): void {
+  if (common.length === 0 || roleSpecific.length === 0) throw new CodexAdapterCompositionError('Reviewed input arrays must be non-empty.');
+  for (const input of [...common, ...roleSpecific]) {
+    if (digest(input.bytes) !== input.sha256) throw new CodexAdapterCompositionError(`Reviewed input digest mismatch for ${input.origin === 'file' ? input.path : input.label}.`);
+    try { new TextDecoder('utf-8', { fatal: true }).decode(input.bytes); }
+    catch { throw new CodexAdapterCompositionError(`Reviewed input is not UTF-8 for ${input.origin === 'file' ? input.path : input.label}.`); }
+  }
+}
+
+function reviewedShared(common: readonly RunTextInput[]): RunTextInput {
+  const matches = common.filter((input) => input.purpose === 'shared-instruction');
+  if (matches.length !== 1 || !matches[0]) throw new CodexAdapterCompositionError('Reviewed delivery requires exactly one shared-instruction common input.');
+  return matches[0];
 }
 
 interface ExecResult {

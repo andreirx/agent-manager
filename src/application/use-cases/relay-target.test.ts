@@ -14,7 +14,7 @@
 
 import { createHash } from 'node:crypto';
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, readFile, rm, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, access, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
@@ -31,13 +31,22 @@ import { FilesystemArtifactStore } from '../../adapters/filesystem/artifact-stor
 import {
   parseBaselineManifest,
   parsePersistedAssurance,
+  parseRequirementsReviewResult,
+  parseRequirementsReviewRecord,
+  parseApprovalRecordV2,
   renderAssuranceError,
   validateBaselineAdmission,
   type AssuranceFileSnapshot,
   type AssuranceSnapshot,
+  type RequirementsReviewResult,
 } from '../../core/assurance.js';
+import { ClaudeAdapter } from '../../adapters/providers/claude-code/adapter.js';
+import { CodexAdapter } from '../../adapters/providers/codex/adapter.js';
+import { CopilotAdapter } from '../../adapters/providers/copilot/adapter.js';
 import {
   admitBaseline,
+  prepareReviewedTargetDryRunDeliveries,
+  recordReviewedBaselineApproval,
   targetRelayLoop,
   hasRatificationDecisions,
   shouldEnterDecisionReview,
@@ -902,7 +911,7 @@ describe('ASSURANCE-1 use-case dispatch and resume (A1-C03)', () => {
       async run(request: RunRequest): Promise<RunResult> {
         this.calls.push(request);
         await writeFile(join(target, 'docs/source.md'), '# Mutated\n', 'utf-8');
-        return { runId: request.runId, status: RunStatus.COMPLETED, outputArtifacts: [{ suggestedPath: 'build.md', type: 'provider-output', content: 'built' }], logPath: '/tmp/stub.log', startedAt: '2026-09-11T20:00:00.000Z', completedAt: '2026-09-11T20:00:01.000Z' };
+        return { runId: request.runId, status: RunStatus.COMPLETED, outputArtifacts: [{ suggestedPath: 'build.md', type: 'provider-output', content: 'built' }], logPath: '/tmp/stub.log', startedAt: '2026-09-11T20:00:00.000Z', completedAt: '2026-09-11T20:00:01.000Z', deliveryReceipt: receiptFor(request) };
       }
     }
     const builder = new MutatingBuilder();
@@ -1140,6 +1149,19 @@ async function builtCli(
   }
 }
 
+async function readRegularFileBytesByPath(root: string): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  const visit = async (directory: string, prefix: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) await visit(join(directory, entry.name), path);
+      else if (entry.isFile()) files[path] = (await readFile(join(directory, entry.name))).toString('base64');
+    }
+  };
+  await visit(root, '');
+  return files;
+}
+
 function routingLines(output: string): string[] {
   return output
     .split('\n')
@@ -1205,6 +1227,245 @@ describe('ASSURANCE-1 built CLI isolation and dry-run (A1-C04)', () => {
     expect(result.stdout).toContain((closure.snapshots[0] as AssuranceFileSnapshot).sha256);
     expect(await readFile(join(target, '.agent-manager/slices/S1/status.json'), 'utf-8')).toBe(before);
     expect(await readFile(join(target, '.agent-manager/current.json'), 'utf-8')).toBe(currentBefore);
+  });
+
+  it('v2 dry-run uses no-spawn adapter preparation, prints input/channel identities, and writes nothing', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-cli-v2-');
+    const configured = await seedV2Implementation(target);
+    const statusPath = join(target, '.agent-manager/slices/S2/status.json');
+    const currentPath = join(target, '.agent-manager/current.json');
+    const beforeStatus = await readFile(statusPath, 'utf-8');
+    const beforeCurrent = await readFile(currentPath, 'utf-8');
+    const result = await builtCli([
+      target, '--dry-run', '--baseline', configured.baselinePath as string, '--slice', 'S2',
+      '--shared-prompt', join(process.cwd(), 'SYSTEM.txt'), '--builder', 'codex', '--supervisor', 'claude',
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Enforcement: reviewed-inputs');
+    expect(result.stdout).toContain('Independence: different-provider');
+    expect(result.stdout).toContain('input: baseline-manifest target:docs/requirements/baselines/B2.json');
+    expect(result.stdout).toContain('channel: shared-instruction mechanism=codex-developer-instructions');
+    expect(result.stdout).toContain('channel: shared-instruction mechanism=claude-system-prompt-file');
+    expect(result.stdout).toContain('no snapshot files written');
+    expect(await readFile(statusPath, 'utf-8')).toBe(beforeStatus);
+    expect(await readFile(currentPath, 'utf-8')).toBe(beforeCurrent);
+    expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
+  });
+
+  it('built document preflight uses the admitted v1 allocation and truthfully defers the absent authored reviewer subject', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-preflight-');
+    const seeded = await seedV1DocumentBridge(target);
+    const before = await readRegularFileBytesByPath(target);
+    const result = await builtCli([
+      target, '--dry-run', '--baseline', seeded.inputClosure.manifestPath, '--slice', 'DOC-NEG',
+      '--shared-prompt', join(process.cwd(), 'SYSTEM.txt'),
+      '--builder', 'codex', '--builder-model', 'gpt-5.6-sol',
+      '--supervisor', 'codex', '--supervisor-model', 'gpt-5.6-terra',
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Enforcement: baseline-admission');
+    expect(result.stdout).toContain('input: allocation target:docs/slices/S1.md');
+    expect(result.stdout).toContain('# implement  (codex, mode=edit, permission=write)');
+    expect(result.stdout).toContain('# review-impl  (pending authored review subject; no provider delivery available)');
+    expect(result.stdout).toContain('missing REVIEW_BASELINE          : docs/requirements/baselines/B2.json');
+    expect(result.stdout).toContain('declared SLICE_DOC (not validated): docs/slices/S2.md');
+    expect(result.stdout).toContain('relay will then validate its SLICE_DOC allocation before reviewer dispatch');
+    expect(result.stdout).not.toContain('input: review-subject');
+    expect(await readRegularFileBytesByPath(target)).toEqual(before);
+    expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
+  });
+
+  it('built document preflight validates an existing candidate before exposing actual reviewer delivery', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-preflight-candidate-');
+    const seeded = await seedV1DocumentBridge(target);
+    await writeV2DocumentCandidate(target);
+    const before = await readRegularFileBytesByPath(target);
+    const result = await builtCli([
+      target, '--dry-run', '--baseline', seeded.inputClosure.manifestPath, '--slice', 'DOC-NEG',
+      '--shared-prompt', join(process.cwd(), 'SYSTEM.txt'),
+      '--builder', 'codex', '--supervisor', 'codex',
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('# review-impl  (codex, mode=review, permission=read-only)');
+    expect(result.stdout).toContain('input: review-subject target:docs/requirements/baselines/B2.json');
+    expect(result.stdout).toContain('input: review-subject target:docs/slices/S2.md');
+    expect(result.stdout).not.toContain('pending authored review subject');
+    expect(await readRegularFileBytesByPath(target)).toEqual(before);
+    expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
+  });
+
+  it('built document preflight refuses a malformed existing candidate without exposing either provider plan', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-preflight-malformed-');
+    const seeded = await seedV1DocumentBridge(target);
+    await mkdir(join(target, 'docs/requirements/baselines'), { recursive: true });
+    await writeFile(join(target, 'docs/requirements/baselines/B2.json'), '{', 'utf-8');
+    const before = await readRegularFileBytesByPath(target);
+    const result = await builtCli([
+      target, '--dry-run', '--baseline', seeded.inputClosure.manifestPath, '--slice', 'DOC-NEG',
+      '--shared-prompt', join(process.cwd(), 'SYSTEM.txt'),
+      '--builder', 'codex', '--supervisor', 'codex',
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('malformed-json');
+    expect(result.stdout).not.toContain('# implement');
+    expect(result.stdout).not.toContain('# review-impl');
+    expect(await readRegularFileBytesByPath(target)).toEqual(before);
+    expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
+  });
+
+  it('built document preflight refuses a missing candidate once the author phase has completed', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-preflight-missing-review-subject-');
+    const seeded = await seedV1DocumentBridge(target);
+    const statusPath = join(target, '.agent-manager/slices/DOC-NEG/status.json');
+    const status = JSON.parse(await readFile(statusPath, 'utf-8')) as Record<string, unknown>;
+    status.phase = 'review-impl';
+    await writeFile(statusPath, json(status), 'utf-8');
+    const before = await readRegularFileBytesByPath(target);
+    const result = await builtCli([
+      target, '--dry-run', '--baseline', seeded.inputClosure.manifestPath, '--slice', 'DOC-NEG',
+      '--shared-prompt', join(process.cwd(), 'SYSTEM.txt'),
+      '--builder', 'codex', '--supervisor', 'codex',
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('missing: docs/requirements/baselines/B2.json');
+    expect(result.stdout).not.toContain('# implement');
+    expect(result.stdout).not.toContain('# review-impl');
+    expect(await readRegularFileBytesByPath(target)).toEqual(before);
+    expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
+  });
+
+  it.each([
+    ['missing', [
+      'ARTIFACT_KIND: REQUIREMENTS_DOCUMENT',
+      'REVIEW_BASELINE: docs/requirements/baselines/B2.json',
+      'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01',
+    ], 'requires exactly one ADMISSION_ALLOCATION'],
+    ['non-admitted', [
+      'ARTIFACT_KIND: REQUIREMENTS_DOCUMENT',
+      'ADMISSION_ALLOCATION: docs/slices/not-admitted.md',
+      'REVIEW_BASELINE: docs/requirements/baselines/B2.json',
+      'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01',
+    ], 'subject-mismatch'],
+  ])('built document preflight refuses %s allocation without writing or exposing a provider plan', async (_label, fields, expected) => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-preflight-refusal-');
+    const seeded = await seedV1DocumentBridge(target, fields);
+    const before = await readRegularFileBytesByPath(target);
+    const result = await builtCli([
+      target, '--dry-run', '--baseline', seeded.inputClosure.manifestPath, '--slice', 'DOC-NEG',
+      '--shared-prompt', join(process.cwd(), 'SYSTEM.txt'),
+      '--builder', 'codex', '--supervisor', 'codex',
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(expected);
+    expect(result.stdout).not.toContain('# implement');
+    expect(result.stdout).not.toContain('# review-impl');
+    expect(await readRegularFileBytesByPath(target)).toEqual(before);
+    expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
+  });
+
+  it('built target approval command creates the fixed v2 record once without provider or commit', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-cli-approval-');
+    const fixture = validV2Snapshots();
+    for (const item of fixture.snapshots) {
+      if (item.status !== 'ok' || item.path.endsWith('baseline-approval.json')) continue;
+      await mkdir(dirname(join(target, item.path)), { recursive: true });
+      await writeFile(join(target, item.path), item.bytes);
+    }
+    const argv = [
+      target, '--record-reviewed-baseline-approval', fixture.manifestPath,
+      '--approval-id', 'approval-cli-1', '--project-id', 'example',
+      '--approved-by-type', 'operator', '--approved-by-id', 'manager',
+      '--recorded-by-type', 'operator', '--recorded-by-id', 'manager',
+      '--authority-basis', 'docs/authority.md', '--rationale', 'Approve exact reviewed bytes.',
+      '--decision-record', 'D-FIXTURE=docs/decisions/D-FIXTURE.md',
+    ];
+    const recorded = await builtCli(argv);
+    expect(recorded.exitCode).toBe(0);
+    expect(recorded.stdout).toContain('recorded reviewed-baseline approval');
+    expect(recorded.stdout).toContain('commit: not performed');
+    const outputPath = join(target, 'docs/assurance/B2/baseline-approval.json');
+    expect(parseApprovalRecordV2(snapshot('approval-copy', await readFile(outputPath, 'utf-8'))).ok).toBe(true);
+    const duplicate = await builtCli(argv);
+    expect(duplicate.exitCode).not.toBe(0);
+    expect(duplicate.stderr).toContain('approval-already-exists');
+  });
+
+  it('built approval refuses wrong target/project, stale subject, missing decision, rejected review, and malformed input with zero writes', async () => {
+    const baseArgs = (root: string, projectId = 'example') => [
+      root, '--record-reviewed-baseline-approval', 'docs/requirements/baselines/B2.json',
+      '--approval-id', 'approval-negative', '--project-id', projectId,
+      '--approved-by-type', 'operator', '--approved-by-id', 'manager',
+      '--recorded-by-type', 'operator', '--recorded-by-id', 'manager',
+      '--authority-basis', 'docs/authority.md', '--rationale', 'Negative approval fixture.',
+      '--decision-record', 'D-FIXTURE=docs/decisions/D-FIXTURE.md',
+    ];
+    const materialize = async (root: string, mutate?: (records: Map<string, string>) => void) => {
+      const fixture = validV2Snapshots();
+      const records = new Map(fixture.snapshots.flatMap((item) => item.status === 'ok' && !item.path.endsWith('baseline-approval.json') ? [[item.path, snapshotContent(item)] as const] : []));
+      mutate?.(records);
+      for (const [path, raw] of records) {
+        await mkdir(dirname(join(root, path)), { recursive: true });
+        await writeFile(join(root, path), raw, 'utf-8');
+      }
+    };
+    const cases: readonly [string, (root: string) => Promise<string[]>][] = [
+      ['wrong target', async (root) => baseArgs(root)],
+      ['wrong project', async (root) => { await materialize(root); return baseArgs(root, 'other-project'); }],
+      ['stale subject', async (root) => {
+        await materialize(root, (records) => {
+          const reviewPath = 'docs/assurance/B2/requirements-review.json';
+          const review = JSON.parse(records.get(reviewPath) as string) as { subject: { sha256: string } };
+          review.subject.sha256 = computeDigest('stale-subject');
+          records.set(reviewPath, json(review));
+        });
+        return baseArgs(root);
+      }],
+      ['missing decision', async (root) => {
+        await materialize(root, (records) => {
+          const manifestPath = 'docs/requirements/baselines/B2.json';
+          const reviewPath = 'docs/assurance/B2/requirements-review.json';
+          const manifest = JSON.parse(records.get(manifestPath) as string) as { requiredDecisionIds: string[] };
+          manifest.requiredDecisionIds = ['D-REQUIRED'];
+          const manifestRaw = json(manifest);
+          records.set(manifestPath, manifestRaw);
+          const review = JSON.parse(records.get(reviewPath) as string) as { subject: { sha256: string } };
+          review.subject.sha256 = computeDigest(manifestRaw);
+          records.set(reviewPath, json(review));
+        });
+        return baseArgs(root);
+      }],
+      ['rejected review', async (root) => {
+        await materialize(root, (records) => {
+          const reviewPath = 'docs/assurance/B2/requirements-review.json';
+          const review = JSON.parse(records.get(reviewPath) as string) as { result: string; assessments: { obligationId: string; result: string; findingIds: string[] }[]; findings: unknown[]; report: string };
+          review.result = 'refinement-required';
+          review.assessments[0] = { ...review.assessments[0] as { obligationId: string; result: string; findingIds: string[] }, result: 'refinement-required', findingIds: ['F-REJECT'] };
+          review.findings = [{ findingId: 'F-REJECT', obligationId: review.assessments[0]?.obligationId, category: 'correctness', evidence: 'The candidate is not acceptable.', consequence: 'Approval would bind rejected content.', requiredAction: 'Refine and review again.' }];
+          review.report = 'Refinement required.';
+          records.set(reviewPath, json(review));
+        });
+        return baseArgs(root);
+      }],
+      ['malformed manifest', async (root) => { await materialize(root, (records) => records.set('docs/requirements/baselines/B2.json', '{')); return baseArgs(root); }],
+      ['malformed review', async (root) => { await materialize(root, (records) => records.set('docs/assurance/B2/requirements-review.json', '{')); return baseArgs(root); }],
+      ['missing authority input', async (root) => { await materialize(root, (records) => records.delete('docs/authority.md')); return baseArgs(root); }],
+    ];
+    for (const [label, prepare] of cases) {
+      target = await mkdtemp('/private/tmp/ASSURANCE-2-cli-approval-negative-');
+      const argv = await prepare(target);
+      const result = await builtCli(argv);
+      expect(result.exitCode).not.toBe(0);
+      expect(await exists(join(target, 'docs/assurance/B2/baseline-approval.json'))).toBe(false);
+      expect(await exists(join(target, '.agent-manager'))).toBe(false);
+      await rm(target, { recursive: true, force: true });
+      target = '';
+      expect(label.length).toBeGreaterThan(0);
+    }
   });
 
   it('assured dry-run rejects allocation mismatch and omission of explicit --slice without an admission label', async () => {
@@ -1596,11 +1857,21 @@ class StubRunner implements ProviderRunnerPort {
       logPath: `/tmp/stub-${request.role}.log`,
       startedAt: '2026-06-26T00:00:00.000Z',
       completedAt: '2026-06-26T00:00:01.000Z',
+      deliveryReceipt: receiptFor(request),
     };
   }
   rolesCalled(): string[] {
     return this.calls.map((c) => c.role);
   }
+}
+
+function receiptFor(request: RunRequest): RunResult['deliveryReceipt'] {
+  return request.delivery.kind === 'legacy-live-inputs'
+    ? { kind: 'legacy-live-inputs' }
+    : { kind: 'reviewed-input-snapshots', contract: request.delivery.contract, channels: [
+      { channel: 'shared-instruction', mechanism: 'stub-shared', sha256: request.delivery.common[0]?.sha256 ?? computeDigest(''), byteLength: request.delivery.common[0]?.bytes.byteLength ?? 0 },
+      { channel: 'stdin', mechanism: 'stub-stdin', sha256: computeDigest('stub'), byteLength: 4 },
+    ] };
 }
 
 function computeDigest(content: string): string {
@@ -1989,5 +2260,786 @@ describe('targetRelayLoop decision-review (integration, stub providers)', () => 
     );
     expect(readme).toContain('decision-review');
     expect(readme).toContain('awaiting-ratification');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ASSURANCE-2: v2 reviewed inputs, delivery, document routing and approval
+// ---------------------------------------------------------------------------
+
+function requirementTextMany(id: string, lowIds: readonly string[], sourcePath = 'docs/source.md'): string {
+  return [
+    '<!-- requirements-assurance-v1',
+    JSON.stringify({ formatVersion: 1, kind: 'requirement', requirementId: id, sources: [{ kind: 'document-section', path: sourcePath, fragment: 'origin' }], lowLevelRequirements: lowIds.map((lowId) => ({ id: lowId, parentId: id })) }, null, 2),
+    '-->',
+    `# ${id} — Example`,
+    '',
+    ...lowIds.flatMap((lowId) => [`### ${lowId} — Rule`, '', 'Bounded behavior with an observable acceptance oracle.', '']),
+  ].join('\n');
+}
+
+function v2ReviewResult(subject: { path: string; sha256: string }, ids: readonly string[]): RequirementsReviewResult {
+  return {
+    formatVersion: 2,
+    kind: 'requirements-review-result',
+    subject,
+    result: 'accepted',
+    assessments: ids.map((obligationId) => ({ obligationId, result: 'accepted', findingIds: [], decisionIds: [] })),
+    findings: [],
+    decisions: [],
+    report: 'Every submitted bounded obligation is correct, necessary, feasible and independently verifiable.',
+  };
+}
+
+function provenance(roleLabel: string) {
+  const shared = computeDigest('shared');
+  return {
+    contract: 'requirements-assurance/v2-input-delivery' as const,
+    roots: { target: '/target', prompt: '/prompt' },
+    baseline: { path: 'docs/requirements/baselines/INPUT.json', sha256: computeDigest('input') },
+    commonInputs: [{ origin: 'file' as const, root: 'prompt' as const, purpose: 'shared-instruction', path: 'SYSTEM.txt', sha256: shared, byteLength: 6 }],
+    roleSpecificInputs: [{ origin: 'generated' as const, purpose: 'task-directive', label: roleLabel, sha256: computeDigest(roleLabel), byteLength: new TextEncoder().encode(roleLabel).byteLength }],
+    channels: [{ channel: 'stdin' as const, mechanism: 'stub-stdin', sha256: computeDigest('stdin'), byteLength: 5 }],
+  };
+}
+
+function validV2Snapshots(): { manifestPath: string; allocationPath: string; ids: string[]; snapshots: AssuranceSnapshot[] } {
+  const manifestPath = 'docs/requirements/baselines/B2.json';
+  const allocationPath = 'docs/slices/S2.md';
+  const req1 = snapshot('docs/requirements/r1.md', requirementTextMany('EX-REQ-001', ['EX-REQ-001-L01', 'EX-REQ-001-L02']));
+  const req2 = snapshot('docs/requirements/r2.md', requirementTextMany('EX-REQ-002', ['EX-REQ-002-L01']));
+  const source = snapshot('docs/source.md', '# Origin\n');
+  const governance = snapshot('CLAUDE.md', '# Fixture governance\n');
+  const allocation = snapshot(allocationPath, '# Allocated slice\n');
+  const ids = ['EX-REQ-001', 'EX-REQ-001-L01', 'EX-REQ-002', 'EX-REQ-002-L01'];
+  const manifest = snapshot(manifestPath, json({ formatVersion: 2, kind: 'requirements-baseline-manifest', baselineId: 'B2', target: { projectId: 'example', root: '.' }, requirements: [{ path: req1.path, sha256: req1.sha256 }, { path: req2.path, sha256: req2.sha256 }], dependencies: [{ role: 'source', path: source.path, sha256: source.sha256 }, { role: 'governance', path: governance.path, sha256: governance.sha256 }, { role: 'allocation', path: allocation.path, sha256: allocation.sha256 }], reviewObligationIds: ids, requiredDecisionIds: ['D-FIXTURE'] }));
+  const result = v2ReviewResult({ path: manifest.path, sha256: manifest.sha256 }, ids);
+  const authorProvenance = provenance('author');
+  const reviewerProvenance = { ...provenance('reviewer'), commonInputs: authorProvenance.commonInputs, baseline: authorProvenance.baseline };
+  const review = snapshot('docs/assurance/B2/requirements-review.json', json({ formatVersion: 2, kind: 'requirements-review', reviewId: 'review-B2-1', subject: result.subject, author: { role: 'requirements-author', provider: 'codex', model: 'sol', effort: 'high', runId: 'build-B2-1' }, reviewer: { role: 'requirements-reviewer', provider: 'codex', model: 'terra', effort: 'high', runId: 'review-B2-1' }, independence: { invocations: 'separate', providerDiversity: 'same-provider' }, authorInputProvenance: authorProvenance, reviewerInputProvenance: reviewerProvenance, result: result.result, assessments: result.assessments, findings: result.findings, decisions: result.decisions, completedAt: '2026-09-12T12:00:00.000Z', report: result.report }));
+  const authority = snapshot('docs/authority.md', '# Authority\n');
+  const decision = snapshot('docs/decisions/D-FIXTURE.md', '# D-FIXTURE\n\nThe fixture decision is resolved.\n');
+  const approval = snapshot('docs/assurance/B2/baseline-approval.json', json({ formatVersion: 2, kind: 'requirements-baseline-approval', approvalId: 'approval-B2-1', target: { projectId: 'example', root: '.' }, subject: result.subject, review: { path: review.path, sha256: review.sha256 }, decision: 'approved', approvedBy: { actorType: 'operator', actorId: 'manager' }, recordedBy: { actorType: 'operator', actorId: 'manager' }, authorityBasis: { path: authority.path, sha256: authority.sha256 }, resolvedDecisions: [{ id: 'D-FIXTURE', record: { path: decision.path, sha256: decision.sha256 } }], decidedAt: '2026-09-12T12:01:00.000Z', rationale: 'The exact reviewed baseline is approved.' }));
+  return { manifestPath, allocationPath, ids, snapshots: [manifest, req1, req2, source, governance, allocation, review, approval, authority, decision] };
+}
+
+class AsyncStubRunner implements ProviderRunnerPort {
+  readonly calls: RunRequest[] = [];
+  constructor(private readonly respond: (request: RunRequest) => Promise<string>) {}
+  async run(request: RunRequest): Promise<RunResult> {
+    this.calls.push(request);
+    const content = await this.respond(request);
+    return {
+      runId: request.runId,
+      status: RunStatus.COMPLETED,
+      outputArtifacts: content ? [{ suggestedPath: `${request.role}-output.md`, type: 'provider-output', content }] : [],
+      logPath: `/tmp/stub-${request.role}.log`,
+      startedAt: '2026-09-12T00:00:00.000Z',
+      completedAt: '2026-09-12T00:00:01.000Z',
+      deliveryReceipt: receiptFor(request),
+    };
+  }
+}
+
+async function seedV1DocumentBridge(target: string, packetFields?: readonly string[]): Promise<{ input: TargetRelayInput; sliceDir: string; inputClosure: ReturnType<typeof validClosure>; packet: string }> {
+  const inputClosure = validClosure();
+  await writeClosure(target, inputClosure);
+  const sliceDir = join(target, '.agent-manager/slices/DOC-NEG');
+  await mkdir(join(sliceDir, 'runs'), { recursive: true });
+  const fields = packetFields ?? [
+    'ARTIFACT_KIND: REQUIREMENTS_DOCUMENT',
+    `ADMISSION_ALLOCATION: ${inputClosure.allocationPath}`,
+    'REVIEW_BASELINE: docs/requirements/baselines/B2.json',
+    'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01',
+  ];
+  const packet = ['STATUS: selected', 'SLICE_ID: DOC-NEG', 'SLICE_DOC: docs/slices/S2.md', ...fields].join('\n');
+  await writeFile(join(sliceDir, 'selection.md'), packet, 'utf-8');
+  const state = { sliceId: 'DOC-NEG', sliceDoc: 'docs/slices/S2.md', updatedAt: '2026-09-12T00:00:00.000Z' };
+  await writeFile(join(sliceDir, 'status.json'), json({ phase: 'implement', ...state, iteration: 0, lastActor: 'human', builderProvider: 'claude', supervisorProvider: 'codex' }));
+  await writeFile(join(target, '.agent-manager/current.json'), json(state));
+  for (const path of ['SYSTEM.txt', 'prompts/system/base.md', 'prompts/roles/builder-target.md', 'prompts/roles/reviewer-target.md']) {
+    await mkdir(dirname(join(target, path)), { recursive: true });
+    await writeFile(join(target, path), `fixture ${path}\n`, 'utf-8');
+  }
+  return {
+    inputClosure,
+    sliceDir,
+    packet,
+    input: { ...makeInput(target), promptRoot: target, commonPromptPaths: ['prompts/system/base.md'], sharedInstruction: { root: 'prompt', path: 'SYSTEM.txt' }, builderPromptPaths: ['prompts/system/base.md', 'prompts/roles/builder-target.md'], reviewerPromptPaths: ['prompts/system/base.md', 'prompts/roles/reviewer-target.md'], sliceId: 'DOC-NEG', baselinePath: inputClosure.manifestPath },
+  };
+}
+
+async function writeV2DocumentCandidate(target: string, reviewIds: readonly string[] = ['EX-REQ-001', 'EX-REQ-001-L01']): Promise<{ path: string; sha256: string }> {
+  const req = snapshot('docs/requirements/r1.md', requirementTextMany('EX-REQ-001', ['EX-REQ-001-L01']));
+  const source = snapshot('docs/source.md', '# Origin\n');
+  const allocation = snapshot('docs/slices/S2.md', '# ASSURANCE-3 candidate slice\n');
+  const manifest = snapshot('docs/requirements/baselines/B2.json', json({ formatVersion: 2, kind: 'requirements-baseline-manifest', baselineId: 'B2', target: { projectId: 'example', root: '.' }, requirements: [{ path: req.path, sha256: req.sha256 }], dependencies: [{ role: 'source', path: source.path, sha256: source.sha256 }, { role: 'allocation', path: allocation.path, sha256: allocation.sha256 }], reviewObligationIds: reviewIds, requiredDecisionIds: [] }));
+  for (const item of [req, source, allocation, manifest]) {
+    await mkdir(dirname(join(target, item.path)), { recursive: true });
+    await writeFile(join(target, item.path), item.bytes);
+  }
+  return { path: manifest.path, sha256: manifest.sha256 };
+}
+
+describe('ASSURANCE-2 pure v2 grammar, coverage and compatibility (A2-C01/C02)', () => {
+  it('admits a valid v2 chain while a strict subset excludes an unchanged declared L', () => {
+    const fixture = validV2Snapshots();
+    const result = validateBaselineAdmission({ manifestPath: fixture.manifestPath, snapshots: fixture.snapshots, allocationPath: fixture.allocationPath });
+    expect(result).toEqual(expect.objectContaining({ ok: true, admission: expect.objectContaining({ enforcement: 'reviewed-inputs' }) }));
+    const review = fixture.snapshots.find((item) => item.path.endsWith('requirements-review.json')) as AssuranceFileSnapshot;
+    expect(parseRequirementsReviewRecord(review, fixture.ids).ok).toBe(true);
+  });
+
+  it('rejects missing/unknown coverage, positive-prose override, and wrong aggregate', () => {
+    const fixture = validV2Snapshots();
+    const manifest = fixture.snapshots[0] as AssuranceFileSnapshot;
+    const base = v2ReviewResult({ path: manifest.path, sha256: manifest.sha256 }, fixture.ids);
+    const variants: [string, unknown][] = [
+      ['review-coverage-missing', { ...base, assessments: base.assessments.slice(1) }],
+      ['review-coverage-unknown', { ...base, assessments: [...base.assessments, { obligationId: 'EX-REQ-999', result: 'accepted', findingIds: [], decisionIds: [] }] }],
+      ['review-result-mismatch', { ...base, result: 'accepted', assessments: base.assessments.map((item, index) => index === 0 ? { ...item, result: 'refinement-required', findingIds: ['F1'] } : item), findings: [{ findingId: 'F1', obligationId: fixture.ids[0], category: 'correctness', evidence: 'Proxy passes but user outcome fails.', consequence: 'The requirement permits ineffective behavior.', requiredAction: 'Bind acceptance to the user-visible outcome.' }], report: 'Accepted despite the failure.' }],
+    ];
+    for (const [code, value] of variants) {
+      const parsed = parseRequirementsReviewResult(snapshot('provider-result', json(value)), base.subject, fixture.ids);
+      expect(parsed.ok ? [] : parsed.errors.map((item) => item.code)).toContain(code);
+    }
+  });
+
+  it('keeps v1 positive behavior byte-compatible while dispatching v2 explicitly', () => {
+    expect(validateBaselineAdmission({ manifestPath: validClosure().manifestPath, snapshots: validClosure().snapshots, allocationPath: validClosure().allocationPath })).toEqual(expect.objectContaining({ ok: true, admission: expect.objectContaining({ enforcement: 'baseline-admission' }) }));
+    const v2 = validV2Snapshots();
+    expect(parseApprovalRecordV2(v2.snapshots.find((item) => item.path.endsWith('baseline-approval.json')) as AssuranceFileSnapshot).ok).toBe(true);
+  });
+
+  it('closes every v2 nested object and stops ambiguous JSON/BOM before dependent checks', () => {
+    const fixture = validV2Snapshots();
+    const manifest = fixture.snapshots[0] as AssuranceFileSnapshot;
+    const review = fixture.snapshots.find((item) => item.path.endsWith('requirements-review.json')) as AssuranceFileSnapshot;
+    const approval = fixture.snapshots.find((item) => item.path.endsWith('baseline-approval.json')) as AssuranceFileSnapshot;
+    const accepted = v2ReviewResult({ path: manifest.path, sha256: manifest.sha256 }, fixture.ids);
+    const resultRaw = json(accepted);
+    const parsers: { path: string; raw: string; parse: (value: AssuranceFileSnapshot) => { ok: boolean; errors: { code: string }[] } }[] = [
+      { path: manifest.path, raw: snapshotContent(manifest), parse: parseBaselineManifest },
+      { path: 'provider-result', raw: resultRaw, parse: (value) => parseRequirementsReviewResult(value, accepted.subject, fixture.ids) },
+      { path: review.path, raw: snapshotContent(review), parse: (value) => parseRequirementsReviewRecord(value, fixture.ids) },
+      { path: approval.path, raw: snapshotContent(approval), parse: parseApprovalRecordV2 },
+    ];
+    for (const item of parsers) {
+      expect(item.parse(snapshot(item.path, `\uFEFF${item.raw}`)).errors.map((error) => error.code)).toEqual(['malformed-json']);
+      expect(item.parse(snapshot(item.path, '{')).errors.map((error) => error.code)).toContain('malformed-json');
+      const duplicate = item.raw.replace('{', '{"formatVersion":2,');
+      expect(item.parse(snapshot(item.path, duplicate)).errors.map((error) => error.code)).toContain('duplicate-field');
+      const missing = JSON.parse(item.raw) as Record<string, unknown>;
+      delete missing.kind;
+      expect(item.parse(snapshot(item.path, json(missing))).errors.map((error) => error.code)).toContain('invalid-field');
+      const wrong = JSON.parse(item.raw) as Record<string, unknown>;
+      wrong.formatVersion = '2';
+      expect(item.parse(snapshot(item.path, json(wrong))).ok).toBe(false);
+    }
+    const unknowns: { raw: string; path: (string | number)[]; parse: (value: AssuranceFileSnapshot) => { ok: boolean; errors: { code: string }[] } }[] = [
+      { raw: snapshotContent(manifest), path: ['target'], parse: parseBaselineManifest },
+      { raw: snapshotContent(manifest), path: ['requirements', 0], parse: parseBaselineManifest },
+      { raw: snapshotContent(manifest), path: ['dependencies', 0], parse: parseBaselineManifest },
+      { raw: resultRaw, path: ['subject'], parse: (value) => parseRequirementsReviewResult(value, accepted.subject, fixture.ids) },
+      { raw: resultRaw, path: ['assessments', 0], parse: (value) => parseRequirementsReviewResult(value, accepted.subject, fixture.ids) },
+      { raw: snapshotContent(review), path: ['author'], parse: (value) => parseRequirementsReviewRecord(value, fixture.ids) },
+      { raw: snapshotContent(review), path: ['independence'], parse: (value) => parseRequirementsReviewRecord(value, fixture.ids) },
+      { raw: snapshotContent(review), path: ['authorInputProvenance', 'roots'], parse: (value) => parseRequirementsReviewRecord(value, fixture.ids) },
+      { raw: snapshotContent(review), path: ['authorInputProvenance', 'commonInputs', 0], parse: (value) => parseRequirementsReviewRecord(value, fixture.ids) },
+      { raw: snapshotContent(review), path: ['authorInputProvenance', 'channels', 0], parse: (value) => parseRequirementsReviewRecord(value, fixture.ids) },
+      { raw: snapshotContent(approval), path: ['target'], parse: parseApprovalRecordV2 },
+      { raw: snapshotContent(approval), path: ['approvedBy'], parse: parseApprovalRecordV2 },
+    ];
+    for (const item of unknowns) expect(item.parse(snapshot('nested-v2', addExtraField(item.raw, item.path))).errors.map((error) => error.code)).toContain('unknown-field');
+  });
+
+  it('checks finding/decision linkage and every outcome-shape counterexample', () => {
+    const fixture = validV2Snapshots();
+    const manifest = fixture.snapshots[0] as AssuranceFileSnapshot;
+    const subject = { path: manifest.path, sha256: manifest.sha256 };
+    const base = v2ReviewResult(subject, fixture.ids);
+    const finding = { findingId: 'F1', obligationId: fixture.ids[0] as string, category: 'verifiability', evidence: 'No observable output is named.', consequence: 'Independent pass or fail is impossible.', requiredAction: 'Name an observable output.' };
+    const decision = { decisionId: 'D1', obligationIds: [fixture.ids[0] as string], question: 'Which output is required?', options: [{ option: 'A', reward: 'Deterministic result.', risk: 'Compatibility change.' }, { option: 'B', reward: 'Compatibility retained.', risk: 'Ambiguous acceptance.' }], recommendation: 'A', blockingReason: 'Authority sources do not settle this.' };
+    const parse = (value: unknown) => parseRequirementsReviewResult(snapshot('provider-result', json(value)), subject, fixture.ids);
+    const acceptedWithRefs = { ...base, assessments: base.assessments.map((item, index) => index === 0 ? { ...item, findingIds: ['F1'] } : item), findings: [finding] };
+    const refineWithoutFinding = { ...base, result: 'refinement-required', assessments: base.assessments.map((item, index) => index === 0 ? { ...item, result: 'refinement-required' } : item) };
+    const decideWithoutDecision = { ...base, result: 'decision-required', assessments: base.assessments.map((item, index) => index === 0 ? { ...item, result: 'decision-required' } : item) };
+    const missingFinding = { ...base, result: 'refinement-required', assessments: base.assessments.map((item, index) => index === 0 ? { ...item, result: 'refinement-required', findingIds: ['F1'] } : item) };
+    const unusedDecision = { ...base, decisions: [decision] };
+    for (const value of [acceptedWithRefs, refineWithoutFinding, decideWithoutDecision, missingFinding, unusedDecision]) expect(parse(value).errors.map((error) => error.code)).toContain('review-result-mismatch');
+    const validDecision = { ...base, result: 'decision-required', assessments: base.assessments.map((item, index) => index === 0 ? { ...item, result: 'decision-required', findingIds: ['F1'], decisionIds: ['D1'] } : item), findings: [finding], decisions: [decision] };
+    expect(parse(validDecision).ok).toBe(true);
+    expect(parse({ ...validDecision, decisions: [{ ...decision, recommendation: 'C' }] }).errors.map((error) => error.code)).toContain('review-result-mismatch');
+    expect(parse({ ...validDecision, findings: [{ ...finding, obligationId: 'EX-REQ-999' }] }).errors.map((error) => error.code)).toContain('review-coverage-unknown');
+  });
+});
+
+describe('ASSURANCE-2 adapter delivery composition (A2-C05/C06)', () => {
+  let root = '';
+  afterEach(async () => { if (root) await rm(root, { recursive: true, force: true }); root = ''; });
+
+  it.each(['claude', 'codex', 'copilot'] as const)('%s consumes immutable request bytes and reports actual channels without outputSchema', async (provider) => {
+    root = await mkdtemp('/private/tmp/ASSURANCE-2-adapter-');
+    const store = new FilesystemArtifactStore();
+    const config = { logsDir: join(root, 'logs'), promptRoot: root, command: 'not-spawned' };
+    const adapter = provider === 'claude' ? new ClaudeAdapter(config, store, new FixedClock()) : provider === 'codex' ? new CodexAdapter(config, store, new FixedClock()) : new CopilotAdapter(config, store, new FixedClock());
+    const text = (origin: 'file' | 'generated', purpose: 'shared-instruction' | 'governance' | 'role-instruction' | 'task-directive', label: string) => {
+      const bytes = new TextEncoder().encode(label);
+      return origin === 'file'
+        ? { origin, root: 'prompt' as const, purpose, path: label, bytes, sha256: computeDigest(label) }
+        : { origin, purpose, label, bytes, sha256: computeDigest(label) };
+    };
+    const request: RunRequest = { runId: 'r1', sliceId: 'S', role: 'builder', mode: 'edit', permission: 'write', workingDir: root, model: 'm', effort: 'high', inputArtifacts: [], delivery: { kind: 'reviewed-input-snapshots', contract: 'requirements-assurance/v2-input-delivery', common: [text('file', 'shared-instruction', 'SYSTEM.txt'), text('file', 'governance', 'CLAUDE.md')], roleSpecific: [text('file', 'role-instruction', 'builder.md'), text('generated', 'task-directive', 'task')] } };
+    const prepared = await adapter.prepareRunDelivery(request);
+    expect(prepared.receipt).toEqual(expect.objectContaining({ kind: 'reviewed-input-snapshots', channels: expect.arrayContaining([expect.objectContaining({ channel: 'stdin' }), expect.objectContaining({ channel: 'shared-instruction' })]) }));
+    expect(new TextDecoder().decode(prepared.stdinBytes)).toContain('AGENT_MANAGER_INPUT_V2');
+    expect(prepared.invocation.cwd).toBe(root);
+    expect(prepared.invocation.args.join(' ')).not.toContain('outputSchema');
+    if (request.delivery.kind !== 'reviewed-input-snapshots') throw new Error('test fixture selected the wrong delivery mode');
+    (request.delivery.common[1] as { bytes: Uint8Array }).bytes = new TextEncoder().encode('mutated-copy');
+    expect(new TextDecoder().decode(prepared.stdinBytes)).not.toContain('mutated-copy');
+    await expect(adapter.prepareRunDelivery(request)).rejects.toThrow('digest mismatch');
+    const withoutShared: RunRequest = { ...request, delivery: { ...request.delivery, common: request.delivery.common.filter((item) => item.purpose !== 'shared-instruction').map((item, index) => index === 0 ? { ...item, bytes: new TextEncoder().encode('CLAUDE.md'), sha256: computeDigest('CLAUDE.md') } : item) } };
+    await expect(adapter.prepareRunDelivery(withoutShared)).rejects.toThrow('exactly one shared-instruction');
+  });
+});
+
+describe('ASSURANCE-2 document routing and approval operation (A2-C03/C04/C07)', () => {
+  let target = '';
+  afterEach(async () => { if (target) await rm(target, { recursive: true, force: true }); target = ''; });
+
+  it('authors then separately reviews a v2 candidate, publishes only accepted review, and awaits approval', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-');
+    const inputClosure = validClosure();
+    await writeClosure(target, inputClosure);
+    const sliceDir = join(target, '.agent-manager/slices/DOC-1');
+    await mkdir(join(sliceDir, 'runs'), { recursive: true });
+    const packet = ['STATUS: selected', 'SLICE_ID: DOC-1', 'SLICE_DOC: docs/slices/S2.md', 'ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', `ADMISSION_ALLOCATION: ${inputClosure.allocationPath}`, 'REVIEW_BASELINE: docs/requirements/baselines/B2.json', 'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01'].join('\n');
+    await writeFile(join(sliceDir, 'selection.md'), packet, 'utf-8');
+    await writeFile(join(sliceDir, 'status.json'), json({ phase: 'implement', sliceId: 'DOC-1', sliceDoc: 'docs/slices/S2.md', iteration: 0, updatedAt: '2026-09-12T00:00:00.000Z', lastActor: 'human', builderProvider: 'claude', supervisorProvider: 'codex' }));
+    await writeFile(join(target, '.agent-manager/current.json'), json({ sliceId: 'DOC-1', sliceDoc: 'docs/slices/S2.md', updatedAt: '2026-09-12T00:00:00.000Z' }));
+    for (const path of ['SYSTEM.txt', 'prompts/system/base.md', 'prompts/roles/builder-target.md', 'prompts/roles/reviewer-target.md']) { await mkdir(dirname(join(target, path)), { recursive: true }); await writeFile(join(target, path), `fixture ${path}\n`, 'utf-8'); }
+    let candidateRef: { path: string; sha256: string } | undefined;
+    class Author implements ProviderRunnerPort {
+      calls: RunRequest[] = [];
+      async run(request: RunRequest): Promise<RunResult> {
+        this.calls.push(request);
+        const req = snapshot('docs/requirements/r1.md', requirementTextMany('EX-REQ-001', ['EX-REQ-001-L01']));
+        const source = snapshot('docs/source.md', '# Origin\n');
+        const allocation = snapshot('docs/slices/S2.md', '# ASSURANCE-3 candidate slice\n');
+        const manifest = snapshot('docs/requirements/baselines/B2.json', json({ formatVersion: 2, kind: 'requirements-baseline-manifest', baselineId: 'B2', target: { projectId: 'example', root: '.' }, requirements: [{ path: req.path, sha256: req.sha256 }], dependencies: [{ role: 'source', path: source.path, sha256: source.sha256 }, { role: 'allocation', path: allocation.path, sha256: allocation.sha256 }], reviewObligationIds: ['EX-REQ-001', 'EX-REQ-001-L01'], requiredDecisionIds: [] }));
+        for (const item of [req, source, allocation, manifest]) { await mkdir(dirname(join(target, item.path)), { recursive: true }); await writeFile(join(target, item.path), item.bytes); }
+        candidateRef = { path: manifest.path, sha256: manifest.sha256 };
+        return { runId: request.runId, status: RunStatus.COMPLETED, outputArtifacts: [{ suggestedPath: 'author.md', type: 'provider-output', content: 'Document candidate authored.' }], logPath: '/tmp/stub-author', startedAt: '2026-09-12T00:00:00.000Z', completedAt: '2026-09-12T00:00:01.000Z', deliveryReceipt: receiptFor(request) };
+      }
+    }
+    const author = new Author();
+    const reviewer = new StubRunner(() => json(v2ReviewResult(candidateRef as { path: string; sha256: string }, ['EX-REQ-001', 'EX-REQ-001-L01'])));
+    const configured: TargetRelayInput = { ...makeInput(target), promptRoot: target, commonPromptPaths: ['prompts/system/base.md'], sharedInstruction: { root: 'prompt', path: 'SYSTEM.txt' }, builderPromptPaths: ['prompts/system/base.md', 'prompts/roles/builder-target.md'], reviewerPromptPaths: ['prompts/system/base.md', 'prompts/roles/reviewer-target.md'], sliceId: 'DOC-1', baselinePath: inputClosure.manifestPath };
+    const result = await targetRelayLoop(configured, makeDeps(author, reviewer));
+    expect(result).toEqual(expect.objectContaining({ phase: 'done', reason: 'reviewed baseline awaiting operator approval' }));
+    expect(author.calls[0]?.delivery.kind).toBe('reviewed-input-snapshots');
+    expect(reviewer.calls[0]?.delivery.kind).toBe('reviewed-input-snapshots');
+    expect(await exists(join(target, 'docs/assurance/B2/requirements-review.json'))).toBe(true);
+    expect(await exists(join(target, 'docs/assurance/B2/baseline-approval.json'))).toBe(false);
+    const authorRun = JSON.parse(await readFile(join(sliceDir, 'runs/build-0.json'), 'utf-8')) as { inputProvenance: { commonInputs: unknown } };
+    const reviewerRun = JSON.parse(await readFile(join(sliceDir, 'runs/review-0.json'), 'utf-8')) as { inputProvenance: { commonInputs: unknown } };
+    expect(authorRun.inputProvenance.commonInputs).toEqual(reviewerRun.inputProvenance.commonInputs);
+
+    await writeFile(join(target, 'docs/authority-v2.md'), '# Authority\n', 'utf-8');
+    const approval = await recordReviewedBaselineApproval({ targetDir: target, manifestPath: 'docs/requirements/baselines/B2.json', approvalId: 'approval-B2', projectId: 'example', approvedBy: { actorType: 'operator', actorId: 'manager' }, recordedBy: { actorType: 'operator', actorId: 'manager' }, authorityBasisPath: 'docs/authority-v2.md', decisionRecords: [], rationale: 'Approve the exact reviewed candidate.' }, { clock: new FixedClock(), artifactStore: new FilesystemArtifactStore(), computeDigest });
+    expect(approval.outputPath).toBe('docs/assurance/B2/baseline-approval.json');
+    await expect(recordReviewedBaselineApproval({ targetDir: target, manifestPath: 'docs/requirements/baselines/B2.json', approvalId: 'again', projectId: 'example', approvedBy: { actorType: 'operator', actorId: 'manager' }, recordedBy: { actorType: 'operator', actorId: 'manager' }, authorityBasisPath: 'docs/authority-v2.md', decisionRecords: [], rationale: 'No overwrite.' }, { clock: new FixedClock(), artifactStore: new FilesystemArtifactStore(), computeDigest })).rejects.toThrow('approval-already-exists');
+  });
+
+  it('keeps an unadmitted legacy REQUIREMENTS_DOCUMENT label on legacy verdict routing', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-legacy-posture-');
+    const sliceDir = await seedSlice(target, 'LEGACY-DOC', 'already built');
+    await writeFile(join(sliceDir, 'selection.md'), [
+      'STATUS: selected',
+      'SLICE_ID: LEGACY-DOC',
+      'SLICE_DOC: docs/slices/LEGACY-DOC.md',
+      'ARTIFACT_KIND: REQUIREMENTS_DOCUMENT',
+    ].join('\n'), 'utf-8');
+    const builder = new StubRunner(() => 'not called');
+    const reviewer = new StubRunner(() => 'STATUS: approved\nLegacy review remains prose.');
+    const result = await targetRelayLoop({ ...makeInput(target), sliceId: 'LEGACY-DOC' }, makeDeps(builder, reviewer));
+    expect(result.phase).toBe('done');
+    expect(builder.calls).toHaveLength(0);
+    expect(reviewer.calls).toHaveLength(1);
+    expect(reviewer.calls[0]?.delivery.kind).toBe('legacy-live-inputs');
+    expect(await exists(join(target, 'docs/assurance/B2/requirements-review.json'))).toBe(false);
+  });
+
+  it.each([
+    ['invalid JSON', (_subject: { path: string; sha256: string }) => '{'],
+    ['stale subject', (subject: { path: string; sha256: string }) => json(v2ReviewResult({ ...subject, sha256: computeDigest('stale') }, ['EX-REQ-001', 'EX-REQ-001-L01']))],
+    ['omitted scope ID', (subject: { path: string; sha256: string }) => json(v2ReviewResult(subject, ['EX-REQ-001']))],
+    ['unknown scope ID', (subject: { path: string; sha256: string }) => json(v2ReviewResult(subject, ['EX-REQ-001', 'EX-REQ-001-L01', 'EX-REQ-999']))],
+  ])('blocks %s review output without publishing a durable review', async (_label, reviewOutput) => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-review-refusal-');
+    const seeded = await seedV1DocumentBridge(target);
+    let subject: { path: string; sha256: string } | undefined;
+    const author = new AsyncStubRunner(async () => {
+      subject = await writeV2DocumentCandidate(target);
+      return 'candidate authored';
+    });
+    const reviewer = new StubRunner(() => reviewOutput(subject as { path: string; sha256: string }));
+    const result = await targetRelayLoop(seeded.input, makeDeps(author, reviewer));
+    expect(result.phase).toBe('blocked');
+    expect(author.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(1);
+    expect(await exists(join(target, 'docs/assurance/B2/requirements-review.json'))).toBe(false);
+  });
+
+  it('detects candidate mutation during review before publishing the stale result', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-mutation-');
+    const seeded = await seedV1DocumentBridge(target);
+    let subject: { path: string; sha256: string } | undefined;
+    const author = new AsyncStubRunner(async () => {
+      subject = await writeV2DocumentCandidate(target);
+      return 'candidate authored';
+    });
+    const reviewer = new AsyncStubRunner(async () => {
+      const path = join(target, subject?.path as string);
+      await writeFile(path, `${await readFile(path, 'utf-8')}\n`, 'utf-8');
+      return json(v2ReviewResult(subject as { path: string; sha256: string }, ['EX-REQ-001', 'EX-REQ-001-L01']));
+    });
+    const result = await targetRelayLoop(seeded.input, makeDeps(author, reviewer));
+    expect(result.phase).toBe('blocked');
+    expect(await readFile(join(seeded.sliceDir, 'notes-for-human.md'), 'utf-8')).toContain('subject-mismatch');
+    expect(await exists(join(target, 'docs/assurance/B2/requirements-review.json'))).toBe(false);
+  });
+
+  it('blocks packet/candidate review-scope mismatch before the reviewer call', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-scope-');
+    const seeded = await seedV1DocumentBridge(target);
+    const author = new AsyncStubRunner(async () => {
+      await writeV2DocumentCandidate(target, ['EX-REQ-001']);
+      return 'candidate authored';
+    });
+    const reviewer = new StubRunner(() => 'must not run');
+    const result = await targetRelayLoop(seeded.input, makeDeps(author, reviewer));
+    expect(result.phase).toBe('blocked');
+    expect(author.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(0);
+    expect(await readFile(join(seeded.sliceDir, 'notes-for-human.md'), 'utf-8')).toMatch(/review-coverage-(?:missing|unknown)/);
+    expect(await exists(join(target, 'docs/assurance/B2/requirements-review.json'))).toBe(false);
+  });
+
+  it.each([
+    ['missing ARTIFACT_KIND', ['ADMISSION_ALLOCATION: docs/slices/S1.md', 'REVIEW_BASELINE: docs/requirements/baselines/B2.json', 'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01']],
+    ['duplicate ARTIFACT_KIND', ['ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', 'ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', 'ADMISSION_ALLOCATION: docs/slices/S1.md', 'REVIEW_BASELINE: docs/requirements/baselines/B2.json', 'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01']],
+    ['unknown ARTIFACT_KIND', ['ARTIFACT_KIND: OTHER', 'ADMISSION_ALLOCATION: docs/slices/S1.md', 'REVIEW_BASELINE: docs/requirements/baselines/B2.json', 'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01']],
+    ['missing ADMISSION_ALLOCATION', ['ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', 'REVIEW_BASELINE: docs/requirements/baselines/B2.json', 'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01']],
+    ['duplicate ADMISSION_ALLOCATION', ['ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', 'ADMISSION_ALLOCATION: docs/slices/S1.md', 'ADMISSION_ALLOCATION: docs/slices/S1.md', 'REVIEW_BASELINE: docs/requirements/baselines/B2.json', 'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01']],
+    ['missing REVIEW_BASELINE', ['ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', 'ADMISSION_ALLOCATION: docs/slices/S1.md', 'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01']],
+    ['duplicate REVIEW_BASELINE', ['ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', 'ADMISSION_ALLOCATION: docs/slices/S1.md', 'REVIEW_BASELINE: docs/requirements/baselines/B2.json', 'REVIEW_BASELINE: docs/requirements/baselines/B3.json', 'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01']],
+    ['missing REVIEW_OBLIGATION_IDS', ['ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', 'ADMISSION_ALLOCATION: docs/slices/S1.md', 'REVIEW_BASELINE: docs/requirements/baselines/B2.json']],
+    ['duplicate REVIEW_OBLIGATION_IDS field', ['ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', 'ADMISSION_ALLOCATION: docs/slices/S1.md', 'REVIEW_BASELINE: docs/requirements/baselines/B2.json', 'REVIEW_OBLIGATION_IDS: EX-REQ-001', 'REVIEW_OBLIGATION_IDS: EX-REQ-001-L01']],
+    ['duplicate REVIEW_OBLIGATION_IDS value', ['ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', 'ADMISSION_ALLOCATION: docs/slices/S1.md', 'REVIEW_BASELINE: docs/requirements/baselines/B2.json', 'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001']],
+    ['invalid ADMISSION_ALLOCATION', ['ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', 'ADMISSION_ALLOCATION: ../S1.md', 'REVIEW_BASELINE: docs/requirements/baselines/B2.json', 'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01']],
+    ['non-admitted ADMISSION_ALLOCATION', ['ARTIFACT_KIND: REQUIREMENTS_DOCUMENT', 'ADMISSION_ALLOCATION: docs/slices/other.md', 'REVIEW_BASELINE: docs/requirements/baselines/B2.json', 'REVIEW_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01']],
+  ])('rejects %s before the document author', async (_label, fields) => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-posture-');
+    const seeded = await seedV1DocumentBridge(target, fields);
+    const author = new StubRunner(() => 'must not run');
+    const reviewer = new StubRunner(() => 'must not run');
+    const result = await targetRelayLoop(seeded.input, makeDeps(author, reviewer));
+    expect(result.phase).toBe('blocked');
+    expect(author.calls).toHaveLength(0);
+    expect(reviewer.calls).toHaveLength(0);
+    expect(await exists(join(target, 'docs/requirements/baselines/B2.json'))).toBe(false);
+  });
+
+  it('retains refinement findings for the next author cycle and blocks decisions without durable acceptance', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-outcomes-');
+    const seeded = await seedV1DocumentBridge(target);
+    let subject: { path: string; sha256: string } | undefined;
+    const author = new AsyncStubRunner(async () => {
+      subject = await writeV2DocumentCandidate(target);
+      return 'candidate authored';
+    });
+    const finding = { findingId: 'F1', obligationId: 'EX-REQ-001-L01', category: 'correctness', evidence: 'The stated proxy can pass while the user outcome fails.', consequence: 'An ineffective requirement could be accepted.', requiredAction: 'Bind the oracle to the user-visible result.' };
+    let reviews = 0;
+    const reviewer = new StubRunner(() => {
+      reviews += 1;
+      const base = v2ReviewResult(subject as { path: string; sha256: string }, ['EX-REQ-001', 'EX-REQ-001-L01']);
+      return reviews === 1
+        ? json({ ...base, result: 'refinement-required', assessments: base.assessments.map((item) => item.obligationId === 'EX-REQ-001-L01' ? { ...item, result: 'refinement-required', findingIds: ['F1'] } : item), findings: [finding], report: 'Refinement is required.' })
+        : json(base);
+    });
+    expect((await targetRelayLoop(seeded.input, makeDeps(author, reviewer))).phase).toBe('done');
+    expect(author.calls).toHaveLength(2);
+    expect(reviewer.calls).toHaveLength(2);
+    expect((author.calls[1]?.delivery.kind === 'reviewed-input-snapshots' ? author.calls[1].delivery.roleSpecific : []).some((item) => item.purpose === 'prior-review')).toBe(true);
+
+    await rm(target, { recursive: true, force: true });
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-document-decision-');
+    const decisionSeed = await seedV1DocumentBridge(target);
+    let decisionSubject: { path: string; sha256: string } | undefined;
+    const decisionAuthor = new AsyncStubRunner(async () => { decisionSubject = await writeV2DocumentCandidate(target); return 'candidate authored'; });
+    const decisionReviewer = new StubRunner(() => {
+      const base = v2ReviewResult(decisionSubject as { path: string; sha256: string }, ['EX-REQ-001', 'EX-REQ-001-L01']);
+      const decision = { decisionId: 'D-OUTPUT', obligationIds: ['EX-REQ-001-L01'], question: 'Which observable output binds acceptance?', options: [{ option: 'A', reward: 'Direct user-outcome evidence.', risk: 'Requires a stronger fixture.' }, { option: 'B', reward: 'Keeps the current fixture.', risk: 'Can accept ineffective behavior.' }], recommendation: 'A', blockingReason: 'Existing authority does not choose the output.' };
+      return json({ ...base, result: 'decision-required', assessments: base.assessments.map((item) => item.obligationId === 'EX-REQ-001-L01' ? { ...item, result: 'decision-required', decisionIds: ['D-OUTPUT'] } : item), decisions: [decision], report: 'Authority decision required.' });
+    });
+    const decisionResult = await targetRelayLoop(decisionSeed.input, makeDeps(decisionAuthor, decisionReviewer));
+    expect(decisionResult.phase).toBe('blocked');
+    expect(await readFile(join(decisionSeed.sliceDir, 'notes-for-human.md'), 'utf-8')).toContain('DECISION_REQUIRED');
+    expect(await exists(join(target, 'docs/assurance/B2/requirements-review.json'))).toBe(false);
+  });
+});
+
+async function seedV2Implementation(target: string, packetTail = 'ARTIFACT_KIND: IMPLEMENTATION\nIMPLEMENT_OBLIGATION_IDS: EX-REQ-001,EX-REQ-001-L01\n'): Promise<TargetRelayInput> {
+  const closure = validV2Snapshots();
+  await writeClosure(target, closure);
+  const sliceDir = join(target, '.agent-manager/slices/S2');
+  await mkdir(join(sliceDir, 'runs'), { recursive: true });
+  const packet = `STATUS: selected\nSLICE_ID: S2\nSLICE_DOC: ${closure.allocationPath}\n${packetTail}`;
+  await writeFile(join(sliceDir, 'selection.md'), packet, 'utf-8');
+  await writeFile(join(sliceDir, 'status.json'), json({ phase: 'implement', sliceId: 'S2', sliceDoc: closure.allocationPath, iteration: 0, updatedAt: '2026-09-12T00:00:00.000Z', lastActor: 'human', builderProvider: 'claude', supervisorProvider: 'codex' }));
+  await writeFile(join(target, '.agent-manager/current.json'), json({ sliceId: 'S2', sliceDoc: closure.allocationPath, updatedAt: '2026-09-12T00:00:00.000Z' }));
+  for (const path of ['SYSTEM.txt', 'prompts/system/base.md', 'prompts/roles/supervisor-select.md', 'prompts/roles/builder-target.md', 'prompts/roles/reviewer-target.md', 'prompts/roles/decision-challenger.md', 'prompts/roles/decision-rebutter.md']) {
+    await mkdir(dirname(join(target, path)), { recursive: true });
+    await writeFile(join(target, path), `fixture ${path}\n`, 'utf-8');
+  }
+  return {
+    ...makeInput(target),
+    promptRoot: target,
+    commonPromptPaths: ['prompts/system/base.md'],
+    sharedInstruction: { root: 'prompt', path: 'SYSTEM.txt' },
+    sliceId: 'S2',
+    baselinePath: closure.manifestPath,
+  };
+}
+
+describe('ASSURANCE-2 v2 resume/refusal gates (A2-C05/C07)', () => {
+  let target = '';
+  afterEach(async () => { if (target) await rm(target, { recursive: true, force: true }); target = ''; });
+
+  it('delivers equal common bytes with intentional role differences and persists v2 on an implementation run', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-v2-');
+    const input = await seedV2Implementation(target);
+    const builder = new StubRunner(() => 'built');
+    const reviewer = new StubRunner(() => 'STATUS: approved\nReviewed.');
+    const result = await targetRelayLoop(input, makeDeps(builder, reviewer));
+    expect(result.phase).toBe('done');
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(1);
+    const builderDelivery = builder.calls[0]?.delivery;
+    const reviewerDelivery = reviewer.calls[0]?.delivery;
+    expect(builderDelivery?.kind).toBe('reviewed-input-snapshots');
+    expect(reviewerDelivery?.kind).toBe('reviewed-input-snapshots');
+    if (builderDelivery?.kind !== 'reviewed-input-snapshots' || reviewerDelivery?.kind !== 'reviewed-input-snapshots') throw new Error('wrong test delivery mode');
+    expect(builderDelivery.common.map((item) => item.sha256)).toEqual(reviewerDelivery.common.map((item) => item.sha256));
+    expect(builderDelivery.roleSpecific.map((item) => item.sha256)).not.toEqual(reviewerDelivery.roleSpecific.map((item) => item.sha256));
+    const status = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')) as { assurance: { contract: string; enforcement: string } };
+    const current = JSON.parse(await readFile(join(target, '.agent-manager/current.json'), 'utf-8')) as { assurance: unknown };
+    expect(status.assurance).toEqual(expect.objectContaining({ contract: 'requirements-assurance/v2-stage2', enforcement: 'reviewed-inputs' }));
+    expect(current.assurance).toEqual(status.assurance);
+  });
+
+  it('blocks changed persisted instructions before the reviewer provider call', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-drift-');
+    const input = await seedV2Implementation(target);
+    class MutatingBuilder extends StubRunner {
+      override async run(request: RunRequest): Promise<RunResult> {
+        const result = await super.run(request);
+        await writeFile(join(target, 'prompts/roles/reviewer-target.md'), 'mutated after builder\n', 'utf-8');
+        return result;
+      }
+    }
+    const builder = new MutatingBuilder(() => 'built');
+    const reviewer = new StubRunner(() => 'STATUS: approved\nShould not run.');
+    const result = await targetRelayLoop(input, makeDeps(builder, reviewer));
+    expect(result.phase).toBe('blocked');
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(0);
+    expect(await readFile(join(target, '.agent-manager/slices/S2/notes-for-human.md'), 'utf-8')).toContain('instruction identities changed');
+  });
+
+  it('blocks a missing v2 ARTIFACT_KIND and a mismatched provider receipt before dependent review', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-refusal-');
+    const missingKind = await seedV2Implementation(target, 'IMPLEMENT_OBLIGATION_IDS: EX-REQ-001\n');
+    const untouchedBuilder = new StubRunner(() => 'built');
+    const untouchedReviewer = new StubRunner(() => 'STATUS: approved');
+    expect((await targetRelayLoop(missingKind, makeDeps(untouchedBuilder, untouchedReviewer))).phase).toBe('blocked');
+    expect(untouchedBuilder.calls).toHaveLength(0);
+    await rm(target, { recursive: true, force: true });
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-receipt-');
+    const input = await seedV2Implementation(target);
+    class MismatchedReceiptRunner extends StubRunner {
+      override async run(request: RunRequest): Promise<RunResult> {
+        const result = await super.run(request);
+        return { ...result, deliveryReceipt: { kind: 'reviewed-input-snapshots', contract: 'requirements-assurance/v2-input-delivery', channels: [
+          { channel: 'shared-instruction', mechanism: 'wrong', sha256: computeDigest('wrong'), byteLength: 5 },
+          { channel: 'stdin', mechanism: 'stub', sha256: computeDigest('stub'), byteLength: 4 },
+        ] } };
+      }
+    }
+    const badBuilder = new MismatchedReceiptRunner(() => 'built');
+    const reviewer = new StubRunner(() => 'STATUS: approved');
+    expect((await targetRelayLoop(input, makeDeps(badBuilder, reviewer))).phase).toBe('blocked');
+    expect(reviewer.calls).toHaveLength(0);
+  });
+
+  it('resumes persisted v2 without --baseline and rejects an explicit v1/v2 mode conflict', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-v2-resume-');
+    const input = await seedV2Implementation(target);
+    const builder = new StubRunner(() => 'built');
+    const reviewer = new StubRunner(() => 'STATUS: approved');
+    expect((await targetRelayLoop({ ...input, maxIterations: 0 }, makeDeps(builder, reviewer))).phase).toBe('blocked');
+    expect(builder.calls).toHaveLength(0);
+    const { baselinePath: _resumeBaseline, ...resumeInput } = input;
+    const resumed = await targetRelayLoop({ ...resumeInput, maxIterations: 1 }, makeDeps(builder, reviewer));
+    expect(resumed.phase).toBe('done');
+    expect(builder.calls).toHaveLength(1);
+    expect(builder.calls[0]?.delivery.kind).toBe('reviewed-input-snapshots');
+
+    await rm(target, { recursive: true, force: true });
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-v2-conflict-');
+    const conflictInput = await seedV2Implementation(target);
+    const untouchedBuilder = new StubRunner(() => 'must not run');
+    const untouchedReviewer = new StubRunner(() => 'must not run');
+    await targetRelayLoop({ ...conflictInput, maxIterations: 0 }, makeDeps(untouchedBuilder, untouchedReviewer));
+    const v1 = validClosure();
+    await writeClosure(target, v1);
+    const conflict = await targetRelayLoop({ ...conflictInput, baselinePath: v1.manifestPath, maxIterations: 1 }, makeDeps(untouchedBuilder, untouchedReviewer));
+    expect(conflict.phase).toBe('blocked');
+    expect(conflict.reason).toContain('Baseline conflict');
+    expect(untouchedBuilder.calls).toHaveLength(0);
+    expect(untouchedReviewer.calls).toHaveLength(0);
+  });
+
+  it('rejects partial and mismatched persisted v2 mode before dispatch', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-v2-mode-record-');
+    const input = await seedV2Implementation(target);
+    const builder = new StubRunner(() => 'must not run');
+    const reviewer = new StubRunner(() => 'must not run');
+    await targetRelayLoop({ ...input, maxIterations: 0 }, makeDeps(builder, reviewer));
+    const statusPath = join(target, '.agent-manager/slices/S2/status.json');
+    const status = JSON.parse(await readFile(statusPath, 'utf-8')) as { assurance: Record<string, unknown> };
+    delete status.assurance.instructions;
+    await writeFile(statusPath, json(status), 'utf-8');
+    const { baselinePath: _partialBaseline, ...resumePartial } = input;
+    expect((await targetRelayLoop({ ...resumePartial, maxIterations: 1 }, makeDeps(builder, reviewer))).phase).toBe('blocked');
+    expect(builder.calls).toHaveLength(0);
+
+    await rm(target, { recursive: true, force: true });
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-v2-mode-mismatch-');
+    const mismatchInput = await seedV2Implementation(target);
+    await targetRelayLoop({ ...mismatchInput, maxIterations: 0 }, makeDeps(builder, reviewer));
+    const currentPath = join(target, '.agent-manager/current.json');
+    const current = JSON.parse(await readFile(currentPath, 'utf-8')) as { assurance: { instructions: { shared: { sha256: string } } } };
+    current.assurance.instructions.shared.sha256 = computeDigest('different-valid-identity');
+    await writeFile(currentPath, json(current), 'utf-8');
+    const { baselinePath: _mismatchBaseline, ...resumeMismatch } = mismatchInput;
+    const result = await targetRelayLoop({ ...resumeMismatch, maxIterations: 1 }, makeDeps(builder, reviewer));
+    expect(result.phase).toBe('blocked');
+    expect(result.reason).toContain('Assurance state mismatch');
+    expect(builder.calls).toHaveLength(0);
+    expect(reviewer.calls).toHaveLength(0);
+  });
+
+  it.each([
+    ['shared instruction', 'SYSTEM.txt'],
+    ['governance input', 'CLAUDE.md'],
+    ['baseline requirement', 'docs/requirements/r1.md'],
+  ])('blocks %s drift after persisted v2 admission with zero provider calls', async (_label, path) => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-v2-input-drift-');
+    const input = await seedV2Implementation(target);
+    const builder = new StubRunner(() => 'must not run');
+    const reviewer = new StubRunner(() => 'must not run');
+    await targetRelayLoop({ ...input, maxIterations: 0 }, makeDeps(builder, reviewer));
+    await writeFile(join(target, path), `mutated ${path}\n`, 'utf-8');
+    const { baselinePath: _resumeBaseline, ...resumeInput } = input;
+    const result = await targetRelayLoop({ ...resumeInput, maxIterations: 1 }, makeDeps(builder, reviewer));
+    expect(result.phase).toBe('blocked');
+    expect(builder.calls).toHaveLength(0);
+    expect(reviewer.calls).toHaveLength(0);
+  });
+
+  it.each([
+    ['missing implementation IDs', 'ARTIFACT_KIND: IMPLEMENTATION\n'],
+    ['duplicate implementation ID field', 'ARTIFACT_KIND: IMPLEMENTATION\nIMPLEMENT_OBLIGATION_IDS: EX-REQ-001\nIMPLEMENT_OBLIGATION_IDS: EX-REQ-001-L01\n'],
+    ['unknown implementation ID', 'ARTIFACT_KIND: IMPLEMENTATION\nIMPLEMENT_OBLIGATION_IDS: EX-REQ-001,EX-REQ-999\n'],
+  ])('rejects %s before the v2 implementation builder', async (_label, tail) => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-v2-implementation-posture-');
+    const input = await seedV2Implementation(target, tail);
+    const builder = new StubRunner(() => 'must not run');
+    const reviewer = new StubRunner(() => 'must not run');
+    expect((await targetRelayLoop(input, makeDeps(builder, reviewer))).phase).toBe('blocked');
+    expect(builder.calls).toHaveLength(0);
+    expect(reviewer.calls).toHaveLength(0);
+  });
+
+  it.each(['missing', 'unreadable'] as const)('blocks a %s active selection packet instead of constructing an empty one', async (failure) => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-v2-selection-');
+    const input = await seedV2Implementation(target);
+    const path = join(target, '.agent-manager/slices/S2/selection.md');
+    await rm(path, { force: true });
+    if (failure === 'unreadable') await mkdir(path);
+    const builder = new StubRunner(() => 'must not run');
+    const reviewer = new StubRunner(() => 'must not run');
+    expect((await targetRelayLoop(input, makeDeps(builder, reviewer))).phase).toBe('blocked');
+    expect(builder.calls).toHaveLength(0);
+    expect(reviewer.calls).toHaveLength(0);
+  });
+
+  it('resumes the admitted v1 document bridge using ADMISSION_ALLOCATION while output paths are absent', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-v1-document-resume-');
+    const seeded = await seedV1DocumentBridge(target);
+    const author = new AsyncStubRunner(async () => { const subject = await writeV2DocumentCandidate(target); return `authored ${subject.sha256}`; });
+    let candidate: { path: string; sha256: string } | undefined;
+    const capturingAuthor = new AsyncStubRunner(async () => { candidate = await writeV2DocumentCandidate(target); return 'authored'; });
+    const reviewer = new StubRunner(() => json(v2ReviewResult(candidate as { path: string; sha256: string }, ['EX-REQ-001', 'EX-REQ-001-L01'])));
+    expect((await targetRelayLoop({ ...seeded.input, maxIterations: 0 }, makeDeps(author, reviewer))).phase).toBe('blocked');
+    expect(await exists(join(target, 'docs/slices/S2.md'))).toBe(false);
+    const { baselinePath: _resumeBaseline, ...resumeInput } = seeded.input;
+    const resumed = await targetRelayLoop({ ...resumeInput, maxIterations: 1 }, makeDeps(capturingAuthor, reviewer));
+    expect(resumed.phase).toBe('done');
+    expect(capturingAuthor.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(1);
+  });
+
+  it('reads the complete accepted closure once per live role snapshot attempt', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-live-read-once-');
+    const input = await seedV2Implementation(target);
+    const fixture = validV2Snapshots();
+    const reads = new Map<string, number>();
+    const filesystem = new FilesystemArtifactStore();
+    class CountingStore extends FilesystemArtifactStore {
+      override async readContainedFile(root: string, path: string) {
+        const key = `${root}\0${path}`;
+        reads.set(key, (reads.get(key) ?? 0) + 1);
+        return filesystem.readContainedFile(root, path);
+      }
+    }
+    const builder = new StubRunner(() => 'built');
+    const reviewer = new StubRunner(() => 'STATUS: approved\nReviewed.');
+    const deps = { ...makeDeps(builder, reviewer), artifactStore: new CountingStore() };
+
+    expect((await targetRelayLoop(input, deps)).phase).toBe('done');
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(1);
+
+    // Target closure reads comprise two whole-run eligibility checks followed
+    // by one capture for the builder and one fresh capture for the reviewer.
+    // Within either role, its guard and delivered DTO reuse the same bytes.
+    for (const item of fixture.snapshots) {
+      expect(reads.get(`${target}\0${item.path}`)).toBe(4);
+    }
+    // Instruction identity is established initially, then freshly revalidated
+    // once for each role. The active selection packet is role-specific only.
+    for (const path of ['SYSTEM.txt', 'prompts/system/base.md', 'prompts/roles/supervisor-select.md', 'prompts/roles/builder-target.md', 'prompts/roles/reviewer-target.md', 'prompts/roles/decision-challenger.md', 'prompts/roles/decision-rebutter.md']) {
+      expect(reads.get(`${target}\0${path}`)).toBe(3);
+    }
+    expect(reads.get(`${target}\0.agent-manager/slices/S2/selection.md`)).toBe(2);
+
+    const builderDelivery = builder.calls[0]?.delivery;
+    if (builderDelivery?.kind !== 'reviewed-input-snapshots') throw new Error('builder did not receive reviewed snapshots');
+    expect(builderDelivery.common.map((item) => item.purpose)).toEqual([
+      'shared-instruction',
+      'common-role-instruction',
+      'baseline-manifest',
+      'requirement',
+      'requirement',
+      'source',
+      'governance',
+      'allocation',
+      'review',
+      'approval',
+      'authority',
+      'decision',
+    ]);
+  });
+
+  it('reuses one admitted capture for each v2 decision role and refreshes it between roles', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-live-decision-read-once-');
+    const input = await seedV2Implementation(target);
+    const fixture = validV2Snapshots();
+    const reads = new Map<string, number>();
+    const filesystem = new FilesystemArtifactStore();
+    class CountingStore extends FilesystemArtifactStore {
+      override async readContainedFile(root: string, path: string) {
+        const key = `${root}\0${path}`;
+        reads.set(key, (reads.get(key) ?? 0) + 1);
+        return filesystem.readContainedFile(root, path);
+      }
+    }
+    const builder = new StubRunner((request) => request.role === 'decision-rebutter' ? REBUTTAL_OUTPUT : MARKER_ARTIFACT);
+    const reviewer = new StubRunner((request) => request.role === 'decision-challenger' ? CHALLENGE_OUTPUT : 'STATUS: approved\nReviewed.');
+    const deps = { ...makeDeps(builder, reviewer), artifactStore: new CountingStore() };
+
+    expect((await targetRelayLoop(input, deps)).phase).toBe('awaiting-ratification');
+    expect(builder.rolesCalled()).toEqual(['builder', 'decision-rebutter']);
+    expect(reviewer.rolesCalled()).toEqual(['reviewer', 'decision-challenger']);
+    for (const request of [...builder.calls, ...reviewer.calls]) {
+      expect(request.delivery.kind).toBe('reviewed-input-snapshots');
+    }
+    // Two whole-run checks plus builder, reviewer, challenger and rebutter.
+    // Six reads therefore mean one, not two, for each live role attempt.
+    for (const item of fixture.snapshots) {
+      expect(reads.get(`${target}\0${item.path}`)).toBe(6);
+    }
+    expect(reads.get(`${target}\0.agent-manager/slices/S2/selection.md`)).toBe(4);
+  });
+
+  it('delivers one admitted role snapshot, then blocks the next role when live baseline bytes drift', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-live-snapshot-drift-');
+    const input = await seedV2Implementation(target);
+    const filesystem = new FilesystemArtifactStore();
+    let requirementReads = 0;
+    class MutatingStore extends FilesystemArtifactStore {
+      override async readContainedFile(root: string, path: string) {
+        const captured = await filesystem.readContainedFile(root, path);
+        if (root === target && path === 'docs/requirements/r1.md') {
+          requirementReads += 1;
+          if (requirementReads === 3) {
+            // This mutation occurs after the builder's role-local snapshot was
+            // captured. Its guard and DTO must retain that exact snapshot; the
+            // reviewer's fresh attempt must see and reject the changed bytes.
+            await writeFile(join(target, path), 'mutated after builder snapshot\n', 'utf-8');
+          }
+        }
+        return captured;
+      }
+    }
+    const builder = new StubRunner(() => 'built');
+    const reviewer = new StubRunner(() => 'STATUS: approved\nMust not run.');
+    const deps = { ...makeDeps(builder, reviewer), artifactStore: new MutatingStore() };
+
+    const result = await targetRelayLoop(input, deps);
+    expect(result.phase).toBe('blocked');
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(0);
+    expect(requirementReads).toBe(4);
+    const delivered = builder.calls[0]?.delivery;
+    if (delivered?.kind !== 'reviewed-input-snapshots') throw new Error('builder did not receive reviewed snapshots');
+    const requirement = delivered.common.find((item) => item.origin === 'file' && item.path === 'docs/requirements/r1.md');
+    expect(requirement && new TextDecoder().decode(requirement.bytes)).toContain('# EX-REQ-001');
+    expect(await readFile(join(target, '.agent-manager/slices/S2/notes-for-human.md'), 'utf-8')).toContain('digest-mismatch');
+  });
+
+  it('captures each rooted prompt/selection input once while composing both reviewed dry-run deliveries', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-read-once-');
+    const input = await seedV2Implementation(target);
+    const reads = new Map<string, number>();
+    const filesystem = new FilesystemArtifactStore();
+    class CountingStore extends FilesystemArtifactStore {
+      override async readContainedFile(root: string, path: string) {
+        const key = `${root}\0${path}`;
+        reads.set(key, (reads.get(key) ?? 0) + 1);
+        return filesystem.readContainedFile(root, path);
+      }
+    }
+    const countingStore: ArtifactStorePort = new CountingStore();
+    const packet = await readFile(join(target, '.agent-manager/slices/S2/selection.md'), 'utf-8');
+    await prepareReviewedTargetDryRunDeliveries({ input, deps: { artifactStore: countingStore, computeDigest }, baselinePath: input.baselinePath as string, sliceId: 'S2', sliceDoc: 'docs/slices/S2.md', packetRaw: packet, documentCandidateAvailability: 'expected' });
+    for (const path of ['SYSTEM.txt', 'prompts/system/base.md', 'prompts/roles/builder-target.md', 'prompts/roles/reviewer-target.md', '.agent-manager/slices/S2/selection.md']) {
+      const root = path.startsWith('.agent-manager/') ? target : input.promptRoot;
+      expect(reads.get(`${root}\0${path}`)).toBe(1);
+    }
   });
 });

@@ -24,6 +24,20 @@ review in-scope untracked files too, since git diff alone omits them.
 
 ## What to inspect
 
+When `ARTIFACT_KIND: REQUIREMENTS_DOCUMENT`, act as a substantive requirements
+reviewer, not an implementation reviewer. Assess every exact ID in
+`REVIEW_OBLIGATION_IDS` for correctness against the need, scoped completeness,
+consistency, feasibility, verifiability, necessity, traceability, truthful naming,
+and earned architecture. Do not mutate the subject. Return only one closed
+`requirements-review-result` JSON object defined by
+`docs/contracts/requirements-assurance-v2.md` section 5: no Markdown fence,
+`STATUS:` line, or trailing prose. Account for every submitted ID exactly once;
+findings identify evidence, consequence and required action; authority decisions
+include explicit reward/risk options and remain blocking. A positive report cannot
+override a structured failure.
+
+When `ARTIFACT_KIND: IMPLEMENTATION`, retain the legacy verdict contract below.
+
 - Inspect the builder's UNCOMMITTED changes yourself: run `git status` and
   `git diff` (and `git diff --stat`) in the working tree.
 - Read the slice document (SLICE_DOC) and the selection packet's

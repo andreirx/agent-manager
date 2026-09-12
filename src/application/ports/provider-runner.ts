@@ -12,6 +12,106 @@ import type { RoleId } from '../../core/role.js';
 import type { ArtifactRef } from '../../core/artifact-ref.js';
 import type { PromptRef, RunOutputArtifact, RunStatus } from '../../core/run-record.js';
 
+export type RunInputPurpose =
+  | 'shared-instruction'
+  | 'common-role-instruction'
+  | 'baseline-manifest'
+  | 'requirement'
+  | 'source'
+  | 'governance'
+  | 'design'
+  | 'allocation'
+  | 'review'
+  | 'approval'
+  | 'authority'
+  | 'decision'
+  | 'role-instruction'
+  | 'selection-packet'
+  | 'review-subject'
+  | 'build-report'
+  | 'prior-review'
+  | 'task-directive';
+
+export type RunTextInput =
+  | {
+      readonly origin: 'file';
+      readonly root: 'target' | 'prompt';
+      readonly purpose: RunInputPurpose;
+      readonly path: string;
+      readonly bytes: Uint8Array;
+      readonly sha256: string;
+    }
+  | {
+      readonly origin: 'generated';
+      readonly purpose: RunInputPurpose;
+      readonly label: string;
+      readonly bytes: Uint8Array;
+      readonly sha256: string;
+    };
+
+/** Closed input-delivery mode: legacy live files or immutable reviewed bytes. */
+export type RunInputDelivery =
+  | {
+      readonly kind: 'legacy-live-inputs';
+      readonly prompts: readonly PromptRef[];
+      readonly contextText?: string;
+    }
+  | {
+      readonly kind: 'reviewed-input-snapshots';
+      readonly contract: 'requirements-assurance/v2-input-delivery';
+      readonly common: readonly RunTextInput[];
+      readonly roleSpecific: readonly RunTextInput[];
+    };
+
+export interface RunChannelIdentity {
+  readonly channel: 'shared-instruction' | 'stdin';
+  readonly mechanism: string;
+  readonly sha256: string;
+  readonly byteLength: number;
+}
+
+export type RunDeliveryReceipt =
+  | { readonly kind: 'legacy-live-inputs' }
+  | {
+      readonly kind: 'reviewed-input-snapshots';
+      readonly contract: 'requirements-assurance/v2-input-delivery';
+      readonly channels: readonly RunChannelIdentity[];
+    };
+
+export interface PreparedRunDelivery {
+  readonly invocation: { readonly command: string; readonly args: string[]; readonly cwd: string };
+  readonly stdinBytes: Uint8Array;
+  readonly sharedSnapshot?: { readonly path: string; readonly bytes: Uint8Array };
+  readonly receipt: RunDeliveryReceipt;
+}
+
+/** Render the contract's length-delimited frames without normalizing source bytes. */
+export function frameReviewedInputs(inputs: readonly RunTextInput[]): Uint8Array {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (const input of inputs) {
+    // Fatal decoding is an explicit pre-spawn validation even though framing
+    // copies the original bytes rather than the decoded string.
+    decoder.decode(input.bytes);
+    const header = input.origin === 'file'
+      ? { origin: input.origin, root: input.root, purpose: input.purpose, path: input.path, sha256: input.sha256, byteLength: input.bytes.byteLength }
+      : { origin: input.origin, purpose: input.purpose, label: input.label, sha256: input.sha256, byteLength: input.bytes.byteLength };
+    const opening = encoder.encode(`AGENT_MANAGER_INPUT_V2 ${JSON.stringify(header)}\n`);
+    const closing = encoder.encode('\nAGENT_MANAGER_INPUT_END_V2\n');
+    chunks.push(opening, input.bytes, closing);
+    total += opening.byteLength + input.bytes.byteLength + closing.byteLength;
+  }
+  const framed = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    framed.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return framed;
+}
+
 /**
  * Request to execute a provider run.
  *
@@ -27,8 +127,8 @@ export interface RunRequest {
   /** Role being executed */
   readonly role: RoleId;
 
-  /** Prompts to inject (with digests already computed) */
-  readonly prompts: readonly PromptRef[];
+  /** Exact input-delivery mode selected by the application. */
+  readonly delivery: RunInputDelivery;
 
   /** Input artifacts to provide */
   readonly inputArtifacts: readonly ArtifactRef[];
@@ -69,16 +169,6 @@ export interface RunRequest {
    */
   readonly permission?: 'read-only' | 'write';
 
-  /**
-   * Dynamic, per-run context appended after the digest-pinned file prompts.
-   *
-   * Unlike `prompts` (stable, reproducible assets resolved under the prompt
-   * root and digest-verified), this is freshly generated each run (e.g. a slice
-   * selection packet) and is not a stored asset, so it carries no digest and is
-   * not resolved against the prompt root. Delivered to the provider via stdin
-   * together with the file prompts.
-   */
-  readonly contextText?: string;
 }
 
 /**
@@ -104,6 +194,9 @@ export interface RunResult {
 
   /** Run completion time (ISO-8601) */
   readonly completedAt: string;
+
+  /** Identity of the actual provider delivery channels used for this request. */
+  readonly deliveryReceipt: RunDeliveryReceipt;
 
   /** Provider exit code (on failure) */
   readonly exitCode?: number;

@@ -12,7 +12,7 @@ repo as the system of record.
 This complements (does not replace) the self-host relay (`relay.ts` /
 `npm run relay`), which remains for AM-* slices inside agent-manager.
 
-## Optional stage-1 baseline admission (PROTOTYPE)
+## Optional reviewed-baseline admission (PROTOTYPE)
 
 `relay-target -- <target> --baseline <target-relative-manifest-path>` opts one
 target-owned run into the additive `requirements-assurance/v1-stage1` contract
@@ -67,11 +67,35 @@ recovery that risks losing work still requires human direction. Typed runtime
 recovery remains outside stage 1.
 
 Assured dry-run is deliberately narrower: it requires both `--baseline` and an
-explicit preprepared `--slice`. It reads that slice's existing status to obtain
-`sliceDoc`, executes the same closure/allocation admission operation as live
-dispatch, then prints `baseline-admission` and the exact manifest digest. It does
-not write local state or invoke a provider. It prints no admission label when
+explicit preprepared `--slice`. It reads that slice's existing status and packet,
+then executes the same closure/posture/allocation operation as live dispatch:
+ordinary work checks `SLICE_DOC`, while admitted document posture checks its
+existing `ADMISSION_ALLOCATION`. It prints the accepted enforcement label and
+exact manifest digest. Before the document author creates `SLICE_DOC` and
+`REVIEW_BASELINE`, dry-run prints the actual available author delivery and marks
+reviewer delivery pending on those authored outputs; it does not fabricate a
+review subject. Once the candidate manifest exists, dry-run validates its full
+candidate/allocation closure before printing the reviewer delivery. It does not
+write local state or invoke a provider. It prints no admission label when
 only upstream closure validation or allocation validation fails.
+
+Version-2 manifests select `requirements-assurance/v2-stage2` and the
+`reviewed-inputs` enforcement label defined in
+[Requirements Assurance v2](requirements-assurance-v2.md). The relay persists
+the accepted manifest plus rooted shared/common/role instruction identities in
+both status objects. Every explicitly admitted v2 role request then carries
+immutable bytes rather than live paths. Omission on resume preserves v2;
+manifest or instruction drift blocks before the next provider call.
+
+An explicit `ARTIFACT_KIND: REQUIREMENTS_DOCUMENT` uses separate author and
+reviewer calls, including when its admitted input is the v1 predecessor. Its
+`ADMISSION_ALLOCATION` is the existing input that authorizes those calls;
+`SLICE_DOC` and `REVIEW_BASELINE` are authored outputs. The reviewer returns the
+closed v2 result, with exactly one assessment per submitted
+`REVIEW_OBLIGATION_IDS`. Refinement returns to the author, an authority decision
+blocks with a visible matrix, and acceptance creates only
+`docs/assurance/<baselineId>/requirements-review.json` before stopping with
+`reviewed baseline awaiting operator approval`. It never creates approval.
 
 ## Two roots (the core distinction)
 
@@ -107,7 +131,15 @@ is doc-grounded, not yet probed against an installed CLI — see TECH-DEBT TD-01
 | `workingDir` | abs path | provider process cwd |
 | `mode` | `plan` \| `edit` \| `review` | workflow intent |
 | `permission` | `read-only` \| `write` | posture |
-| `contextText` | string | dynamic per-run context (not a pinned asset) appended to stdin |
+| `delivery` | `legacy-live-inputs` \| `reviewed-input-snapshots` | mutually exclusive live prompt references or immutable reviewed bytes |
+
+Legacy delivery retains its pinned prompt references and optional generated
+context. Reviewed delivery separates an ordered common closure from intentional
+role-specific inputs. Adapters validate every digest and UTF-8 payload, frame
+exact byte lengths, and return the actual shared-instruction/stdin channel
+identities. Run records retain those request projections and receipts as
+`inputProvenance`; accepted requirements reviews require author/reviewer
+baseline and ordered common identities to match.
 
 ## Phase graph
 
@@ -259,9 +291,11 @@ out of scope.
 
 ## Verdict contract
 
-Reviewer output MUST begin with `STATUS: approved|revise|escalate`. Parsing is
-shared with the self-host relay (`relay-shared.ts`), so reviewer prompts/providers
-are swappable without changing parsing.
+Implementation reviewer output MUST begin with `STATUS:
+approved|revise|escalate`. Parsing is shared with the self-host relay
+(`relay-shared.ts`). Requirements-document review instead requires the complete
+closed JSON result from requirements-assurance v2; it never falls back to the
+legacy prose parser.
 
 ## Non-interactive contract
 
@@ -302,6 +336,23 @@ npm run relay-target -- <target-path> \
   [--baseline <target-relative-manifest-path>]
 ```
 
+Approval of an accepted v2 review is a mutually exclusive target-aware operation:
+
+```text
+npm run relay-target -- <target-path> \
+  --record-reviewed-baseline-approval <manifest> \
+  --approval-id <id> --project-id <id> \
+  --approved-by-type human|operator --approved-by-id <id> \
+  --recorded-by-type human|operator --recorded-by-id <id> \
+  --authority-basis <target-relative-path> \
+  [--decision-record <id>=<target-relative-path>]... \
+  --rationale <text>
+```
+
+This operation revalidates the candidate, accepted review, target/project,
+authority bytes, and exact required-decision set; writes only the fixed approval
+path create-only; invokes no provider; and performs no commit.
+
 - `<target-path>` is required and resolved against the invocation cwd. No
   repository is hardcoded; `../repo-graph` is only an example.
 - `--max-iter <n>` bounds build/review **cycles** (each cycle = one implement +
@@ -311,10 +362,13 @@ npm run relay-target -- <target-path> \
   including Codex's `--config developer_instructions=…` (its long value is
   elided for readability, with the source path and length shown). No process is
   spawned.
-- `--baseline` selects stage-1 baseline admission. Its path uses the contract's
-  target-relative POSIX syntax; it never names an Agent Manager prompt-root path.
+- `--baseline` selects the manifest's versioned admission contract. Its path
+  uses target-relative POSIX syntax; it never names a prompt-root path.
 - `--dry-run --baseline` additionally requires `--slice`; see the no-write
-  allocation check above.
+  posture/allocation check above. V2 and the admitted v1 document bridge use the
+  adapters' same no-spawn delivery preparation seam, print available input/channel
+  identities (and any pending authored reviewer subject), and create no Claude
+  snapshot file.
 - `--until select-slice` stops after the supervisor picks a slice, before any
   edit, so the selection can be inspected.
 

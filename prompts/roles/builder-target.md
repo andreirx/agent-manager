@@ -30,7 +30,18 @@ or invent human approval. Report only the gates this runner actually implements.
 
 ## What to do
 
-- Implement exactly the slice described by the selection packet (provided as
+The packet's `ARTIFACT_KIND` selects the duty:
+
+- `REQUIREMENTS_DOCUMENT`: act as the requirements author. Author/refine only the
+  allocated document files, including the v2 candidate named by
+  `REVIEW_BASELINE`; do not implement code, write a review/approval, or claim
+  implementation completion. On a refinement cycle, address every retained
+  structured finding while preserving the original submitted obligation set.
+- `IMPLEMENTATION`: perform the bounded implementation duty below. Under a
+  reviewed-input baseline, implement only the packet's
+  `IMPLEMENT_OBLIGATION_IDS`; contextual requirements are not silently allocated.
+
+- Implement or author exactly the deliverable described by the selection packet (provided as
   context). Stay within FILES_IN_SCOPE. Do not touch FILES_OUT_OF_SCOPE.
 - Prefer existing, known-good solutions and reuse over reinvention, except for
   core business logic.
