@@ -263,6 +263,11 @@ code at start, so mid-run edits do not affect it.
   claude --supervisor-model claude-opus-4-8` so the gate stays two-vendor (a Codex `sol` escalation
   review is then same-vendor — say so in the record). `--dry-run` the first launch to inspect the codex
   builder invocation (sandbox mode, working dir, prompt) before a real run; ship lines record both models.
+  BUILDER DIRECTIVE (human 2026-09-13, "you can use claude-opus-4-8 for the builder going forward"): for repo-graph
+  slices launch with `--builder claude --builder-model claude-opus-4-8`; the reviewer stays Codex `gpt-5.6-terra`
+  (two-vendor gate). The overhaul track's own self-build assignment (Codex/Codex) is unchanged. First assured
+  repo-graph item (TRUST-MODULE-EDGES-1-PREP) therefore pairs a Claude author with the Codex structured reviewer —
+  record the pairing in the run records; it is the first time that combination runs under the v2 delivery path.
   CODEX BUILDER LIMITS (observed 2026-09-08, EXIT-CODES-1): `codex exec --sandbox workspace-write` CANNOT
   bind a Unix socket ("Operation not permitted") — any live proof that needs a socket daemon fails
   environmentally. Packets for a Codex builder must route live proofs through `RMAP_TRANSPORT=stdio`

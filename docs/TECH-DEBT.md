@@ -601,3 +601,21 @@ while another live run holds it.
   and strip a leading non-review preamble; add a unit test with the captured preamble.
 - When to address: before the next reviewer-provider switch, or if it recurs once more.
 - Status: OPEN
+
+## TD-018 — bootstrapped status.json: actor enum has no operator value and the malformed-status refusal names no field
+
+- Date: 2026-09-13
+- What was done: the first assured run on repo-graph (TRUST-MODULE-EDGES-1-PREP) was refused twice before any
+  provider call with `Malformed status.json … required relay fields are missing or invalid`. Cause: the operator
+  bootstrapped `lastActor: "in-place-manager"`, then `"operator"` (the value an earlier hand-closed slice,
+  EXIT-CODES-1, carries) — `TARGET_ACTOR_VALUES` admits only `claude|codex|copilot|human`. The operator set
+  `lastActor: "claude"` (the manager session's provider) to proceed. The refusal message did not name the failing
+  field, so each attempt cost a launch.
+- Why acceptable: the refusal is fail-closed (correct); the fix is local to the packet; no provider ran.
+- Proper solution: (a) the refusal names the offending field and value; (b) decide whether an `operator`/`manager`
+  actor value is a legitimate `lastActor` for operator-bootstrapped packets (the manager playbook says the operator
+  bootstraps slices) or whether bootstrap packets must spell a provider — document it in the relay contract and the
+  playbook either way; (c) the `--dry-run` path should run the same status validation so a malformed bootstrap fails
+  at dry-run, not at launch (it admitted the malformed packet).
+- When to address: before the next operator-bootstrapped assured item.
+- Status: OPEN
