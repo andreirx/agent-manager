@@ -644,3 +644,22 @@ while another live run holds it.
   allocation — a name that does not match its contract misleads the manager exactly as it did here.
 - When to address: before the next stage-3 item on any target.
 - Status: OPEN
+
+## TD-020 — the structured requirements reviewer drifts from the §5 provider-result shape on a non-agent-manager target
+
+- Date: 2026-09-13 (repo-graph TRUST-MODULE-EDGES-1 document items)
+- What was done: across three document items (PREP, PREP-2, PREP-3), Codex gpt-5.6-terra returned an off-schema
+  result twice: once the §6 DURABLE record shape (`kind: requirements-review` with reviewId/author/reviewer/
+  independence/completedAt), once a free-form object (`subject: {sliceId, artifactKind, paths}`, `result: "REFINE"`,
+  `report` as an object, unterminated JSON). The relay rejected both fail-closed (`unsupported-kind`/`unknown-field`;
+  `malformed-json`) and blocked — correct — but each slip cost a full author+reviewer cycle (~15 min) and manager
+  steering. The reviewer role prompt points at the contract section; the generated task directive does not carry the
+  skeleton; the manager had to quote the full shape in the packet before the reviewer complied.
+- Why acceptable: no invalid output was ever consumed as a verdict; the durable records stayed clean.
+- Proper solution: (a) inline the §5 skeleton (field names, enum values, "subject = REVIEW_BASELINE path + sha256")
+  in the generated requirements-reviewer task directive; (b) on a shape-invalid provider result, return the exact
+  structural errors to the SAME reviewer for one bounded in-run correction before blocking the item (the author's
+  deliverables are unchanged, so re-running the author is waste); (c) on the builder side the same for the
+  `implementation-evidence-result` (the first stage-3 builder wrapped valid JSON in prose + a fence).
+- When to address: before the next assured item on any target.
+- Status: OPEN
