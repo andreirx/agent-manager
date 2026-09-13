@@ -15,6 +15,12 @@ Stage-4 runtime gate. Historical inputs remain identifiable and are not silently
 updated to cover new bytes.
 
 Before Stage 4, discuss proportionality and context pressure with the human.
+Human ruling 2026-09-13 (from the first assured run on repo-graph, TD-020): agent-to-agent
+messages are not schema-policed — an off-shape provider result is not an error; the runtime
+reads it leniently and builds the well-formed durable record itself; integrity checks apply
+to durable records and the input closure, not to the hand-off between two agents. This is
+input to the Stage-4 proportionality discussion and a change to the stage-2/3 result
+handling; it is not yet implemented.
 Agents assess human decisions; software checks record integrity. Architecture
 preservation is a project requirement/reviewer duty, not a new policing subsystem.
 Do not automatically advance the remaining original scope.

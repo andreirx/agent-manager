@@ -655,7 +655,15 @@ while another live run holds it.
   `malformed-json`) and blocked — correct — but each slip cost a full author+reviewer cycle (~15 min) and manager
   steering. The reviewer role prompt points at the contract section; the generated task directive does not carry the
   skeleton; the manager had to quote the full shape in the packet before the reviewer complied.
-- Why acceptable: no invalid output was ever consumed as a verdict; the durable records stayed clean.
+- HUMAN RULING (2026-09-13): "we're not going to be sticklers for schema adherence for something passed between two
+  agents — they will understand what's in there, this is not an error." The agents' output is NOT the defect; the
+  runtime's fail-closed rejection of an off-shape PROVIDER RESULT is. Structural integrity checks belong to the DURABLE
+  records the runtime constructs (review/approval/verification/implementation-review JSON) and to the input closure —
+  not to the message one agent hands the next. Reframes the proper solution below: the runtime should read a
+  provider result leniently (extract the verdict, per-ID results, findings and decisions from what is there; ask the
+  same agent for a clarification only when the content is genuinely ambiguous) and construct the well-formed durable
+  record itself; a shape deviation never blocks a work item or costs a cycle.
+- Why acceptable (before the ruling): no invalid output was ever consumed as a verdict; the durable records stayed clean.
 - Proper solution: (a) inline the §5 skeleton (field names, enum values, "subject = REVIEW_BASELINE path + sha256")
   in the generated requirements-reviewer task directive; (b) on a shape-invalid provider result, return the exact
   structural errors to the SAME reviewer for one bounded in-run correction before blocking the item (the author's

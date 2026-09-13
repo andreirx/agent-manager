@@ -263,6 +263,11 @@ code at start, so mid-run edits do not affect it.
   claude --supervisor-model claude-opus-4-8` so the gate stays two-vendor (a Codex `sol` escalation
   review is then same-vendor — say so in the record). `--dry-run` the first launch to inspect the codex
   builder invocation (sandbox mode, working dir, prompt) before a real run; ship lines record both models.
+- **Agent-to-agent results are not schema-policed (human ruling 2026-09-13):** "we're not going to be sticklers for
+  schema adherence for something passed between two agents — they will understand what's in there, this is not an
+  error." Do not steer builders/reviewers on JSON shape minutiae and do not count a shape deviation as a defect of the
+  agent; the runtime's fail-closed provider-result validation is the thing to fix (TD-020). Integrity rules stay on
+  durable records and the input closure.
 - **Bootstrapping a packet under the overhauled relay: copy a VALID CURRENT record, never an old one (bitten 2026-09-13,
   two refused launches; human: "I told you agent-manager was overhauled maybe you should check its docs"):** MANAGER.md §2
   says it — read the current contract and a valid record (`.agent-manager/slices/ASSURANCE-3/status.json`) before
