@@ -623,3 +623,24 @@ while another live run holds it.
   at dry-run, not at launch (it admitted the malformed packet).
 - When to address: before the next operator-bootstrapped assured item.
 - Status: OPEN
+
+## TD-019 — the structured requirements review accepts an implementation allocation the stage-3 admission then refuses; IMPLEMENT_OBLIGATION_IDS means the whole allocation
+
+- Date: 2026-09-13 (first assured run on repo-graph, TRUST-MODULE-EDGES-1)
+- What was done: the REQUIREMENTS_DOCUMENT item authored a stage-3 allocation block; the structured reviewer (Terra)
+  accepted the candidate 26/26 at cycle 5; the operator approved; the implementation dry-run under that baseline then
+  refused with `heading-mismatch: preservation obligation 'P-TME-0N' has no prose declaration` ×3 and 15×
+  `subject-mismatch: allocated obligation … is absent from IMPLEMENT_OBLIGATION_IDS`. Neither check runs during the
+  document review: the allocation parser (`assurance.ts` prose-declaration regex; allocation⊆packet rule) is only
+  invoked at implementation admission. The P-ID prose rule is documented only by example (the accepted ASSURANCE-3
+  slice's table), not in a contract. Cost: one extra document item (INPUT-2) with a fresh review + approval.
+- Also: `IMPLEMENT_OBLIGATION_IDS` must equal implements ∪ preserves ∪ changes (assurance.ts:1770-1776), so a packet
+  that lists only the Ls the builder implements is refused; the name says "implement", the contract means "allocate".
+- Why acceptable: fail-closed at admission is correct; no provider ran against the bad allocation.
+- Proper solution: (a) run the allocation parser's packet-independent checks (prose declarations, check coverage,
+  disjointness, preserve-oracle wording) inside the REQUIREMENTS_DOCUMENT review path when the SLICE_DOC carries the
+  stage-3 block, so a document item cannot be accepted with an inadmissible allocation; (b) document the P-ID prose
+  rule in the contract; (c) rename the packet line (`ALLOCATED_OBLIGATION_IDS`) or document that it names the whole
+  allocation — a name that does not match its contract misleads the manager exactly as it did here.
+- When to address: before the next stage-3 item on any target.
+- Status: OPEN
