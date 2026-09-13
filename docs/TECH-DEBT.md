@@ -696,3 +696,24 @@ while another live run holds it.
   runtime's rigidity on a correct correction cost manager time without adding assurance.
 - Status: OPEN.
 
+## TD-022 — A stale oracle token costs a full re-baseline because document review cannot execute (2026-09-13)
+
+- What was done: TRUST-MODULE-EDGES-1's TME-C08B (`grep -i 'calls resolved'`) and TME-C14B (`"total_files"`) never
+  matched the product's real output ("your code's calls N% resolved (…)"; `indexed_file_count`). Three document
+  reviews accepted them — correctly under their contract, which forbids executing commands — and the defect surfaced
+  only when the stage-3 builder ran them. The builder substituted stronger byte-identity evidence and reported
+  `passed`; the implementation reviewer refused to close a mandatory check on substituted evidence and raised
+  D-TME-VALIDATION-STALE-1 (A: amend + re-approve; B: bend product output to stale greps — forbidden; C: refuse the
+  proven fix). The manager took A: INPUT-4 for a token correction, then re-admission (TD-021 again).
+- Why acceptable: the fail-closed behaviour is correct — a mandatory check that cannot pass as written must not be
+  counted passed; the builder's substitution, however honest, was a redefinition. The cost is ceremony, not risk.
+- Proper solution (two parts): (1) stage-3 builders report a check whose command cannot execute as written as
+  `execution-failed` with the stronger evidence attached — never `passed` (prompt rule; `builder-target.md`); (2) an
+  operator-recorded **oracle correction** for a check whose command text is demonstrably stale (token absent from the
+  current output, intent unchanged) that the implementation reviewer may accept without a new baseline — the record
+  names the check, the old/new token, the evidence, and the approver, and is itself reviewed at closeout. Without (2),
+  every literal in a check command is a latent re-baseline.
+- When to address: Stage-4 proportionality discussion, with TD-020/TD-021 — three cases in one slice where the
+  runtime's rigidity on a correct correction cost manager time without adding assurance.
+- Status: OPEN.
+
