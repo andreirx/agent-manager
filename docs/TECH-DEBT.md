@@ -611,6 +611,10 @@ while another live run holds it.
   EXIT-CODES-1, carries) — `TARGET_ACTOR_VALUES` admits only `claude|codex|copilot|human`. The operator set
   `lastActor: "claude"` (the manager session's provider) to proceed. The refusal message did not name the failing
   field, so each attempt cost a launch.
+- Root cause (corrected 2026-09-13 after the human's remark): the manager did NOT follow MANAGER.md §2 — "read the current
+  contract and a valid record before constructing one; do not guess fields". Every valid record in the accepted self-build
+  (ASSURANCE-2-PREP, ASSURANCE-3) carries a provider value in `lastActor`; the manager copied an old hand-closed repo-graph
+  record instead. The items below are secondary diagnostic gaps, not the cause.
 - Why acceptable: the refusal is fail-closed (correct); the fix is local to the packet; no provider ran.
 - Proper solution: (a) the refusal names the offending field and value; (b) decide whether an `operator`/`manager`
   actor value is a legitimate `lastActor` for operator-bootstrapped packets (the manager playbook says the operator

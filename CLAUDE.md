@@ -263,6 +263,12 @@ code at start, so mid-run edits do not affect it.
   claude --supervisor-model claude-opus-4-8` so the gate stays two-vendor (a Codex `sol` escalation
   review is then same-vendor — say so in the record). `--dry-run` the first launch to inspect the codex
   builder invocation (sandbox mode, working dir, prompt) before a real run; ship lines record both models.
+- **Bootstrapping a packet under the overhauled relay: copy a VALID CURRENT record, never an old one (bitten 2026-09-13,
+  two refused launches; human: "I told you agent-manager was overhauled maybe you should check its docs"):** MANAGER.md §2
+  says it — read the current contract and a valid record (`.agent-manager/slices/ASSURANCE-3/status.json`) before
+  constructing `status.json`; `lastActor`/`builderProvider`/`supervisorProvider` take provider values
+  (`claude|codex|copilot|human`). When the overhaul changes a contract, re-read the docs BEFORE the first launch, not after
+  the refusal.
   BUILDER DIRECTIVE (human 2026-09-13, "you can use claude-opus-4-8 for the builder going forward"): for repo-graph
   slices launch with `--builder claude --builder-model claude-opus-4-8`; the reviewer stays Codex `gpt-5.6-terra`
   (two-vendor gate). The overhaul track's own self-build assignment (Codex/Codex) is unchanged. First assured
