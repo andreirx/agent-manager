@@ -268,6 +268,11 @@ code at start, so mid-run edits do not affect it.
   error." Do not steer builders/reviewers on JSON shape minutiae and do not count a shape deviation as a defect of the
   agent; the runtime's fail-closed provider-result validation is the thing to fix (TD-020). Integrity rules stay on
   durable records and the input closure.
+- **An oracle that selects a test the slice REWRITES must name the NEW identity (bitten 2026-09-13, TRUST-MODULE-EDGES-1,
+  D-TME-TEST-NAME-1):** TME-C03 bound `suspicious_modules_state_basis_and_point_at_stats` by exact filter while the slice
+  inverted its assertions; the builder kept the false name "so the assurance check selects it" and the reviewer
+  correctly blocked — a third re-baseline for a rename. When a packet rewrites a test's behaviour, rename it IN THE
+  PACKET and bind the new name; every literal identity in a check command is a latent re-baseline (see TD-022/TD-023).
 - **Bootstrapping a packet under the overhauled relay: copy a VALID CURRENT record, never an old one (bitten 2026-09-13,
   two refused launches; human: "I told you agent-manager was overhauled maybe you should check its docs"):** MANAGER.md §2
   says it — read the current contract and a valid record (`.agent-manager/slices/ASSURANCE-3/status.json`) before

@@ -717,3 +717,17 @@ while another live run holds it.
   runtime's rigidity on a correct correction cost manager time without adding assurance.
 - Status: OPEN.
 
+## TD-023 — A bound oracle can lock a false name into the candidate (2026-09-13)
+
+- What was done: TRUST-MODULE-EDGES-1's TME-C03 selected a render test by exact name while the slice inverted that
+  test's assertions. The stage-3 builder kept the contradictory name to satisfy the check (its comment said so) and
+  reported the check passed; the implementation reviewer raised D-TME-TEST-NAME-1. Manager took A: rename + INPUT-5.
+- Why acceptable: the reviewer caught it; the fix is a rename plus a text-only oracle amendment.
+- Proper solution: (1) `builder-target.md` rule — a builder never introduces or retains an identifier whose name
+  contradicts its behaviour to satisfy a check; it reports the check `execution-failed` with the naming conflict named
+  and STOPs, so the manager fixes the oracle (same family as TD-022's rule); (2) the manager's packet-authoring
+  checklist: every test/function identity in a check command is re-read against the slice's own planned rewrites.
+- When to address: with TD-020–022 in the Stage-4 discussion; the prompt rule is a one-line additive change to a
+  tracked prompt and should go through the overhaul track's own path, not be patched mid-slice.
+- Status: OPEN.
+
