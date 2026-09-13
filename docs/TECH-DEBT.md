@@ -671,3 +671,28 @@ while another live run holds it.
   `implementation-evidence-result` (the first stage-3 builder wrapped valid JSON in prose + a fence).
 - When to address: before the next assured item on any target.
 - Status: OPEN
+
+## TD-021 — A superseded approved baseline strands its in-flight work item (2026-09-13)
+
+- What was done: TRUST-MODULE-EDGES-1's implementation item was admitted under INPUT-2; cycle 0 STOPPED correctly
+  on a wrong predicted movement; the human ruled (D-TME-MOVEMENT-1) and the allocation was corrected, reviewed and
+  approved as INPUT-3. Resuming the item was then refused three ways, all by design: the persisted assurance object
+  binds the item to INPUT-2 (`subject-mismatch … persisted assurance conflicts with --baseline`); candidate tracking
+  pins `baseRevision` 61fa68c and refuses a later HEAD; and a fresh item under a new ID is refused because
+  `workItemId` sits inside the bound allocation block (`allocation names 'TRUST-MODULE-EDGES-1'`), so renaming would
+  force an identity-only re-review (INPUT-4). The manager retired the first admission's LOCAL process-trail record
+  (`.agent-manager/slices/TRUST-MODULE-EDGES-1.superseded-INPUT-2/`, with a `superseded.md`) and admitted the same
+  work item fresh under INPUT-3, carrying the cycle-0 candidate. No durable record was edited; no status line was
+  changed to manufacture admission.
+- Why acceptable: `.agent-manager/` is gitignored process trail (ratified 2026-06-28), not the system of record; the
+  durable chain (INPUT-3 review + approval, repo-graph 7a2b2f2) is real and independently reviewed; the retired record
+  is preserved and names its successor. The alternative — INPUT-4 for a name change — buys no information.
+- Proper solution: an explicit, recorded supersession: `--supersede-baseline <old> --baseline <new>` on an admitted
+  item requires the new manifest to be reviewed+approved AND to name the same `workItemId`, writes
+  `assurance.superseded[]` (old manifest ref, new manifest ref, reason, approval ref) into the item's status, and
+  returns candidate tracking to `building` at the current HEAD. Fail closed on anything else. This keeps the
+  "one manifest per item" invariant auditable instead of forcing the manager around it.
+- When to address: with the Stage-4 proportionality discussion — this is the second case (with TD-020) where the
+  runtime's rigidity on a correct correction cost manager time without adding assurance.
+- Status: OPEN.
+
