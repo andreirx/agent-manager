@@ -268,6 +268,9 @@ code at start, so mid-run edits do not affect it.
   error." Do not steer builders/reviewers on JSON shape minutiae and do not count a shape deviation as a defect of the
   agent; the runtime's fail-closed provider-result validation is the thing to fix (TD-020). Integrity rules stay on
   durable records and the input closure.
+  RUNTIME NOW TOLERATES THE WRAPPER (2026-09-13): `extractProviderResultJson` pulls the first balanced object out of a
+  final message before the strict parse — do not add "bare JSON only" steering to packets any more; a field-shape
+  deviation inside the object is still reported by the runtime and is still not the agent's fault (TD-020 open part).
 - **An oracle that selects a test the slice REWRITES must name the NEW identity (bitten 2026-09-13, TRUST-MODULE-EDGES-1,
   D-TME-TEST-NAME-1):** TME-C03 bound `suspicious_modules_state_basis_and_point_at_stats` by exact filter while the slice
   inverted its assertions; the builder kept the false name "so the assurance check selects it" and the reviewer

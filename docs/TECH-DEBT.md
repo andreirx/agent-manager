@@ -664,6 +664,15 @@ while another live run holds it.
   same agent for a clarification only when the content is genuinely ambiguous) and construct the well-formed durable
   record itself; a shape deviation never blocks a work item or costs a cycle.
 - Why acceptable (before the ruling): no invalid output was ever consumed as a verdict; the durable records stayed clean.
+- MITIGATED (2026-09-13, operator change under the ruling): `extractProviderResultJson` (core/assurance.ts) takes the
+  first balanced top-level JSON object from a provider's final message before the UNCHANGED strict parse at the three
+  provider-result sites (implementation evidence, implementation review, requirements review). A leading sentence, a
+  Markdown fence or a trailing remark no longer blocks a cycle; when no balanced object exists the original text is
+  parsed and the original error surfaces. The original message stays in the trail (`build-N.md`, `review-N.json.raw`).
+  Additive; 5 unit tests; 173/173; dry-run parity. Made by hand OUTSIDE the assured self-build path because three
+  implementation cycles (~1 h) were lost to the wrapper alone with correct evidence inside each — recorded here so the
+  bypass is visible. Still open: the broader lenient reading (tolerating field-shape drift such as a non-ContentRef
+  `subject`) and in-run clarification — those are Stage-4 discussion items, not patched.
 - Proper solution: (a) inline the §5 skeleton (field names, enum values, "subject = REVIEW_BASELINE path + sha256")
   in the generated requirements-reviewer task directive; (b) on a shape-invalid provider result, return the exact
   structural errors to the SAME reviewer for one bounded in-run correction before blocking the item (the author's

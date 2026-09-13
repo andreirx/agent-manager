@@ -48,6 +48,7 @@ import {
   type ImplementationReviewResult,
   type CandidateTreeObservation,
   type CandidateCheckpoint,
+  extractProviderResultJson,
 } from '../../core/assurance.js';
 import { ClaudeAdapter } from '../../adapters/providers/claude-code/adapter.js';
 import { CodexAdapter } from '../../adapters/providers/codex/adapter.js';
@@ -3923,3 +3924,27 @@ describe('ASSURANCE-2 v2 resume/refusal gates (A2-C05/C07)', () => {
     }
   });
 });
+
+describe('provider-result framing is not an error (human ruling 2026-09-13, TD-020)', () => {
+  const object = '{"formatVersion": 3, "kind": "implementation-evidence-result", "report": "a } inside a string \\" and an escaped quote"}';
+  it('returns a bare object unchanged', () => {
+    expect(extractProviderResultJson(object)).toBe(object);
+    expect(extractProviderResultJson(`  \n${object}\n`)).toBe(`  \n${object}\n`);
+  });
+  it('extracts the object from a leading sentence and a trailing remark', () => {
+    expect(extractProviderResultJson(`All 22 checks pass. Emitting the result.\n\n${object}\n\nDone.`)).toBe(object);
+  });
+  it('extracts the object from a Markdown fence', () => {
+    expect(extractProviderResultJson(`Result:\n\`\`\`json\n${object}\n\`\`\``)).toBe(object);
+  });
+  it('honours braces inside strings when finding the balanced close', () => {
+    const extracted = extractProviderResultJson(`note ${object} tail`);
+    expect(JSON.parse(extracted)).toMatchObject({ formatVersion: 3, kind: 'implementation-evidence-result' });
+  });
+  it('returns the text unchanged when no balanced object exists, so the strict error surfaces', () => {
+    const unbalanced = 'STATUS: approved {"formatVersion": 3, "kind": "x"';
+    expect(extractProviderResultJson(unbalanced)).toBe(unbalanced);
+    expect(extractProviderResultJson('no json here')).toBe('no json here');
+  });
+});
+

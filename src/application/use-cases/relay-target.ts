@@ -63,6 +63,7 @@ import {
   type CandidateTracking,
   type ImplementationEvidenceResult,
   type ImplementationReviewResult,
+  extractProviderResultJson,
 } from '../../core/assurance.js';
 import { parseVerdict } from './relay-shared.js';
 
@@ -1578,7 +1579,8 @@ async function runImplement(
     if (result.outputArtifacts.length !== 1 || typeof result.outputArtifacts[0]?.content !== 'string') throw new Error('invalid-field: stage-3 builder must return exactly one text artifact');
     const checkpoint = await observeStage3Checkpoint(input, deps, stage3);
     if (checkpoint.baseRevision !== status.candidateTracking?.baseRevision) throw new Error('subject-mismatch: candidate HEAD changed during builder execution');
-    const raw = result.outputArtifacts[0].content;
+    // Framing around the object is not an error (TD-020); the extracted object meets the identical strict parse.
+    const raw = extractProviderResultJson(result.outputArtifacts[0].content);
     const parsed = parseImplementationEvidenceResult({ snapshot: { status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(raw), sha256: deps.computeDigest(raw) }, allocation: stage3.allocation, allocationRef: stage3.allocationRef, checkpoint });
     if (!parsed.ok) throw new Error(`Invalid structured implementation evidence:\n${parsed.errors.map(renderAssuranceError).join('\n')}`);
     const verification = makeVerificationDraft({ input, status, stage3, checkpoint, evidence: parsed.value, result });
@@ -1729,12 +1731,14 @@ async function runReview(
     return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'invalid-field: provider-result /: requirements reviewer must return exactly one text artifact');
   }
   const raw = String(result.outputArtifacts[0]?.content ?? '');
+  // Framing around the object is not an error (TD-020); `raw` stays in the trail, the extracted object is what is parsed.
+  const resultJson = extractProviderResultJson(raw);
   if (stage3) {
     if (!stage3Evidence) throw new Error('invalid-field: implementation review has no evidence-bound candidate');
     if (result.outputArtifacts.length !== 1 || typeof result.outputArtifacts[0]?.content !== 'string') return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'invalid-field: stage-3 reviewer must return exactly one text artifact');
     const afterReview = await observeStage3Checkpoint(input, deps, stage3);
     if (!sameCheckpoint(afterReview, stage3Evidence.checkpoint)) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'subject-mismatch: candidate changed during implementation review');
-    const parsed = parseImplementationReviewResult({ snapshot: { status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(raw), sha256: deps.computeDigest(raw) }, allocation: stage3.allocation, checkpoint: stage3Evidence.checkpoint, verificationSha256: stage3Evidence.verificationSha256, evidence: stage3Evidence.evidence });
+    const parsed = parseImplementationReviewResult({ snapshot: { status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(resultJson), sha256: deps.computeDigest(resultJson) }, allocation: stage3.allocation, checkpoint: stage3Evidence.checkpoint, verificationSha256: stage3Evidence.verificationSha256, evidence: stage3Evidence.evidence });
     await writeFile(join(sliceDir, `review-${status.iteration}.json`), JSON.stringify({ iteration: status.iteration, raw, parsed: parsed.ok ? parsed.value : { errors: parsed.errors } }, null, 2), 'utf-8');
     if (!parsed.ok) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `Invalid structured implementation review:\n${parsed.errors.map(renderAssuranceError).join('\n')}`);
     if (parsed.value.result === 'refinement-required') {
@@ -1804,7 +1808,7 @@ async function runReview(
     if (currentCandidate.manifestRef.path !== candidate.manifestRef.path || currentCandidate.manifestRef.sha256 !== candidate.manifestRef.sha256) {
       return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'subject-mismatch: requirements candidate changed during review');
     }
-    const parsed = parseRequirementsReviewResult({ status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(raw), sha256: deps.computeDigest(raw) }, candidate.manifestRef, posture.reviewObligationIds);
+    const parsed = parseRequirementsReviewResult({ status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(resultJson), sha256: deps.computeDigest(resultJson) }, candidate.manifestRef, posture.reviewObligationIds);
     await writeFile(join(sliceDir, `review-${status.iteration}.json`), JSON.stringify({ iteration: status.iteration, raw, parsed: parsed.ok ? parsed.value : { errors: parsed.errors } }, null, 2), 'utf-8');
     if (!parsed.ok) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `Invalid structured requirements review:\n${parsed.errors.map(renderAssuranceError).join('\n')}`);
     if (parsed.value.result === 'refinement-required') {

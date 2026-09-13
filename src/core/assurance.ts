@@ -594,6 +594,40 @@ function duplicateJsonFields(raw: string, recordPath: string): AssuranceError[] 
   return errors;
 }
 
+/**
+ * Provider results are messages from one agent to the runtime (human ruling
+ * 2026-09-13, TD-020): the framing around the JSON object — a leading sentence,
+ * a Markdown fence, a trailing remark — is not an error. Return the first
+ * balanced top-level JSON object found in `raw`; when `raw` already begins with
+ * `{` or no balanced object exists, return `raw` unchanged so the strict parser
+ * reports exactly what it always did. Strings and escapes are honoured, so
+ * braces inside string values do not end the scan. Schema validation of the
+ * extracted object is unchanged — only the wrapper is tolerated.
+ */
+export function extractProviderResultJson(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('{')) return raw;
+  const start = raw.indexOf('{');
+  if (start < 0) return raw;
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (inString) {
+      if (ch === '\\') i += 1;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return raw.slice(start, i + 1);
+    }
+  }
+  return raw;
+}
+
 /** Parse JSON under the v1 no-BOM/no-duplicate-member rules. */
 export function parseAssuranceJson(raw: string, recordPath: string): ParsedRecord<unknown> {
   if (raw.startsWith('\uFEFF')) {
