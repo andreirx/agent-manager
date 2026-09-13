@@ -1,0 +1,168 @@
+## A3-C01
+$ npm test -- --runInBand -t 'ASSURANCE-3 pure allocation, evidence and review policy'
+Exit: 0
+    ○ skipped blocks a unreadable active selection packet instead of constructing an empty one
+    ○ skipped resumes the admitted v1 document bridge using ADMISSION_ALLOCATION while output paths are absent
+    ○ skipped reads the complete accepted closure once per live role snapshot attempt
+    ○ skipped reuses one admitted capture for each v2 decision role and refreshes it between roles
+    ○ skipped delivers one admitted role snapshot, then blocks the next role when live baseline bytes drift
+    ○ skipped captures each rooted prompt/selection input once while composing both reviewed dry-run deliveries
+
+Test Suites: 1 passed, 1 total
+Tests:       164 skipped, 4 passed, 168 total
+Snapshots:   0 total
+Time:        7.196 s
+Ran all test suites with tests matching "ASSURANCE-3 pure allocation, evidence and review policy".
+
+## A3-C02
+$ npm test -- --runInBand -t 'ASSURANCE-3 candidate identity and scope'
+Exit: 0
+    ○ skipped blocks a unreadable active selection packet instead of constructing an empty one
+    ○ skipped resumes the admitted v1 document bridge using ADMISSION_ALLOCATION while output paths are absent
+    ○ skipped reads the complete accepted closure once per live role snapshot attempt
+    ○ skipped reuses one admitted capture for each v2 decision role and refreshes it between roles
+    ○ skipped delivers one admitted role snapshot, then blocks the next role when live baseline bytes drift
+    ○ skipped captures each rooted prompt/selection input once while composing both reviewed dry-run deliveries
+
+Test Suites: 1 passed, 1 total
+Tests:       167 skipped, 1 passed, 168 total
+Snapshots:   0 total
+Time:        1.669 s, estimated 7 s
+Ran all test suites with tests matching "ASSURANCE-3 candidate identity and scope".
+
+## A3-C03
+$ npm test -- --runInBand -t 'ASSURANCE-3 evidence outcomes and completion readiness'
+Exit: 0
+    ○ skipped blocks a unreadable active selection packet instead of constructing an empty one
+    ○ skipped resumes the admitted v1 document bridge using ADMISSION_ALLOCATION while output paths are absent
+    ○ skipped reads the complete accepted closure once per live role snapshot attempt
+    ○ skipped reuses one admitted capture for each v2 decision role and refreshes it between roles
+    ○ skipped delivers one admitted role snapshot, then blocks the next role when live baseline bytes drift
+    ○ skipped captures each rooted prompt/selection input once while composing both reviewed dry-run deliveries
+
+Test Suites: 1 passed, 1 total
+Tests:       165 skipped, 3 passed, 168 total
+Snapshots:   0 total
+Time:        1.201 s
+Ran all test suites with tests matching "ASSURANCE-3 evidence outcomes and completion readiness".
+
+## A3-C04
+$ npm test -- --runInBand -t 'ASSURANCE-3 target relay evidence gate'
+Exit: 0
+    ○ skipped blocks a unreadable active selection packet instead of constructing an empty one
+    ○ skipped resumes the admitted v1 document bridge using ADMISSION_ALLOCATION while output paths are absent
+    ○ skipped reads the complete accepted closure once per live role snapshot attempt
+    ○ skipped reuses one admitted capture for each v2 decision role and refreshes it between roles
+    ○ skipped delivers one admitted role snapshot, then blocks the next role when live baseline bytes drift
+    ○ skipped captures each rooted prompt/selection input once while composing both reviewed dry-run deliveries
+
+Test Suites: 1 passed, 1 total
+Tests:       158 skipped, 10 passed, 168 total
+Snapshots:   0 total
+Time:        3.043 s
+Ran all test suites with tests matching "ASSURANCE-3 target relay evidence gate".
+
+## A3-C05
+$ npm test -- --runInBand -t 'ASSURANCE-3 implementation reviewer contract'
+Exit: 0
+    ○ skipped blocks a unreadable active selection packet instead of constructing an empty one
+    ○ skipped resumes the admitted v1 document bridge using ADMISSION_ALLOCATION while output paths are absent
+    ○ skipped reads the complete accepted closure once per live role snapshot attempt
+    ○ skipped reuses one admitted capture for each v2 decision role and refreshes it between roles
+    ○ skipped delivers one admitted role snapshot, then blocks the next role when live baseline bytes drift
+    ○ skipped captures each rooted prompt/selection input once while composing both reviewed dry-run deliveries
+
+Test Suites: 1 passed, 1 total
+Tests:       163 skipped, 5 passed, 168 total
+Snapshots:   0 total
+Time:        1.106 s, estimated 3 s
+Ran all test suites with tests matching "ASSURANCE-3 implementation reviewer contract".
+
+## A3-C06
+$ npm test -- --runInBand -t 'ASSURANCE-3 mutation and publication ordering'
+Exit: 0
+    ○ skipped blocks a unreadable active selection packet instead of constructing an empty one
+    ○ skipped resumes the admitted v1 document bridge using ADMISSION_ALLOCATION while output paths are absent
+    ○ skipped reads the complete accepted closure once per live role snapshot attempt
+    ○ skipped reuses one admitted capture for each v2 decision role and refreshes it between roles
+    ○ skipped delivers one admitted role snapshot, then blocks the next role when live baseline bytes drift
+    ○ skipped captures each rooted prompt/selection input once while composing both reviewed dry-run deliveries
+
+Test Suites: 1 passed, 1 total
+Tests:       163 skipped, 5 passed, 168 total
+Snapshots:   0 total
+Time:        2.721 s
+Ran all test suites with tests matching "ASSURANCE-3 mutation and publication ordering".
+
+## A3-C07
+$ npm test -- --runInBand
+Exit: 0
+    ✓ blocks a unreadable active selection packet instead of constructing an empty one (40 ms)
+    ✓ resumes the admitted v1 document bridge using ADMISSION_ALLOCATION while output paths are absent (91 ms)
+    ✓ reads the complete accepted closure once per live role snapshot attempt (103 ms)
+    ✓ reuses one admitted capture for each v2 decision role and refreshes it between roles (526 ms)
+    ✓ delivers one admitted role snapshot, then blocks the next role when live baseline bytes drift (149 ms)
+    ✓ captures each rooted prompt/selection input once while composing both reviewed dry-run deliveries (82 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       168 passed, 168 total
+Snapshots:   0 total
+Time:        67.67 s
+Ran all test suites.
+
+## A3-C08
+$ npm run build && npm test -- --runInBand -t 'ASSURANCE-3 built CLI evidence gate'
+Exit: 0
+    ○ skipped blocks a unreadable active selection packet instead of constructing an empty one
+    ○ skipped resumes the admitted v1 document bridge using ADMISSION_ALLOCATION while output paths are absent
+    ○ skipped reads the complete accepted closure once per live role snapshot attempt
+    ○ skipped reuses one admitted capture for each v2 decision role and refreshes it between roles
+    ○ skipped delivers one admitted role snapshot, then blocks the next role when live baseline bytes drift
+    ○ skipped captures each rooted prompt/selection input once while composing both reviewed dry-run deliveries
+
+Test Suites: 1 passed, 1 total
+Tests:       167 skipped, 1 passed, 168 total
+Snapshots:   0 total
+Time:        36.269 s, estimated 68 s
+Ran all test suites with tests matching "ASSURANCE-3 built CLI evidence gate".
+
+## A3-C10
+$ npm run typecheck
+Exit: 0
+
+> agent-manager@0.1.0 typecheck
+> tsc --noEmit
+
+## final-primary-typecheck
+$ npm run typecheck
+Exit: 0
+
+> agent-manager@0.1.0 typecheck
+> tsc --noEmit
+
+## final-primary-build
+$ npm run build
+Exit: 0
+
+> agent-manager@0.1.0 build
+> tsc
+
+## final-primary-tests
+$ npm test -- --runInBand
+Exit: 0
+    ✓ blocks a unreadable active selection packet instead of constructing an empty one (9 ms)
+    ✓ resumes the admitted v1 document bridge using ADMISSION_ALLOCATION while output paths are absent (20 ms)
+    ✓ reads the complete accepted closure once per live role snapshot attempt (21 ms)
+    ✓ reuses one admitted capture for each v2 decision role and refreshes it between roles (31 ms)
+    ✓ delivers one admitted role snapshot, then blocks the next role when live baseline bytes drift (20 ms)
+    ✓ captures each rooted prompt/selection input once while composing both reviewed dry-run deliveries (12 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       168 passed, 168 total
+Snapshots:   0 total
+Time:        9.212 s
+Ran all test suites.
+
+## final-primary-diff
+$ git diff --check
+Exit: 0

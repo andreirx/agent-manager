@@ -1,0 +1,54 @@
+{
+  "recordedAt": "2026-09-13T10:49:42.467Z",
+  "actor": "in-place-manager",
+  "scope": "Actual approved allocation, human-authorized four-link correction; parser check only, not new baseline admission",
+  "sourceHead": "766d4767582394183387c7fb154fe15889edb847",
+  "subject": {
+    "path": "docs/slices/assurance-3-evidence-linked-review.md",
+    "beforeSha256": "sha256:70bb608fa565055e24dd323b63a30c72ee178f41642e0ee7ac18b34da89f7025",
+    "afterSha256": "sha256:0ae1d2910cf59203140dc99429022747383fdc0d32a68dae1d3da30e80538eb8"
+  },
+  "onlyFourLinksRemoved": true,
+  "unchanged": {
+    "implementedRequirements": 13,
+    "preservationObligations": 8,
+    "checks": 10,
+    "parentRequirementIds": [
+      "AM-REQ-003",
+      "AM-REQ-004",
+      "AM-REQ-005",
+      "AM-REQ-007"
+    ]
+  },
+  "parseResult": "passed",
+  "originalFailure": {
+    "ok": false,
+    "errors": [
+      {
+        "code": "review-coverage-unknown",
+        "recordPath": "docs/slices/assurance-3-evidence-linked-review.md",
+        "location": "/checks/1/obligationIds",
+        "detail": "check references unallocated obligation 'AM-REQ-004'"
+      },
+      {
+        "code": "review-coverage-unknown",
+        "recordPath": "docs/slices/assurance-3-evidence-linked-review.md",
+        "location": "/checks/2/obligationIds",
+        "detail": "check references unallocated obligation 'AM-REQ-005'"
+      },
+      {
+        "code": "review-coverage-unknown",
+        "recordPath": "docs/slices/assurance-3-evidence-linked-review.md",
+        "location": "/checks/3/obligationIds",
+        "detail": "check references unallocated obligation 'AM-REQ-003'"
+      },
+      {
+        "code": "review-coverage-unknown",
+        "recordPath": "docs/slices/assurance-3-evidence-linked-review.md",
+        "location": "/checks/8/obligationIds",
+        "detail": "check references unallocated obligation 'AM-REQ-007'"
+      }
+    ]
+  },
+  "reviewedCandidateUnchanged": true
+}

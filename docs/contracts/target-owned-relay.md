@@ -97,6 +97,80 @@ blocks with a visible matrix, and acceptance creates only
 `docs/assurance/<baselineId>/requirements-review.json` before stopping with
 `reviewed baseline awaiting operator approval`. It never creates approval.
 
+## Evidence-linked implementation review (stage 3, PROTOTYPE)
+
+A v2-admitted `ARTIFACT_KIND: IMPLEMENTATION` whose `SLICE_DOC` begins with the
+closed `requirements-assurance-implementation-v1` metadata block takes the
+stage-3 path. Other v2 implementation work and every v1/legacy item keep their
+existing prose-verdict routing. The relay records that admitted choice in the
+generated role directive's final `ROLE_OUTPUT_CONTRACT` field; both role prompts
+explicitly treat allocation metadata alone as insufficient to select structured
+stage-3 output. The allocation fixes the implements/preserves/
+changes sets, preservation IDs, acceptance boundary, allowed candidate paths,
+operational exclusions, exactly two post-review output paths, and mandatory
+checks before the builder is invoked. Each check identifies its obligations,
+owner, method, inputs/environment, expected oracle, and contains no optional
+flag. Explicit preservation-only work may bind an empty checkpoint; path count
+is never treated as semantic proof.
+
+Before the first builder call, the relay observes the target's exact Git HEAD
+and requires no non-excluded changes. It persists a closed `candidateTracking`
+state with that base revision. After the builder returns, the CLI mechanism
+captures porcelain-v1 status, stage-0 index blob bytes/mode through
+`git ls-files --stage` and `git cat-file --batch`, and non-followed regular
+working-tree bytes/mode. Pure policy rejects conflicts, unsupported nodes,
+inconsistent present/absent states, escaping/duplicate paths, HEAD drift and
+changes outside `candidatePaths`; it canonicalizes the remaining entries and
+binds them with SHA-256. Index and working-tree identities remain separate, so
+an index-only or executable-bit change cannot hide behind unchanged working
+bytes or the same porcelain spelling. The reviewer representation is likewise
+split: a labelled `HEAD`-to-index binary diff exposes staged content, a labelled
+index-to-working-tree binary diff exposes unstaged content, and a third labelled
+section carries each in-scope untracked file's raw bytes as base64. A combined
+`git diff HEAD` is insufficient because staged content can be cancelled in the
+working tree while remaining part of the checkpoint.
+
+The builder result is one closed `implementation-evidence-result` JSON object.
+Every planned check occurs exactly once with the exhaustive outcome `passed`,
+`failed`, `not-run`, or `execution-failed`; every actual candidate path has one
+authorized change justification. The relay copies that report into a runtime-
+bound verification draft, labels its basis `provider-run-report`, and persists
+`evidence-bound` with the candidate digest. It does not claim it observed the
+provider's command execution independently.
+
+The separate, read-only reviewer receives the accepted common inputs plus the
+allocation, complete candidate checkpoint/diff, verification draft, build
+report, and all prior structured reviews. Its one closed
+`implementation-review-result` must assess every allocated H/L and P ID, every
+planned check, and every actual changed path exactly once. Check verification is
+either a reproduced four-way outcome or an explicit reliance on builder
+evidence. Finding/decision references and aggregate precedence are structural;
+positive prose cannot override them. A refinement returns to the builder with
+the original allocation and all accumulated prior reviews. A decision blocks
+for human authority.
+
+Accepted structure is still not publication or operator acceptance. The relay
+rechecks the candidate after review and immediately before publication, then
+preflights both fixed output paths as definitely absent. It exclusively creates
+`verification.json` first and `implementation-review.json` second. A collision
+writes neither file; a write failure may leave a complete or incomplete subset,
+which is reported as **unaccepted partial publication** and withholds review-
+activity completion. No rollback or retry is inferred. Only both successful
+writes produce these scoped terminal lines:
+
+```text
+implementation review: accepted
+verification: required checks passed for <candidate sha256>
+verification record: <target-relative path> <sha256 of exact published bytes>
+implementation review record: <target-relative path> <sha256 of exact published bytes>
+operator acceptance: not recorded; ASSURANCE-4 gate not delivered
+release/deployment: not performed
+```
+
+The transitional `done` phase therefore means only that this implementation
+review activity ended. It does not mean implementation acceptance, release or
+deployment; ASSURANCE-4 owns that later authority and recovery policy.
+
 ## Two roots (the core distinction)
 
 | Root | Value | Holds |
@@ -149,7 +223,10 @@ select-slice (supervisor, plan/read-only)
   STATUS: blocked  -> blocked
 implement (builder, edit/write)            -> review-impl
 review-impl (supervisor, review/read-only)
-  approved -> done             (no decision surfaced by THIS slice — see trigger rule below)
+  accepted stage-3 structure + stable candidate + both record writes -> done
+                                (review activity only; operator acceptance not recorded)
+  approved legacy/v1/v2 prose -> done
+                                (no decision surfaced by THIS slice — see trigger rule below)
   approved -> decision-review  (THIS slice surfaced a DECISION_REQUIRED — see trigger rule below)
   revise   -> implement (iteration + 1)
   escalate -> blocked
@@ -319,8 +396,12 @@ DECISION_REQUIRED:
 Phase-specific handling:
 
 - `select-slice`: return `STATUS: blocked` and include `DECISION_REQUIRED`.
-- `implement`: stop work and include `DECISION_REQUIRED` in the builder output.
-- `review-impl`: return `STATUS: escalate` and include `DECISION_REQUIRED`.
+- legacy/v1/v2-prose `implement`: stop work and include `DECISION_REQUIRED` in
+  the builder output; stage 3 instead returns its closed evidence result with a
+  non-pass check/limitation or a subsequent review decision.
+- legacy/v1/v2-prose `review-impl`: return `STATUS: escalate` and include
+  `DECISION_REQUIRED`; stage 3 returns `result: "decision-required"` with its
+  closed risk/reward decision records.
 
 Claude is invoked with `--print`, stdin/stdout pipes, and
 `--prompt-suggestions false`. The adapter does not open an interactive session.
@@ -376,13 +457,18 @@ path create-only; invokes no provider; and performs no commit.
 
 `current.json` records the active slice. On start the relay:
 
-1. uses `--slice <id>` if given (skip selection): resumes that slice; if it is
-   `blocked`, unblocks and retries — advancing to a **new** cycle when the
-   blocked cycle already has build/review records (builder-failed / escalated),
-   or **retrying the same index** when the block was the cycle cap (a
-   never-built cycle). The decision is made from the run records on disk, so no
-   build-/review- holes are created. Raise `--max-iter` if the block was the
-   cap. If `done`, reports done;
+1. uses `--slice <id>` if given (skip selection): resumes that slice. A blocked
+   stage-3 structured `decision-required` review is the narrow exception to
+   retry: plain resume reads the retained structured result, preserves the block
+   and matrix, and invokes no builder until a later authorized resolution
+   mechanism exists. Malformed or unreadable retained stage-3 review state also
+   refuses rather than guessing that the block is retryable. Other blocked
+   states unblock and retry: they advance to a **new** cycle when the blocked
+   cycle already has build/review records (builder-failed / invalid review), or
+   **retry the same index** when the block was the cycle cap (a never-built
+   cycle). The decision is made from the run records on disk, so no build-/review-
+   holes are created. Raise `--max-iter` if the block was the cap. If `done`,
+   reports done;
 2. else, unless `--reselect`, resumes the in-flight slice named by
    `current.json` (phase not `done`/`blocked`); a `blocked` active slice stops
    with guidance to pass `--slice <id>` (unblock + retry) or `--reselect`;

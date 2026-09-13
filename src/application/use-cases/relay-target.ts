@@ -39,6 +39,10 @@ import {
   persistedAssuranceV2,
   parseRequirementsReviewResult,
   parseRequirementsReviewRecord,
+  parseImplementationAllocation,
+  parseImplementationEvidenceResult,
+  parseImplementationReviewResult,
+  makeCandidateCheckpoint,
   validateBaselineCandidate,
   persistedAssurance,
   renderAssuranceError,
@@ -53,6 +57,12 @@ import {
   type RequirementsReviewRecord,
   type ApprovalRecordV2,
   type AnyPersistedAssurance,
+  type ImplementationAllocation,
+  type CandidateTreeObservation,
+  type CandidateCheckpoint,
+  type CandidateTracking,
+  type ImplementationEvidenceResult,
+  type ImplementationReviewResult,
 } from '../../core/assurance.js';
 import { parseVerdict } from './relay-shared.js';
 
@@ -92,6 +102,8 @@ export interface TargetRelayStatus {
   supervisorProvider: TargetActor;
   /** Present only for explicit stage-1 baseline-admission operation. */
   assurance?: AnyPersistedAssurance;
+  /** Present only while a stage-3 implementation candidate is being built/reviewed. */
+  candidateTracking?: CandidateTracking;
 }
 
 /** Pointer to the active slice, so a later invocation resumes (not reselects). */
@@ -198,6 +210,12 @@ export interface TargetRelayDeps {
   changedPaths: (targetDir: string) => Promise<readonly string[]>;
   /** Existing filesystem boundary used for contained baseline snapshots. */
   artifactStore: ArtifactStorePort;
+  /** Stage-3 Git/index/working-tree mechanism; required only for a v3 allocation. */
+  observeCandidateTree?: (targetDir: string) => Promise<CandidateTreeObservation>;
+  /** Complete reviewer-facing diff for a stage-3 candidate. */
+  candidateDiff?: (targetDir: string, checkpoint: CandidateCheckpoint) => Promise<string>;
+  /** Create-only durable publication mechanism; required only for stage 3. */
+  createTrackedFileExclusively?: (targetDir: string, path: string, bytes: Uint8Array) => Promise<void>;
 }
 
 /** Result of a full target relay run. */
@@ -231,6 +249,18 @@ type WorkItemPosture =
   | { kind: 'legacy' }
   | { kind: 'implementation'; implementObligationIds?: readonly string[] }
   | { kind: 'requirements-document'; admissionAllocation: string; reviewBaseline: string; reviewObligationIds: readonly string[] };
+
+interface Stage3Context {
+  allocation: ImplementationAllocation;
+  allocationRef: ContentRef;
+}
+
+type RoleOutputContract =
+  | 'legacy-implementation-report'
+  | 'legacy-status-verdict'
+  | 'requirements-assurance/v2-requirements-review'
+  | 'requirements-assurance/v3-implementation-evidence'
+  | 'requirements-assurance/v3-implementation-review';
 
 function packetFieldValues(raw: string, name: string): string[] {
   return raw.split('\n').flatMap((line) => {
@@ -287,6 +317,128 @@ function parseWorkItemPosture(raw: string, assurance: AnyPersistedAssurance | un
     return { kind: 'implementation', ...(obligations[0] ? { implementObligationIds: parseObligationList(obligations[0], 'IMPLEMENT_OBLIGATION_IDS') } : {}) };
   }
   throw new Error(`invalid-field: selection.md ARTIFACT_KIND: unsupported value '${kinds[0]}'`);
+}
+
+async function loadStage3Context(args: {
+  workItemId: string;
+  sliceDoc: string;
+  assurance: AnyPersistedAssurance;
+  posture: WorkItemPosture;
+  manifest: BaselineManifest | undefined;
+  admittedSnapshots: readonly AssuranceSnapshot[];
+}): Promise<Stage3Context | undefined> {
+  if (args.assurance.contract !== 'requirements-assurance/v2-stage2' || args.posture.kind !== 'implementation' || args.manifest?.formatVersion !== 2) return undefined;
+  const admittedAllocations = args.manifest.dependencies.filter((dependency) => dependency.role === 'allocation' && dependency.path === args.sliceDoc);
+  if (admittedAllocations.length !== 1) throw new Error(`subject-mismatch: stage-3 SLICE_DOC '${args.sliceDoc}' is not the unique admitted allocation dependency`);
+  const snapshot = args.admittedSnapshots.find((item): item is AssuranceFileSnapshot => item.status === 'ok' && item.path === args.sliceDoc);
+  if (!snapshot || snapshot.sha256 !== admittedAllocations[0]?.sha256) throw new Error(`digest-mismatch: admitted stage-3 allocation '${args.sliceDoc}' is unavailable or does not match its manifest identity`);
+  const raw = decoded(snapshot);
+  if (!raw.startsWith('<!-- requirements-assurance-implementation-v1\n')) return undefined;
+  const parsed = parseImplementationAllocation({
+    snapshot,
+    expectedWorkItemId: args.workItemId,
+    expectedBaselinePath: args.assurance.manifest.path,
+    expectedPacketObligationIds: args.posture.implementObligationIds ?? [],
+    reviewedObligationIds: args.manifest.reviewObligationIds,
+  });
+  if (!parsed.ok) throw new Error(`Invalid implementation allocation:\n${parsed.errors.map(renderAssuranceError).join('\n')}`);
+  return { allocation: parsed.value, allocationRef: { path: snapshot.path, sha256: snapshot.sha256 } };
+}
+
+function sameCheckpoint(a: CandidateCheckpoint, b: CandidateCheckpoint): boolean {
+  return a.sha256 === b.sha256 && a.baseRevision === b.baseRevision;
+}
+
+async function observeStage3Checkpoint(input: TargetRelayInput, deps: TargetRelayDeps, stage3: Stage3Context): Promise<CandidateCheckpoint> {
+  if (!deps.observeCandidateTree) throw new Error('invalid-field: stage-3 candidate observation mechanism is unavailable');
+  const parsed = makeCandidateCheckpoint({ observation: await deps.observeCandidateTree(input.targetDir), allocation: stage3.allocation, computeDigest: deps.computeDigest });
+  if (!parsed.ok) throw new Error(`Invalid candidate checkpoint:\n${parsed.errors.map(renderAssuranceError).join('\n')}`);
+  return parsed.value;
+}
+
+interface Stage3EvidenceState {
+  checkpoint: CandidateCheckpoint;
+  evidence: ImplementationEvidenceResult;
+  verification: Record<string, unknown>;
+  verificationBytes: Uint8Array;
+  verificationSha256: string;
+}
+
+function makeVerificationDraft(args: {
+  input: TargetRelayInput;
+  status: TargetRelayStatus;
+  stage3: Stage3Context;
+  checkpoint: CandidateCheckpoint;
+  evidence: ImplementationEvidenceResult;
+  result: RunResult;
+}): Record<string, unknown> {
+  return {
+    formatVersion: 3,
+    kind: 'implementation-verification',
+    verificationId: `verification-${args.status.sliceId}-${args.status.iteration}`,
+    workItemId: args.stage3.allocation.workItemId,
+    baseline: args.status.assurance?.manifest,
+    allocation: args.stage3.allocationRef,
+    candidateCheckpoint: args.checkpoint,
+    performer: { role: 'builder', provider: args.input.builderProvider, model: args.input.builderModel, effort: args.input.builderEffort, runId: args.result.runId },
+    checks: args.stage3.allocation.checks.map((plan) => {
+      const result = args.evidence.checks.find((item) => item.checkId === plan.checkId);
+      return { ...plan, candidateSha256: args.checkpoint.sha256, basis: 'provider-run-report', outcome: result?.outcome };
+    }),
+    changeJustifications: args.evidence.changeJustifications,
+    completedAt: args.result.completedAt,
+    limitations: args.evidence.limitations,
+    report: args.evidence.report,
+  };
+}
+
+async function readStage3Evidence(
+  sliceDir: string,
+  iteration: number,
+  stage3: Stage3Context,
+  deps: Pick<TargetRelayDeps, 'computeDigest'>
+): Promise<Stage3EvidenceState> {
+  const state = await readJsonState(join(sliceDir, `implementation-evidence-${iteration}.json`));
+  if (state.status !== 'ok' || !state.value || typeof state.value !== 'object' || Array.isArray(state.value)) throw new Error('invalid-field: stage-3 evidence state is unavailable or malformed');
+  const value = state.value as Record<string, unknown>;
+  if (Object.keys(value).sort().join(',') !== 'checkpoint,evidence,verification,verificationSha256' || !value.checkpoint || !value.evidence || !value.verification || typeof value.verificationSha256 !== 'string') throw new Error('invalid-field: stage-3 evidence state is incomplete or has unknown fields');
+  if (typeof value.checkpoint !== 'object' || value.checkpoint === null || Array.isArray(value.checkpoint)) throw new Error('invalid-field: stored candidate checkpoint is malformed');
+  const storedCheckpoint = value.checkpoint as Record<string, unknown>;
+  const checkpoint = makeCandidateCheckpoint({
+    observation: { baseRevision: storedCheckpoint.baseRevision as string, entries: storedCheckpoint.entries as CandidateTreeObservation['entries'] },
+    allocation: stage3.allocation,
+    computeDigest: deps.computeDigest,
+  });
+  if (!checkpoint.ok || storedCheckpoint.contract !== checkpoint.value.contract || storedCheckpoint.sha256 !== checkpoint.value.sha256 || JSON.stringify(storedCheckpoint.entries) !== JSON.stringify(checkpoint.value.entries)) {
+    throw new Error(`invalid-field: stored candidate checkpoint failed validation${checkpoint.ok ? '' : `\n${checkpoint.errors.map(renderAssuranceError).join('\n')}`}`);
+  }
+  const evidenceRaw = JSON.stringify(value.evidence);
+  const evidence = parseImplementationEvidenceResult({
+    snapshot: { status: 'ok', path: 'implementation-evidence-state', bytes: new TextEncoder().encode(evidenceRaw), sha256: deps.computeDigest(evidenceRaw) },
+    allocation: stage3.allocation,
+    allocationRef: stage3.allocationRef,
+    checkpoint: checkpoint.value,
+  });
+  if (!evidence.ok) throw new Error(`invalid-field: stored implementation evidence failed validation\n${evidence.errors.map(renderAssuranceError).join('\n')}`);
+  if (typeof value.verification !== 'object' || value.verification === null || Array.isArray(value.verification)) throw new Error('invalid-field: stored verification draft is malformed');
+  const verification = value.verification as Record<string, unknown>;
+  const verificationBytes = new TextEncoder().encode(`${JSON.stringify(value.verification, null, 2)}\n`);
+  const verificationSha256 = deps.computeDigest(new TextDecoder().decode(verificationBytes));
+  if (value.verificationSha256 !== verificationSha256 || verification.kind !== 'implementation-verification' || verification.formatVersion !== 3 || JSON.stringify(verification.candidateCheckpoint) !== JSON.stringify(checkpoint.value) || JSON.stringify(verification.allocation) !== JSON.stringify(stage3.allocationRef)) {
+    throw new Error('subject-mismatch: stored verification draft does not match its digest, allocation, or candidate checkpoint');
+  }
+  return { checkpoint: checkpoint.value, evidence: evidence.value, verification, verificationBytes, verificationSha256 };
+}
+
+function renderDecisionMatrix(decisions: readonly { decisionId: string; question: string; options: readonly { option: string; reward: string; risk: string }[]; recommendation: string; blockingReason: string }[]): string {
+  return decisions.map((decision) => [
+    `- ID: ${decision.decisionId}`,
+    `  QUESTION: ${decision.question}`,
+    '  OPTIONS:',
+    ...decision.options.map((option) => `  - ${option.option}: REWARD ${option.reward}; RISK ${option.risk}`),
+    `  RECOMMENDED: ${decision.recommendation}`,
+    `  BLOCKING_REASON: ${decision.blockingReason}`,
+  ].join('\n')).join('\n');
 }
 
 async function loadBaselineClosure(
@@ -634,11 +786,34 @@ export async function prepareReviewedTargetDryRunDeliveries(args: {
     return undefined;
   }
   const allocationPath = posture.kind === 'requirements-document' ? posture.admissionAllocation : args.sliceDoc;
-  const allocationAdmission = await admitBaseline(args.input.targetDir, assurance.manifest.path, args.deps.artifactStore, { expectedManifest: assurance.manifest, allocationPath });
-  if (!allocationAdmission.ok) throw new Error(renderAdmissionFailure(allocationAdmission));
+  const loadedAllocation = await loadBaselineClosure(
+    args.input.targetDir,
+    assurance.manifest.path,
+    args.deps.artifactStore,
+    { expectedManifest: assurance.manifest, allocationPath },
+    (path) => capture.read('target', path)
+  );
+  if (!loadedAllocation.result.ok) throw new Error(renderAdmissionFailure(loadedAllocation.result));
+  const stage3 = await loadStage3Context({
+    workItemId: args.sliceId,
+    sliceDoc: args.sliceDoc,
+    assurance,
+    posture,
+    manifest: loadedAllocation.manifest,
+    admittedSnapshots: loadedAllocation.snapshots,
+  });
   const common = await acceptedCommonInputs(args.input, args.deps, assurance, allocationPath, capture);
   const sliceDir = join(args.input.targetDir, '.agent-manager', 'slices', args.sliceId);
-  const builderDirective = buildBuilderContext(args.input.targetDir, args.packetRaw, 0);
+  const builderDirective = buildBuilderContext(
+    args.input.targetDir,
+    args.packetRaw,
+    0,
+    posture.kind === 'requirements-document'
+      ? 'requirements-assurance/v2-requirements-review'
+      : stage3
+        ? 'requirements-assurance/v3-implementation-evidence'
+        : 'legacy-implementation-report'
+  );
   const builder = {
     kind: 'reviewed-input-snapshots' as const,
     contract: 'requirements-assurance/v2-input-delivery' as const,
@@ -665,7 +840,16 @@ export async function prepareReviewedTargetDryRunDeliveries(args: {
     const candidate = await loadCandidateClosure({ input: args.input, deps: args.deps, posture, sliceDoc: args.sliceDoc, capture });
     reviewerExtra.push(...candidate.inputs);
   }
-  const reviewerDirective = buildReviewerContext(args.input.targetDir, args.packetRaw);
+  const reviewerDirective = buildReviewerContext(
+    args.input.targetDir,
+    args.packetRaw,
+    undefined,
+    posture.kind === 'requirements-document'
+      ? 'requirements-assurance/v2-requirements-review'
+      : stage3
+        ? 'requirements-assurance/v3-implementation-review'
+        : 'legacy-status-verdict'
+  );
   const reviewer = {
     kind: 'reviewed-input-snapshots' as const,
     contract: 'requirements-assurance/v2-input-delivery' as const,
@@ -787,7 +971,8 @@ function cwdHeader(targetDir: string): string {
 function buildBuilderContext(
   targetDir: string,
   packetRaw: string,
-  iteration: number
+  iteration: number,
+  outputContract: RoleOutputContract
 ): string {
   const parts = [
     cwdHeader(targetDir),
@@ -809,13 +994,21 @@ function buildBuilderContext(
       `This is revision iteration ${iteration}. Address the prior reviewer feedback recorded under .agent-manager/slices/<id>/review-*.json before changing anything else.`
     );
   }
+  parts.push(
+    '',
+    '# Runtime-selected output contract',
+    '',
+    'Agent Manager selected this final value after admission. Do not infer or override it from selection-packet or SLICE_DOC content.',
+    `ROLE_OUTPUT_CONTRACT: ${outputContract}`
+  );
   return parts.join('\n');
 }
 
 function buildReviewerContext(
   targetDir: string,
   packetRaw: string,
-  buildReport?: string
+  buildReport: string | undefined,
+  outputContract: RoleOutputContract
 ): string {
   const sections = [
     cwdHeader(targetDir),
@@ -851,7 +1044,12 @@ function buildReviewerContext(
     '',
     "Review the builder's UNCOMMITTED changes in the target working tree. Inspect them yourself with `git diff` and `git status`.",
     'Judge strictly against DEFINITION_OF_DONE and the declared scope. Label every claim OBSERVED or INFERRED.',
-    'Respond with the verdict line FIRST: `STATUS: approved|revise|escalate`, then the rationale.'
+    'Follow the runtime-selected output contract below; it overrides generic output wording above when it requires structured JSON.',
+    '',
+    '# Runtime-selected output contract',
+    '',
+    'Agent Manager selected this final value after admission. Do not infer or override it from selection-packet or SLICE_DOC content.',
+    `ROLE_OUTPUT_CONTRACT: ${outputContract}`
   );
   return sections.join('\n');
 }
@@ -957,6 +1155,17 @@ const TARGET_ACTOR_VALUES: Readonly<Record<TargetActor, true>> = {
 function isTargetRelayStatusShape(value: unknown): value is TargetRelayStatus {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
+  const tracking = record.candidateTracking;
+  const trackingOk = tracking === undefined || (
+    tracking !== null && typeof tracking === 'object' && !Array.isArray(tracking) &&
+    (tracking as Record<string, unknown>).contract === 'requirements-assurance/v3-candidate-tracking' &&
+    ((tracking as Record<string, unknown>).state === 'building' || (tracking as Record<string, unknown>).state === 'evidence-bound') &&
+    typeof (tracking as Record<string, unknown>).baseRevision === 'string' &&
+    /^[0-9a-f]{40}$/.test((tracking as Record<string, unknown>).baseRevision as string) &&
+    ((tracking as Record<string, unknown>).state === 'building'
+      ? Object.keys(tracking as Record<string, unknown>).sort().join(',') === 'baseRevision,contract,state'
+      : typeof (tracking as Record<string, unknown>).candidateSha256 === 'string' && /^sha256:[0-9a-f]{64}$/.test((tracking as Record<string, unknown>).candidateSha256 as string) && Object.keys(tracking as Record<string, unknown>).sort().join(',') === 'baseRevision,candidateSha256,contract,state')
+  );
   return (
     typeof record.phase === 'string' &&
     Object.prototype.hasOwnProperty.call(TARGET_PHASE_VALUES, record.phase) &&
@@ -971,7 +1180,8 @@ function isTargetRelayStatusShape(value: unknown): value is TargetRelayStatus {
     typeof record.builderProvider === 'string' &&
     Object.prototype.hasOwnProperty.call(TARGET_ACTOR_VALUES, record.builderProvider) &&
     typeof record.supervisorProvider === 'string' &&
-    Object.prototype.hasOwnProperty.call(TARGET_ACTOR_VALUES, record.supervisorProvider)
+    Object.prototype.hasOwnProperty.call(TARGET_ACTOR_VALUES, record.supervisorProvider) &&
+    trackingOk
   );
 }
 
@@ -1257,8 +1467,20 @@ async function runImplement(
   status: TargetRelayStatus,
   packetRaw: string,
   posture: WorkItemPosture,
-  dispatchCapture: ReviewedInputCapture | undefined
+  dispatchCapture: ReviewedInputCapture | undefined,
+  stage3?: Stage3Context
 ): Promise<TargetRelayStatus> {
+  if (stage3) {
+    const before = await observeStage3Checkpoint(input, deps, stage3);
+    if (!status.candidateTracking) {
+      if (before.entries.length !== 0) throw new Error(`subject-mismatch: stage-3 implementation must start from a clean non-excluded tree; found ${before.entries.map((entry) => entry.path).join(', ')}`);
+      status = { ...status, candidateTracking: { contract: 'requirements-assurance/v3-candidate-tracking', state: 'building', baseRevision: before.baseRevision } };
+      await writeStatus(sliceDir, status);
+    } else {
+      if (before.baseRevision !== status.candidateTracking.baseRevision) throw new Error('subject-mismatch: candidate HEAD changed from the persisted implementation base');
+      if (status.candidateTracking.state !== 'building') throw new Error('subject-mismatch: evidence-bound candidate cannot re-enter the builder without explicit evidence invalidation');
+    }
+  }
   let delivery: RunRequest['delivery'];
   const useSnapshots = status.assurance !== undefined && (status.assurance.contract === 'requirements-assurance/v2-stage2' || posture.kind === 'requirements-document');
   if (useSnapshots && status.assurance) {
@@ -1268,15 +1490,49 @@ async function runImplement(
     const common = await acceptedCommonInputs(input, deps, status.assurance, allocationPath, capture);
     const prior: RunTextInput[] = [];
     if (status.iteration > 0) {
-      const priorPath = `.agent-manager/slices/${status.sliceId}/review-${status.iteration - 1}.json`;
-      const priorSnapshot = await readRequiredCapturedSnapshot(capture, 'target', priorPath);
-      prior.push(fileRunInput(priorSnapshot, 'target', 'prior-review'));
+      const priorIterations = stage3
+        ? Array.from({ length: status.iteration }, (_, index) => index)
+        : [status.iteration - 1];
+      for (const priorIteration of priorIterations) {
+        const priorPath = `.agent-manager/slices/${status.sliceId}/review-${priorIteration}.json`;
+        const priorSnapshot = await capture.read('target', priorPath);
+        // A failed builder can advance the retry index without producing a
+        // review. Preserve every review that exists; absence is not a finding
+        // and must not make the partial candidate impossible to resume.
+        if (priorSnapshot.status === 'error' && priorSnapshot.code === 'missing') continue;
+        if (priorSnapshot.status === 'error') throw new Error(`${priorSnapshot.code}: ${priorPath}: ${priorSnapshot.detail}`);
+        decoded(priorSnapshot);
+        prior.push(fileRunInput(priorSnapshot, 'target', 'prior-review'));
+      }
     }
-    const roleSpecific = await roleSpecificInputs({ input, deps, sliceDir, packetRaw, promptPaths: input.builderPromptPaths, directiveLabel: posture.kind === 'requirements-document' ? 'requirements-author-task' : 'implementation-builder-task', directive: buildBuilderContext(input.targetDir, packetRaw, status.iteration), extra: prior, capture });
+    const roleSpecific = await roleSpecificInputs({
+      input,
+      deps,
+      sliceDir,
+      packetRaw,
+      promptPaths: input.builderPromptPaths,
+      directiveLabel: posture.kind === 'requirements-document' ? 'requirements-author-task' : 'implementation-builder-task',
+      directive: buildBuilderContext(
+        input.targetDir,
+        packetRaw,
+        status.iteration,
+        posture.kind === 'requirements-document'
+          ? 'requirements-assurance/v2-requirements-review'
+          : stage3
+            ? 'requirements-assurance/v3-implementation-evidence'
+            : 'legacy-implementation-report'
+      ),
+      extra: prior,
+      capture,
+    });
     delivery = { kind: 'reviewed-input-snapshots', contract: 'requirements-assurance/v2-input-delivery', common, roleSpecific };
   } else {
     const prompts = await loadPrompts(input.promptRoot, input.builderPromptPaths, deps.computeDigest);
-    delivery = { kind: 'legacy-live-inputs', prompts, contextText: buildBuilderContext(input.targetDir, packetRaw, status.iteration) };
+    delivery = {
+      kind: 'legacy-live-inputs',
+      prompts,
+      contextText: buildBuilderContext(input.targetDir, packetRaw, status.iteration, 'legacy-implementation-report'),
+    };
   }
   const request: RunRequest = {
     runId: `build-${status.sliceId}-${status.iteration}`,
@@ -1318,6 +1574,20 @@ async function runImplement(
     'utf-8'
   );
 
+  if (stage3) {
+    if (result.outputArtifacts.length !== 1 || typeof result.outputArtifacts[0]?.content !== 'string') throw new Error('invalid-field: stage-3 builder must return exactly one text artifact');
+    const checkpoint = await observeStage3Checkpoint(input, deps, stage3);
+    if (checkpoint.baseRevision !== status.candidateTracking?.baseRevision) throw new Error('subject-mismatch: candidate HEAD changed during builder execution');
+    const raw = result.outputArtifacts[0].content;
+    const parsed = parseImplementationEvidenceResult({ snapshot: { status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(raw), sha256: deps.computeDigest(raw) }, allocation: stage3.allocation, allocationRef: stage3.allocationRef, checkpoint });
+    if (!parsed.ok) throw new Error(`Invalid structured implementation evidence:\n${parsed.errors.map(renderAssuranceError).join('\n')}`);
+    const verification = makeVerificationDraft({ input, status, stage3, checkpoint, evidence: parsed.value, result });
+    const verificationBytes = new TextEncoder().encode(`${JSON.stringify(verification, null, 2)}\n`);
+    const verificationSha256 = deps.computeDigest(new TextDecoder().decode(verificationBytes));
+    await writeFile(join(sliceDir, `implementation-evidence-${status.iteration}.json`), JSON.stringify({ checkpoint, evidence: parsed.value, verification, verificationSha256 }, null, 2), 'utf-8');
+    status = { ...status, candidateTracking: { contract: 'requirements-assurance/v3-candidate-tracking', state: 'evidence-bound', baseRevision: checkpoint.baseRevision, candidateSha256: checkpoint.sha256 } };
+  }
+
   const next: TargetRelayStatus = {
     ...status,
     phase: 'review-impl',
@@ -1336,7 +1606,8 @@ async function runReview(
   status: TargetRelayStatus,
   packetRaw: string,
   posture: WorkItemPosture,
-  dispatchCapture: ReviewedInputCapture | undefined
+  dispatchCapture: ReviewedInputCapture | undefined,
+  stage3?: Stage3Context
 ): Promise<TargetRelayStatus> {
   // Inline this iteration's build report (gitignored — invisible to the
   // reviewer's git-based inspection). Absent file (e.g. legacy resume) is fine.
@@ -1350,6 +1621,7 @@ async function runReview(
     buildReport = undefined;
   }
   let candidate: Awaited<ReturnType<typeof loadCandidateClosure>> | undefined;
+  let stage3Evidence: Stage3EvidenceState | undefined;
   let delivery: RunRequest['delivery'];
   const useSnapshots = status.assurance !== undefined && (status.assurance.contract === 'requirements-assurance/v2-stage2' || posture.kind === 'requirements-document');
   if (useSnapshots && status.assurance) {
@@ -1359,16 +1631,61 @@ async function runReview(
     const common = await acceptedCommonInputs(input, deps, status.assurance, allocationPath, capture);
     const extra: RunTextInput[] = [];
     if (buildReport !== undefined) extra.push(generatedRunInput(`build-report-${status.iteration}`, 'build-report', buildReport, deps.computeDigest));
+    if (stage3 && status.iteration > 0) {
+      for (let priorIteration = 0; priorIteration < status.iteration; priorIteration += 1) {
+        const priorPath = `.agent-manager/slices/${status.sliceId}/review-${priorIteration}.json`;
+        const priorSnapshot = await capture.read('target', priorPath);
+        if (priorSnapshot.status === 'error' && priorSnapshot.code === 'missing') continue;
+        if (priorSnapshot.status === 'error') throw new Error(`${priorSnapshot.code}: ${priorPath}: ${priorSnapshot.detail}`);
+        decoded(priorSnapshot);
+        extra.push(fileRunInput(priorSnapshot, 'target', 'prior-review'));
+      }
+    }
     if (posture.kind === 'requirements-document') {
       if (!status.sliceDoc) throw new Error('invalid-field: requirements document status has no SLICE_DOC');
       candidate = await loadCandidateClosure({ input, deps, posture, sliceDoc: status.sliceDoc, capture });
       extra.push(...candidate.inputs);
     }
-    const roleSpecific = await roleSpecificInputs({ input, deps, sliceDir, packetRaw, promptPaths: input.reviewerPromptPaths, directiveLabel: posture.kind === 'requirements-document' ? 'requirements-reviewer-task' : 'implementation-reviewer-task', directive: buildReviewerContext(input.targetDir, packetRaw, buildReport), extra, capture });
+    if (stage3) {
+      stage3Evidence = await readStage3Evidence(sliceDir, status.iteration, stage3, deps);
+      const current = await observeStage3Checkpoint(input, deps, stage3);
+      if (status.candidateTracking?.state !== 'evidence-bound' || status.candidateTracking.candidateSha256 !== stage3Evidence.checkpoint.sha256 || !sameCheckpoint(current, stage3Evidence.checkpoint)) throw new Error('subject-mismatch: evidence-bound candidate changed before implementation review');
+      if (!deps.candidateDiff) throw new Error('invalid-field: stage-3 candidate diff mechanism is unavailable');
+      extra.push(
+        generatedRunInput(`implementation-allocation-${status.iteration}`, 'review-subject', JSON.stringify(stage3.allocation), deps.computeDigest),
+        generatedRunInput(`candidate-checkpoint-${status.iteration}`, 'review-subject', JSON.stringify(stage3Evidence.checkpoint), deps.computeDigest),
+        generatedRunInput(`verification-draft-${status.iteration}`, 'review-subject', new TextDecoder().decode(stage3Evidence.verificationBytes), deps.computeDigest),
+        generatedRunInput(`candidate-diff-${status.iteration}`, 'review-subject', await deps.candidateDiff(input.targetDir, stage3Evidence.checkpoint), deps.computeDigest),
+      );
+    }
+    const roleSpecific = await roleSpecificInputs({
+      input,
+      deps,
+      sliceDir,
+      packetRaw,
+      promptPaths: input.reviewerPromptPaths,
+      directiveLabel: posture.kind === 'requirements-document' ? 'requirements-reviewer-task' : 'implementation-reviewer-task',
+      directive: buildReviewerContext(
+        input.targetDir,
+        packetRaw,
+        buildReport,
+        posture.kind === 'requirements-document'
+          ? 'requirements-assurance/v2-requirements-review'
+          : stage3
+            ? 'requirements-assurance/v3-implementation-review'
+            : 'legacy-status-verdict'
+      ),
+      extra,
+      capture,
+    });
     delivery = { kind: 'reviewed-input-snapshots', contract: 'requirements-assurance/v2-input-delivery', common, roleSpecific };
   } else {
     const prompts = await loadPrompts(input.promptRoot, input.reviewerPromptPaths, deps.computeDigest);
-    delivery = { kind: 'legacy-live-inputs', prompts, contextText: buildReviewerContext(input.targetDir, packetRaw, buildReport) };
+    delivery = {
+      kind: 'legacy-live-inputs',
+      prompts,
+      contextText: buildReviewerContext(input.targetDir, packetRaw, buildReport, 'legacy-status-verdict'),
+    };
   }
   const request: RunRequest = {
     runId: `review-${status.sliceId}-${status.iteration}`,
@@ -1412,6 +1729,72 @@ async function runReview(
     return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'invalid-field: provider-result /: requirements reviewer must return exactly one text artifact');
   }
   const raw = String(result.outputArtifacts[0]?.content ?? '');
+  if (stage3) {
+    if (!stage3Evidence) throw new Error('invalid-field: implementation review has no evidence-bound candidate');
+    if (result.outputArtifacts.length !== 1 || typeof result.outputArtifacts[0]?.content !== 'string') return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'invalid-field: stage-3 reviewer must return exactly one text artifact');
+    const afterReview = await observeStage3Checkpoint(input, deps, stage3);
+    if (!sameCheckpoint(afterReview, stage3Evidence.checkpoint)) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'subject-mismatch: candidate changed during implementation review');
+    const parsed = parseImplementationReviewResult({ snapshot: { status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(raw), sha256: deps.computeDigest(raw) }, allocation: stage3.allocation, checkpoint: stage3Evidence.checkpoint, verificationSha256: stage3Evidence.verificationSha256, evidence: stage3Evidence.evidence });
+    await writeFile(join(sliceDir, `review-${status.iteration}.json`), JSON.stringify({ iteration: status.iteration, raw, parsed: parsed.ok ? parsed.value : { errors: parsed.errors } }, null, 2), 'utf-8');
+    if (!parsed.ok) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `Invalid structured implementation review:\n${parsed.errors.map(renderAssuranceError).join('\n')}`);
+    if (parsed.value.result === 'refinement-required') {
+      const revise: TargetRelayStatus = { ...status, phase: 'implement', iteration: status.iteration + 1, updatedAt: deps.clock.now(), lastActor: input.supervisorProvider, candidateTracking: { contract: 'requirements-assurance/v3-candidate-tracking', state: 'building', baseRevision: stage3Evidence.checkpoint.baseRevision } };
+      await writeStatus(sliceDir, revise);
+      return revise;
+    }
+    if (parsed.value.result === 'decision-required') return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `DECISION_REQUIRED:\n${renderDecisionMatrix(parsed.value.decisions)}`);
+    const builderState = await readJsonState(join(sliceDir, 'runs', `build-${status.iteration}.json`));
+    const builderRecord = builderState.status === 'ok' && builderState.value && typeof builderState.value === 'object' && !Array.isArray(builderState.value) ? builderState.value as Partial<TargetRunRecord> : undefined;
+    if (!builderRecord?.inputProvenance || !reviewRunRecord.inputProvenance || !sameInputProvenanceContext(builderRecord.inputProvenance, reviewRunRecord.inputProvenance)) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'role-context-mismatch: builder and implementation reviewer common input identities differ');
+    const beforePublication = await observeStage3Checkpoint(input, deps, stage3);
+    if (!sameCheckpoint(beforePublication, stage3Evidence.checkpoint)) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'subject-mismatch: candidate changed before evidence publication');
+    const [verificationPath, reviewPath] = stage3.allocation.postReviewRecordPaths;
+    if (!verificationPath || !reviewPath) throw new Error('invalid-field: stage-3 allocation requires verification and implementation-review paths');
+    for (const path of [verificationPath, reviewPath]) {
+      const existing = await deps.artifactStore.readContainedFile(input.targetDir, path);
+      if (existing.status !== 'error' || existing.code !== 'missing') return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `approval-already-exists: post-review path '${path}' is not provably absent`);
+    }
+    if (!deps.createTrackedFileExclusively) throw new Error('invalid-field: stage-3 exclusive publication mechanism is unavailable');
+    const verificationRef = { path: verificationPath, sha256: stage3Evidence.verificationSha256 };
+    const durableReview = {
+      formatVersion: 3,
+      kind: 'implementation-review',
+      reviewId: request.runId,
+      workItemId: stage3.allocation.workItemId,
+      baseline: status.assurance?.manifest,
+      allocation: stage3.allocationRef,
+      subject: { candidateSha256: stage3Evidence.checkpoint.sha256, verification: verificationRef },
+      reviewer: { role: 'reviewer', provider: input.supervisorProvider, model: input.supervisorModel, effort: input.supervisorEffort, runId: request.runId },
+      independence: { invocations: 'separate', providerDiversity: builderRecord.provider === input.supervisorProvider ? 'same-provider' : 'different-provider' },
+      reviewerInputProvenance: reviewRunRecord.inputProvenance,
+      result: 'accepted',
+      obligationAssessments: parsed.value.obligationAssessments,
+      checkAssessments: parsed.value.checkAssessments,
+      changedPathAssessments: parsed.value.changedPathAssessments,
+      findings: parsed.value.findings,
+      decisions: parsed.value.decisions,
+      completedAt: result.completedAt,
+      acceptanceStatus: 'not-recorded',
+      report: 'Implementation review passed; operator acceptance remains separate.',
+    };
+    const reviewText = `${JSON.stringify(durableReview, null, 2)}\n`;
+    const reviewBytes = new TextEncoder().encode(reviewText);
+    const reviewSha256 = deps.computeDigest(reviewText);
+    const created: string[] = [];
+    try {
+      await deps.createTrackedFileExclusively(input.targetDir, verificationPath, stage3Evidence.verificationBytes);
+      created.push(verificationPath);
+      await deps.createTrackedFileExclusively(input.targetDir, reviewPath, reviewBytes);
+      created.push(reviewPath);
+    } catch (cause) {
+      return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `publication failure: review activity completion withheld; unaccepted partial publication: ${created.length ? created.join(', ') : 'none'}; ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+    console.log(`  [evidence] verification record: ${verificationPath} ${verificationRef.sha256}`);
+    console.log(`  [evidence] implementation review record: ${reviewPath} ${reviewSha256}`);
+    const done: TargetRelayStatus = { ...status, phase: 'done', updatedAt: deps.clock.now(), lastActor: input.supervisorProvider };
+    await writeStatus(sliceDir, done);
+    return done;
+  }
   if (posture.kind === 'requirements-document') {
     if (!candidate) throw new Error('invalid-field: requirements review has no candidate snapshot');
     // The provider assessed the pre-dispatch snapshot. Re-read the complete
@@ -2663,6 +3046,7 @@ export async function targetRelayLoop(
   let posture: WorkItemPosture;
   try { posture = parseWorkItemPosture(packetRaw, activeMode); }
   catch (cause) { return { phase: 'blocked', sliceId, stopped: true, reason: cause instanceof Error ? cause.message : String(cause) }; }
+  let stage3: Stage3Context | undefined;
   if (activeMode) {
     const loadedAdmission = await loadBaselineClosure(
       input.targetDir,
@@ -2677,6 +3061,14 @@ export async function targetRelayLoop(
     if (activeMode.contract === 'requirements-assurance/v2-stage2' && loadedAdmission.manifest?.formatVersion === 2 && posture.kind === 'implementation') {
       const allowed = new Set(loadedAdmission.manifest.reviewObligationIds);
       for (const id of posture.implementObligationIds ?? []) if (!allowed.has(id)) return { phase: 'blocked', sliceId, stopped: true, reason: `review-coverage-unknown: IMPLEMENT_OBLIGATION_IDS '${id}' was not in the reviewed manifest scope` };
+      try {
+        stage3 = await loadStage3Context({ workItemId: sliceId, sliceDoc: status.sliceDoc ?? '', assurance: activeMode, posture, manifest: loadedAdmission.manifest, admittedSnapshots: loadedAdmission.snapshots });
+      } catch (cause) {
+        return { phase: 'blocked', sliceId, stopped: true, reason: cause instanceof Error ? cause.message : String(cause) };
+      }
+    }
+    if (status.candidateTracking && !stage3) {
+      return { phase: 'blocked', sliceId, stopped: true, reason: 'Malformed active status.json: candidateTracking is valid only for an admitted stage-3 implementation allocation.' };
     }
     const mode = activeMode.contract === 'requirements-assurance/v2-stage2'
       ? persistedAssuranceV2(allocationAdmission.admission, activeMode.instructions)
@@ -2691,6 +3083,9 @@ export async function targetRelayLoop(
     });
     console.log(`  [assurance] ${mode.enforcement} ${mode.manifest.path} ${mode.manifest.sha256}`);
   } else {
+    if (status.candidateTracking) {
+      return { phase: 'blocked', sliceId, stopped: true, reason: 'Malformed active status.json: candidateTracking cannot be resumed without an admitted stage-3 baseline and allocation.' };
+    }
     if (currentPointer?.assurance !== undefined) {
       return { phase: 'blocked', sliceId, stopped: true, reason: 'Assured current.json cannot resume a legacy status.json.' };
     }
@@ -2708,6 +3103,63 @@ export async function targetRelayLoop(
       };
     }
     if (status.phase === 'blocked') {
+      if (stage3) {
+        const reviewPath = join(sliceDir, `review-${status.iteration}.json`);
+        const retainedReview = await readJsonState(reviewPath);
+        if (retainedReview.status === 'malformed') {
+          return {
+            phase: 'blocked',
+            sliceId,
+            stopped: true,
+            reason: `Cannot safely resume: retained Stage-3 review is malformed or unreadable: ${retainedReview.detail}`,
+          };
+        }
+        if (retainedReview.status === 'ok') {
+          const envelope = retainedReview.value;
+          if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) {
+            return { phase: 'blocked', sliceId, stopped: true, reason: 'Cannot safely resume: retained Stage-3 review has an invalid envelope.' };
+          }
+          const fields = Object.keys(envelope).sort().join(',');
+          const record = envelope as Record<string, unknown>;
+          const parsed = record.parsed;
+          if (fields !== 'iteration,parsed,raw' || record.iteration !== status.iteration || typeof record.raw !== 'string' || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return { phase: 'blocked', sliceId, stopped: true, reason: 'Cannot safely resume: retained Stage-3 review has an invalid envelope.' };
+          }
+          const parsedRecord = parsed as Record<string, unknown>;
+          if (parsedRecord.result === 'decision-required') {
+            const rawReview = parseAssuranceJson(record.raw, reviewPath);
+            const rawRecord = rawReview.ok && rawReview.value && typeof rawReview.value === 'object' && !Array.isArray(rawReview.value)
+              ? rawReview.value as Record<string, unknown>
+              : undefined;
+            const decisions = parsedRecord.decisions;
+            const decisionShapeOk = Array.isArray(decisions) && decisions.length > 0 && decisions.every((decision) => {
+              if (!decision || typeof decision !== 'object' || Array.isArray(decision)) return false;
+              const item = decision as Record<string, unknown>;
+              return typeof item.decisionId === 'string' && typeof item.question === 'string' &&
+                typeof item.recommendation === 'string' && typeof item.blockingReason === 'string' &&
+                Array.isArray(item.options) && item.options.length > 0 && item.options.every((option) =>
+                  !!option && typeof option === 'object' && !Array.isArray(option) &&
+                  typeof (option as Record<string, unknown>).option === 'string' &&
+                  typeof (option as Record<string, unknown>).reward === 'string' &&
+                  typeof (option as Record<string, unknown>).risk === 'string'
+                );
+            });
+            if (!rawRecord || rawRecord.result !== 'decision-required' || JSON.stringify(rawRecord.decisions) !== JSON.stringify(decisions) || !decisionShapeOk) {
+              return { phase: 'blocked', sliceId, stopped: true, reason: 'Cannot safely resume: retained Stage-3 decision evidence is inconsistent.' };
+            }
+            return {
+              phase: 'blocked',
+              sliceId,
+              stopped: true,
+              reason: `Stage-3 implementation review still requires an authorized decision:\n${renderDecisionMatrix(decisions as ImplementationReviewResult['decisions'])}`,
+            };
+          }
+          const hasRecordedErrors = Array.isArray(parsedRecord.errors) && parsedRecord.errors.length > 0;
+          if (!hasRecordedErrors && parsedRecord.result !== 'accepted' && parsedRecord.result !== 'refinement-required') {
+            return { phase: 'blocked', sliceId, stopped: true, reason: 'Cannot safely resume: retained Stage-3 review has an unknown result.' };
+          }
+        }
+      }
       // Retry index depends on whether the blocked iteration was actually built.
       // The run records (filesystem = system of record) are the signal:
       //  - build-<i>.json EXISTS  => mid-cycle block (builder failed / reviewer
@@ -2727,6 +3179,9 @@ export async function targetRelayLoop(
         iteration: nextIteration,
         updatedAt: deps.clock.now(),
         lastActor: 'human',
+        ...(status.candidateTracking?.state === 'evidence-bound'
+          ? { candidateTracking: { contract: 'requirements-assurance/v3-candidate-tracking' as const, state: 'building' as const, baseRevision: status.candidateTracking.baseRevision } }
+          : {}),
       };
       await writeStatus(sliceDir, status);
       console.log(
@@ -2781,8 +3236,18 @@ export async function targetRelayLoop(
       console.log(
         `  [cycle ${status.iteration + 1}/${maxIterations}] implement builder=${input.builderProvider}`
       );
-      try { status = await runImplement(input, deps, sliceDir, status, packetRaw, posture, dispatchCapture); }
-      catch (cause) { status = await blockSlice(sliceDir, status, deps.clock, 'human', cause instanceof Error ? cause.message : String(cause)); }
+      try { status = await runImplement(input, deps, sliceDir, status, packetRaw, posture, dispatchCapture, stage3); }
+      catch (cause) {
+        // runImplement may already have persisted the stage-3 base before a
+        // later provider/report failure. Preserve that newer state so an
+        // explicit resume can continue the partial candidate without treating
+        // it as a new dirty first dispatch.
+        const persistedAfterFailure = await readJsonState(join(sliceDir, 'status.json'));
+        const blockingStatus = persistedAfterFailure.status === 'ok' && isTargetRelayStatusShape(persistedAfterFailure.value) && persistedAfterFailure.value.sliceId === status.sliceId
+          ? persistedAfterFailure.value
+          : status;
+        status = await blockSlice(sliceDir, blockingStatus, deps.clock, 'human', cause instanceof Error ? cause.message : String(cause));
+      }
       if (status.phase === 'blocked') break;
     }
 
@@ -2804,7 +3269,7 @@ export async function targetRelayLoop(
       console.log(
         `  [cycle ${status.iteration + 1}/${maxIterations}] review-impl supervisor=${input.supervisorProvider}`
       );
-      try { status = await runReview(input, deps, sliceDir, status, packetRaw, posture, dispatchCapture); }
+      try { status = await runReview(input, deps, sliceDir, status, packetRaw, posture, dispatchCapture, stage3); }
       catch (cause) { status = await blockSlice(sliceDir, status, deps.clock, 'human', cause instanceof Error ? cause.message : String(cause)); }
     }
   }
@@ -2830,7 +3295,9 @@ export async function targetRelayLoop(
   };
   if (status.phase === 'done') return posture.kind === 'requirements-document'
     ? { ...result, reason: 'reviewed baseline awaiting operator approval' }
-    : result;
+    : stage3
+      ? { ...result, reason: `implementation review: accepted\nverification: required checks passed for ${status.candidateTracking?.state === 'evidence-bound' ? status.candidateTracking.candidateSha256 : 'recorded candidate'}\noperator acceptance: not recorded; ASSURANCE-4 gate not delivered\nrelease/deployment: not performed` }
+      : result;
   if (status.phase === 'awaiting-ratification') {
     return {
       ...result,

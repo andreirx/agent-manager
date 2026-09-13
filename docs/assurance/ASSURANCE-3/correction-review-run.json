@@ -1,0 +1,22 @@
+{
+  "role": "reviewer",
+  "provider": "codex",
+  "model": "gpt-5.6-terra",
+  "effort": "high",
+  "purpose": "human-authorized four-link correction review only",
+  "startedAt": "2026-09-13T10:50:28.854Z",
+  "system": {
+    "path": "SYSTEM.txt",
+    "sha256": "sha256:fbb99b8cb7349562236bf289e33f9850a8412e1272746ba53d8dc7c9f6894f75"
+  },
+  "request": {
+    "path": ".agent-manager/slices/ASSURANCE-3/closeout/review-request.md",
+    "sha256": "sha256:cc3777ff41f2cc58285ef0348556568aef39ceda6366f3c472dbc391a7480241"
+  },
+  "mode": "standalone read-only; not a v2 runtime-published requirements review",
+  "status": "completed",
+  "completedAt": "2026-09-13T10:53:11.837Z",
+  "exit": 0,
+  "signal": null,
+  "outputSha256": "sha256:cbb3b8d7b9c32ab25643ed2c7760aa2a9a8faa07ad93f40f8ffe65a726259a3d"
+}

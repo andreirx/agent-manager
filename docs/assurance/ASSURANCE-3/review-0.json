@@ -1,0 +1,5 @@
+{
+  "iteration": 0,
+  "verdict": "revise",
+  "raw": "STATUS: revise\n\nOBSERVED — `loadStage3Context` activates structured routing only for an admitted v2-stage2 implementation (`relay-target.ts:323–329`).  \nOBSERVED — both changed role prompts activate structured JSON solely from the allocation metadata (`builder-target.md:43–51`; `reviewer-target.md:39–56`).\n\n1. **P-A3-02 regression:** A legacy or v1 implementation whose slice document has this metadata will be instructed to emit structured stage-3 JSON, while runtime retains legacy `STATUS:` parsing. That blocks an otherwise preserved legacy/v1 flow.  \n   **Required correction:** qualify both prompt branches with the actual v2-admitted stage-3 condition, not metadata alone; add a regression covering metadata-bearing legacy/v1 routing.\n\nOBSERVED — scope is limited to the seven authorized paths; `git diff --check` and `npm run typecheck` passed.  \nINFERRED — builder-reported Jest/build results were not independently rerun in this read-only review environment.\n"
+}

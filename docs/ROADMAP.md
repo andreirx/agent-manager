@@ -1,20 +1,23 @@
 # Agent Manager roadmap
 
-Status: APPROVED requirements-assurance track; implementation pending. Date: 2026-09-11.
+Status: ASSURANCE-0–3 ACCEPTED; ASSURANCE-4/5 HELD. Updated: 2026-09-13.
 Maturity: PROTOTYPE planning artifact. This is not a historical completion ledger.
 
 ## Current priority
 
-ASSURANCE-1 is [accepted](assurance/ASSURANCE-1/manager-acceptance.md): real baseline
-admission, persisted-mode revalidation, and isolated CLI checks are implemented.
-Nine implementation cycles retained their verdicts; final independent review plus
-manager clean-copy and working-tree gates passed (82 tests each). The deliberate
-legacy-corruption exception includes conscious manager recovery, not automatic repair.
-ASSURANCE-2 design is [accepted](assurance/ASSURANCE-2-PREP/manager-acceptance.md)
-after two Sol/Terra document cycles and manager baseline probes. Implementation
-uses the new ASSURANCE-2-INPUT-1 baseline under the accepted stage-1 guard.
-Structured per-ID review, identical-context, evidence-completion, and final-acceptance
-gates remain unimplemented until their respective runtime increments are accepted.
+ASSURANCE-1 [baseline admission](assurance/ASSURANCE-1/manager-acceptance.md),
+ASSURANCE-2 [reviewed input delivery](assurance/ASSURANCE-2/manager-acceptance.md),
+and ASSURANCE-3 [evidence-linked implementation review](assurance/ASSURANCE-3/manager-acceptance.md)
+are accepted bounded runtime increments. Stage 3 has separate Sol/Terra review
+and 168 passing tests in both a clean source copy and the primary checkout.
+Final acceptance remains manager-recorded bootstrap authority, not a delivered
+Stage-4 runtime gate. Historical inputs remain identifiable and are not silently
+updated to cover new bytes.
+
+Before Stage 4, discuss proportionality and context pressure with the human.
+Agents assess human decisions; software checks record integrity. Architecture
+preservation is a project requirement/reviewer duty, not a new policing subsystem.
+Do not automatically advance the remaining original scope.
 
 ## Proposed order
 
@@ -26,9 +29,9 @@ baseline; do not point every execution at an unreviewed umbrella plan.
 |---|---|---|---|
 | [ASSURANCE-0](slices/requirements-assurance-rollout.md#assurance-0--review-the-process-and-baseline-documents-only) | Independent review, resolved format/authority decisions, accepted input baseline | Human authorization to run review; provider readiness | Accepted; four document cycles; [record](assurance/ASSURANCE-0/manager-acceptance.md) |
 | [ASSURANCE-1](slices/requirements-assurance-rollout.md#assurance-1--baseline-admission-on-the-real-dispatch-path) | Real pre-dispatch refusal/allow result for a baseline | Accepted ASSURANCE-0 | Accepted; [operator record](assurance/ASSURANCE-1/manager-acceptance.md), INPUT-3, 82 tests in clean copy and working checkout |
-| [ASSURANCE-2](slices/requirements-assurance-rollout.md#assurance-2--reviewed-inputs-and-identical-role-context) | Requirements review coverage and identical recorded role inputs | Accepted ASSURANCE-1 runner | Design accepted; implementation authorized under INPUT-1; runtime verification pending |
-| [ASSURANCE-3](slices/requirements-assurance-rollout.md#assurance-3--evidence-linked-implementation-review) | Evidence/preservation gate rejects an unsupported green verdict | Accepted ASSURANCE-2 runner | Blocked on prerequisite |
-| [ASSURANCE-4](slices/requirements-assurance-rollout.md#assurance-4--controlled-acceptance-and-recovery) | Durable operator acceptance and cause-aware resume | Accepted ASSURANCE-3 runner | Blocked on prerequisite |
+| [ASSURANCE-2](slices/requirements-assurance-rollout.md#assurance-2--reviewed-inputs-and-identical-role-context) | Requirements review coverage and identical recorded role inputs | Accepted ASSURANCE-1 runner | Accepted; [record](assurance/ASSURANCE-2/manager-acceptance.md), 138 tests and real successor-document review; later CLI correction recorded in Stage 3 |
+| [ASSURANCE-3](slices/requirements-assurance-rollout.md#assurance-3--evidence-linked-implementation-review) | Evidence/preservation gate rejects an unsupported green verdict | Accepted ASSURANCE-2 runner | Accepted; [record](assurance/ASSURANCE-3/manager-acceptance.md), 168 tests, approved four-link input amendment and separate bootstrap acceptance |
+| [ASSURANCE-4](slices/requirements-assurance-rollout.md#assurance-4--controlled-acceptance-and-recovery) | Durable operator acceptance and cause-aware resume | Accepted ASSURANCE-3 runner | Held for human proportionality/context checkpoint; no implementation dispatched |
 | [ASSURANCE-5](slices/requirements-assurance-rollout.md#assurance-5--manager-led-trace-readiness-and-complete-dogfood) | Manager-led own-repo delivery, trace/readiness report, and independent usefulness gate | Accepted ASSURANCE-4 runner | Blocked on prerequisite |
 
 ## Trace and status rules
@@ -37,7 +40,8 @@ Requirement text lives only in its H file. Slice allocations live in the rollout
 and later execution packets. Evidence/approval bind exact revisions, not this table.
 A stage implements only its listed Ls; a parent H may remain partially delivered.
 'Written', 'reviewed', 'implemented', 'verified', 'accepted', and 'released' are not
-interchangeable states. None of these increments is declared implemented here.
+interchangeable states. Only accepted bounded increments above are implemented;
+no whole-H completion, maturity promotion or full assured-run contract is claimed.
 
 The existing relay workflows remain available under their current contract.
 This track does not order work in other target repositories or migrate them silently.

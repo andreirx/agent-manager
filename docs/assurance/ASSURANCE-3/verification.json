@@ -1,0 +1,407 @@
+{
+  "recordedAt": "2026-09-13T10:53:50.155Z",
+  "actor": "in-place-manager",
+  "recordKind": "manual-bootstrap-verification (not runtime-generated v3 evidence)",
+  "sourceHead": "766d4767582394183387c7fb154fe15889edb847",
+  "originalBaseline": {
+    "path": "docs/requirements/baselines/ASSURANCE-3-INPUT-1.json",
+    "sha256": "sha256:fc9b5c6b5cb25acde572d571ee1e1fbdd7cc05ec52a0dd21fd5d743bbdc05dfb"
+  },
+  "inputCorrection": {
+    "path": "docs/assurance/ASSURANCE-3/allocation-correction-check.json",
+    "sha256": "sha256:5feac5112f9a652a1c91e29c5fd501d6c47db9a7f68811c71d1ce52b72f75bfb"
+  },
+  "candidateDiffSha256": "sha256:915b7f005e3b3138fd0fd7db7db165a12ccdcc6ade5c63ef10ac462dddc799ee",
+  "candidate": [
+    {
+      "path": "src/core/assurance.ts",
+      "sha256": "sha256:910320bdc2d5cd3e86f0cd82c7545b0beb59cf8ea02c436a9363a7cbaff83b70",
+      "ids": [
+        "AM-REQ-003-L01",
+        "AM-REQ-003-L06",
+        "AM-REQ-004-L04",
+        "AM-REQ-004-L05",
+        "AM-REQ-005-L01",
+        "AM-REQ-005-L02",
+        "AM-REQ-005-L05"
+      ],
+      "purpose": "Closed allocation/check/outcome policy, canonical index/working candidate and exact evidence/review coverage in the existing pure core.",
+      "hunks": [
+        "@@ -2 +2,2 @@",
+        "@@ -46,0 +48,99 @@ export type AssuranceErrorCode =",
+        "@@ -1574,0 +1675,453 @@ export function persistedAssuranceV2(admission: BaselineAdmission, instructions:"
+      ]
+    },
+    {
+      "path": "src/application/use-cases/relay-target.ts",
+      "sha256": "sha256:537446a242bd93dfa31b275c2a7ad4bceca526f0f44d9c4bd4dd94236c89abdf",
+      "ids": [
+        "AM-REQ-003-L03",
+        "AM-REQ-003-L05",
+        "AM-REQ-003-L06",
+        "AM-REQ-004-L04",
+        "AM-REQ-004-L05",
+        "AM-REQ-005-L03",
+        "AM-REQ-005-L05",
+        "AM-REQ-005-L07",
+        "P-A3-02",
+        "P-A3-03",
+        "P-A3-04"
+      ],
+      "purpose": "Admit allocation, select actual output protocol, retain base/evidence/findings, observe drift, route structured results, refuse unresolved decisions and publish two create-only outputs with bounded claims.",
+      "hunks": [
+        "@@ -41,0 +42,4 @@ import {",
+        "@@ -55,0 +60,6 @@ import {",
+        "@@ -94,0 +105,2 @@ export interface TargetRelayStatus {",
+        "@@ -200,0 +213,6 @@ export interface TargetRelayDeps {",
+        "@@ -234,0 +253,12 @@ type WorkItemPosture =",
+        "@@ -291,0 +322,122 @@ function parseWorkItemPosture(raw: string, assurance: AnyPersistedAssurance | un",
+        "@@ -637,2 +789,16 @@ export async function prepareReviewedTargetDryRunDeliveries(args: {",
+        "@@ -641 +807,10 @@ export async function prepareReviewedTargetDryRunDeliveries(args: {",
+        "@@ -668 +843,10 @@ export async function prepareReviewedTargetDryRunDeliveries(args: {",
+        "@@ -790 +974,2 @@ function buildBuilderContext(",
+        "@@ -811,0 +997,7 @@ function buildBuilderContext(",
+        "@@ -818 +1010,2 @@ function buildReviewerContext(",
+        "@@ -854 +1047,6 @@ function buildReviewerContext(",
+        "@@ -959,0 +1158,11 @@ function isTargetRelayStatusShape(value: unknown): value is TargetRelayStatus {",
+        "@@ -974 +1183,2 @@ function isTargetRelayStatusShape(value: unknown): value is TargetRelayStatus {",
+        "@@ -1260 +1470,2 @@ async function runImplement(",
+        "@@ -1261,0 +1473,11 @@ async function runImplement(",
+        "@@ -1271,3 +1493,14 @@ async function runImplement(",
+        "@@ -1275 +1508,20 @@ async function runImplement(",
+        "@@ -1279 +1531,5 @@ async function runImplement(",
+        "@@ -1320,0 +1577,14 @@ async function runImplement(",
+        "@@ -1339 +1609,2 @@ async function runReview(",
+        "@@ -1352,0 +1624 @@ async function runReview(",
+        "@@ -1361,0 +1634,10 @@ async function runReview(",
+        "@@ -1367 +1649,32 @@ async function runReview(",
+        "@@ -1371 +1684,5 @@ async function runReview(",
+        "@@ -1414,0 +1732,66 @@ async function runReview(",
+        "@@ -2665,0 +3049 @@ export async function targetRelayLoop(",
+        "@@ -2679,0 +3064,8 @@ export async function targetRelayLoop(",
+        "@@ -2693,0 +3086,3 @@ export async function targetRelayLoop(",
+        "@@ -2710,0 +3106,57 @@ export async function targetRelayLoop(",
+        "@@ -2729,0 +3182,3 @@ export async function targetRelayLoop(",
+        "@@ -2784,2 +3239,12 @@ export async function targetRelayLoop(",
+        "@@ -2807 +3272 @@ export async function targetRelayLoop(",
+        "@@ -2833 +3298,3 @@ export async function targetRelayLoop("
+      ]
+    },
+    {
+      "path": "src/application/use-cases/relay-target.test.ts",
+      "sha256": "sha256:1e0ab303316a9f7d11247a3ea893c702ed124a886bd029a71dca54b97b155e51",
+      "ids": [
+        "AM-REQ-003-L01",
+        "AM-REQ-003-L03",
+        "AM-REQ-003-L05",
+        "AM-REQ-003-L06",
+        "AM-REQ-004-L04",
+        "AM-REQ-004-L05",
+        "AM-REQ-005-L01",
+        "AM-REQ-005-L02",
+        "AM-REQ-005-L03",
+        "AM-REQ-005-L04",
+        "AM-REQ-005-L05",
+        "AM-REQ-005-L07",
+        "AM-REQ-007-L03",
+        "P-A3-01",
+        "P-A3-02",
+        "P-A3-03",
+        "P-A3-04",
+        "P-A3-05",
+        "P-A3-06",
+        "P-A3-07",
+        "P-A3-08"
+      ],
+      "purpose": "Exercise actual pure/public relay/built CLI boundaries and legacy preservation; isolate fake providers and owned process groups. Semantic prompt-string tests establish instructions only, not model obedience.",
+      "hunks": [
+        "@@ -16,2 +16,3 @@ import { createHash } from 'node:crypto';",
+        "@@ -19 +20 @@ import { tmpdir } from 'node:os';",
+        "@@ -36,0 +38,4 @@ import {",
+        "@@ -41,0 +47,4 @@ import {",
+        "@@ -133,0 +143 @@ interface ClosureOptions {",
+        "@@ -145,0 +156 @@ function validClosure(options: ClosureOptions = {}): {",
+        "@@ -166 +177 @@ function validClosure(options: ClosureOptions = {}): {",
+        "@@ -215 +226 @@ function validClosure(options: ClosureOptions = {}): {",
+        "@@ -1134 +1145,2 @@ async function builtCli(",
+        "@@ -1135,0 +1148,7 @@ async function builtCli(",
+        "@@ -1137,3 +1156,60 @@ async function builtCli(",
+        "@@ -1141 +1217,9 @@ async function builtCli(",
+        "@@ -1143,6 +1227,14 @@ async function builtCli(",
+        "@@ -1149,0 +1242 @@ async function builtCli(",
+        "@@ -1254,0 +1348,53 @@ describe('ASSURANCE-1 built CLI isolation and dry-run (A1-C04)', () => {",
+        "@@ -2476,0 +2623,734 @@ describe('ASSURANCE-2 pure v2 grammar, coverage and compatibility (A2-C01/C02)',"
+      ]
+    },
+    {
+      "path": "src/cli/relay-target.ts",
+      "sha256": "sha256:324dcff34294a09e2b7bd018fa3491a2c4ef787809a980986376562a08a9b107",
+      "ids": [
+        "AM-REQ-004-L04",
+        "AM-REQ-004-L05",
+        "AM-REQ-005-L05",
+        "AM-REQ-005-L07",
+        "P-A3-05",
+        "P-A3-08"
+      ],
+      "purpose": "Wire raw Git/index/working facts and exclusive writes into the existing use case; expose both staged and unstaged diffs plus untracked bytes; integrate separately reviewed Stage2 commonPromptPaths correction.",
+      "hunks": [
+        "@@ -34 +34 @@",
+        "@@ -37 +37,2 @@ import { existsSync, realpathSync } from 'node:fs';",
+        "@@ -56,0 +58 @@ import { parseAssuranceJson, parsePersistedAssurance, renderAssuranceError } fro",
+        "@@ -133,0 +136,108 @@ async function gitChangedPaths(targetDir: string): Promise<readonly string[]> {",
+        "@@ -663 +772,0 @@ async function main(): Promise<void> {",
+        "@@ -693,0 +803 @@ async function main(): Promise<void> {",
+        "@@ -717,0 +828,3 @@ async function main(): Promise<void> {"
+      ]
+    },
+    {
+      "path": "prompts/roles/builder-target.md",
+      "sha256": "sha256:a75154381faab9344dfe6a48ada3b4206cd288e4efd106bb9cc6662b339784cb",
+      "ids": [
+        "AM-REQ-003-L01",
+        "AM-REQ-003-L05",
+        "AM-REQ-005-L01",
+        "AM-REQ-005-L02",
+        "P-A3-05"
+      ],
+      "purpose": "Require declared check outcomes and path justifications only under the runtime-selected stage3 contract; preserve legacy output behavior.",
+      "hunks": [
+        "@@ -42,0 +43,13 @@ The packet's `ARTIFACT_KIND` selects the duty:"
+      ]
+    },
+    {
+      "path": "prompts/roles/reviewer-target.md",
+      "sha256": "sha256:89587bc371260ae1e38f45ca3a5b0d942a62e477e6ae190ff93e01ae2379d393",
+      "ids": [
+        "AM-REQ-005-L03",
+        "AM-REQ-005-L04",
+        "AM-REQ-005-L05",
+        "AM-REQ-007-L03",
+        "P-A3-05"
+      ],
+      "purpose": "Require per-obligation/check/path assessments and explicit reliance; challenge naming, unsupported fixtures and architecture without semantic automation.",
+      "hunks": [
+        "@@ -39 +39,21 @@ override a structured failure."
+      ]
+    },
+    {
+      "path": "docs/contracts/target-owned-relay.md",
+      "sha256": "sha256:0c78e6c1e6f42d72122c93536442446cbc6cf1dd3a15f61732f19780fc16e1e8",
+      "ids": [
+        "AM-REQ-003-L03",
+        "AM-REQ-005-L05",
+        "AM-REQ-005-L07",
+        "P-A3-05",
+        "P-A3-08"
+      ],
+      "purpose": "Describe delivered stage3 routing, candidate semantics, ordered publication, resume limits and review-only terminal meaning; keep legacy semantics explicit.",
+      "hunks": [
+        "@@ -99,0 +100,74 @@ blocks with a visible matrix, and acceptance creates only",
+        "@@ -152 +226,4 @@ review-impl (supervisor, review/read-only)",
+        "@@ -322,2 +399,6 @@ Phase-specific handling:",
+        "@@ -379,7 +460,12 @@ path create-only; invokes no provider; and performs no commit."
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "checkId": "A3-C01",
+      "command": "npm test -- --runInBand -t 'ASSURANCE-3 pure allocation, evidence and review policy'",
+      "cwd": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-3-final-manager-TDo1eo",
+      "exit": 0,
+      "signal": null,
+      "matchedTests": "164 skipped, 4 passed, 168 total",
+      "rawLog": {
+        "path": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager/.agent-manager/slices/ASSURANCE-3/manager-final-validation/A3-C01.log",
+        "sha256": "sha256:a265b989bec4838cd26c7da19c072bf394b3596dbcc33af021a36916efa427bb"
+      },
+      "retainedOutput": "validation-output.txt#A3-C01"
+    },
+    {
+      "checkId": "A3-C02",
+      "command": "npm test -- --runInBand -t 'ASSURANCE-3 candidate identity and scope'",
+      "cwd": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-3-final-manager-TDo1eo",
+      "exit": 0,
+      "signal": null,
+      "matchedTests": "167 skipped, 1 passed, 168 total",
+      "rawLog": {
+        "path": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager/.agent-manager/slices/ASSURANCE-3/manager-final-validation/A3-C02.log",
+        "sha256": "sha256:48b15679dfcf7ba2adc312a746e967f64d2788a9b969931dc7ad9a2da985b4f9"
+      },
+      "retainedOutput": "validation-output.txt#A3-C02"
+    },
+    {
+      "checkId": "A3-C03",
+      "command": "npm test -- --runInBand -t 'ASSURANCE-3 evidence outcomes and completion readiness'",
+      "cwd": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-3-final-manager-TDo1eo",
+      "exit": 0,
+      "signal": null,
+      "matchedTests": "165 skipped, 3 passed, 168 total",
+      "rawLog": {
+        "path": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager/.agent-manager/slices/ASSURANCE-3/manager-final-validation/A3-C03.log",
+        "sha256": "sha256:6236d3186f783c546acd73f44825e297c9f9f7e3f8908c13b169f868d8a812ba"
+      },
+      "retainedOutput": "validation-output.txt#A3-C03"
+    },
+    {
+      "checkId": "A3-C04",
+      "command": "npm test -- --runInBand -t 'ASSURANCE-3 target relay evidence gate'",
+      "cwd": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-3-final-manager-TDo1eo",
+      "exit": 0,
+      "signal": null,
+      "matchedTests": "158 skipped, 10 passed, 168 total",
+      "rawLog": {
+        "path": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager/.agent-manager/slices/ASSURANCE-3/manager-final-validation/A3-C04.log",
+        "sha256": "sha256:5233ddace796672cda6e8d727cfed9dab52c8dfea3d4cf977b02d26990a80c74"
+      },
+      "retainedOutput": "validation-output.txt#A3-C04"
+    },
+    {
+      "checkId": "A3-C05",
+      "command": "npm test -- --runInBand -t 'ASSURANCE-3 implementation reviewer contract'",
+      "cwd": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-3-final-manager-TDo1eo",
+      "exit": 0,
+      "signal": null,
+      "matchedTests": "163 skipped, 5 passed, 168 total",
+      "rawLog": {
+        "path": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager/.agent-manager/slices/ASSURANCE-3/manager-final-validation/A3-C05.log",
+        "sha256": "sha256:aa57a01981846375aebae15a15148334b8a894107e71fa79a0b3c371e6e32fde"
+      },
+      "retainedOutput": "validation-output.txt#A3-C05"
+    },
+    {
+      "checkId": "A3-C06",
+      "command": "npm test -- --runInBand -t 'ASSURANCE-3 mutation and publication ordering'",
+      "cwd": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-3-final-manager-TDo1eo",
+      "exit": 0,
+      "signal": null,
+      "matchedTests": "163 skipped, 5 passed, 168 total",
+      "rawLog": {
+        "path": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager/.agent-manager/slices/ASSURANCE-3/manager-final-validation/A3-C06.log",
+        "sha256": "sha256:e159be3ac72888df23b6e06d120f89770853757f894138823170de35e085cef4"
+      },
+      "retainedOutput": "validation-output.txt#A3-C06"
+    },
+    {
+      "checkId": "A3-C07",
+      "command": "npm test -- --runInBand",
+      "cwd": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-3-final-manager-TDo1eo",
+      "exit": 0,
+      "signal": null,
+      "matchedTests": "168 passed, 168 total",
+      "rawLog": {
+        "path": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager/.agent-manager/slices/ASSURANCE-3/manager-final-validation/A3-C07.log",
+        "sha256": "sha256:70c3aac98498d2b41ecaaff041575c6322823e1ddc2cfa980018db66518c9d63"
+      },
+      "retainedOutput": "validation-output.txt#A3-C07"
+    },
+    {
+      "checkId": "A3-C08",
+      "command": "npm run build && npm test -- --runInBand -t 'ASSURANCE-3 built CLI evidence gate'",
+      "cwd": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-3-final-manager-TDo1eo",
+      "exit": 0,
+      "signal": null,
+      "matchedTests": "167 skipped, 1 passed, 168 total",
+      "rawLog": {
+        "path": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager/.agent-manager/slices/ASSURANCE-3/manager-final-validation/A3-C08.log",
+        "sha256": "sha256:51a9f53faa5aa016728005b2d9441ec5d13d47aaf9921afa8979dbffe4c4f7aa"
+      },
+      "retainedOutput": "validation-output.txt#A3-C08"
+    },
+    {
+      "checkId": "A3-C10",
+      "command": "npm run typecheck",
+      "cwd": "/var/folders/r7/fxbvlhgn2tzd6jc09lh6490h0000gn/T/ASSURANCE-3-final-manager-TDo1eo",
+      "exit": 0,
+      "signal": null,
+      "matchedTests": null,
+      "rawLog": {
+        "path": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager/.agent-manager/slices/ASSURANCE-3/manager-final-validation/A3-C10.log",
+        "sha256": "sha256:3d00a16c73fe850946a95e7f19ec80bf8a3ab92172358e0afbf1193410776a4e"
+      },
+      "retainedOutput": "validation-output.txt#A3-C10"
+    },
+    {
+      "checkId": "A3-C10-diff",
+      "command": "git diff --check",
+      "cwd": "/Users/apple/Documents/APLICATII BIJUTERIE/agent-manager",
+      "exit": 0
+    }
+  ],
+  "finalPrimaryChecks": [
+    {
+      "id": "typecheck",
+      "command": "npm run typecheck",
+      "startedAt": "2026-09-13T10:51:15.167Z",
+      "completedAt": "2026-09-13T10:51:16.513Z",
+      "exit": 0,
+      "signal": null,
+      "log": ".agent-manager/slices/ASSURANCE-3/closeout/typecheck.log",
+      "rawLog": {
+        "path": ".agent-manager/slices/ASSURANCE-3/closeout/typecheck.log",
+        "sha256": "sha256:3d00a16c73fe850946a95e7f19ec80bf8a3ab92172358e0afbf1193410776a4e"
+      }
+    },
+    {
+      "id": "build",
+      "command": "npm run build",
+      "startedAt": "2026-09-13T10:51:16.514Z",
+      "completedAt": "2026-09-13T10:51:17.928Z",
+      "exit": 0,
+      "signal": null,
+      "log": ".agent-manager/slices/ASSURANCE-3/closeout/build.log",
+      "rawLog": {
+        "path": ".agent-manager/slices/ASSURANCE-3/closeout/build.log",
+        "sha256": "sha256:68c92c276a9df88d1bafcf4de7c31c2159652480004c410382541bf6de50e9ed"
+      }
+    },
+    {
+      "id": "tests",
+      "command": "npm test -- --runInBand",
+      "startedAt": "2026-09-13T10:51:17.929Z",
+      "completedAt": "2026-09-13T10:51:27.685Z",
+      "exit": 0,
+      "signal": null,
+      "log": ".agent-manager/slices/ASSURANCE-3/closeout/tests.log",
+      "rawLog": {
+        "path": ".agent-manager/slices/ASSURANCE-3/closeout/tests.log",
+        "sha256": "sha256:48c488dbfc5cd0c8564f32e152f86180db368763979dc5fca3198657a56ecd47"
+      }
+    },
+    {
+      "id": "diff",
+      "command": "git diff --check",
+      "startedAt": "2026-09-13T10:51:27.685Z",
+      "completedAt": "2026-09-13T10:51:27.714Z",
+      "exit": 0,
+      "signal": null,
+      "log": ".agent-manager/slices/ASSURANCE-3/closeout/diff.log",
+      "rawLog": {
+        "path": ".agent-manager/slices/ASSURANCE-3/closeout/diff.log",
+        "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "inspection": {
+    "checkId": "A3-C09",
+    "performer": "in-place-manager",
+    "result": "passed",
+    "basis": "Source/diff and test-oracle inspection plus separately retained Terra review4; deterministic git diff hunk inventory above",
+    "observations": [
+      "Existing core assurance module imports only core run-record types, no added I/O or adapters.",
+      "New production dependency edges stay inside existing CLI → application/core and application → core directions; no new module/package/dependency or relocation. Existing application local-state filesystem I/O is retained, not re-architected.",
+      "Tests separate pure policy/raw stubs from isolated filesystem and actual built-CLI behavior. Runtime routes reviewer judgments; no mechanical test proves names, architectural merit or human intent.",
+      "Reviewed staged/working/untracked diff representation, output protocol opt-in, evidence continuity, publication and recovery paths. No unallocated implementation hunk identified."
+    ]
+  },
+  "limitations": [
+    "PROTOTYPE; this own-repo implementation ran under predecessor Stage2, not its own newly built Stage3 evidence gate.",
+    "Stage3 new gates exercised through pure/public relay fixtures and real built CLI with fake providers; no fixture output is represented as actual own-repo runtime publication.",
+    "Review4 independently ran typecheck/diff check and relied on builder test evidence. Manager separately ran all168 tests in clean copy and primary checkout.",
+    "Historical INPUT-1 is not a reusable current baseline after the human-approved slice amendment.",
+    "Semantic checks remain agent review; prompt presence and structurally accepted records do not prove agent obedience or absence of regressions.",
+    "Additional npm run lint was not available (ESLint missing); not an allocated mandatory command and no dependency installation authorized.",
+    "Final acceptance/recovery/trace integration beyond this bootstrap remains Stage4/5, held pending proportionality/context discussion."
+  ]
+}

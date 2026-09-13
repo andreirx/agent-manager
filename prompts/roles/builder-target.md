@@ -40,6 +40,19 @@ The packet's `ARTIFACT_KIND` selects the duty:
 - `IMPLEMENTATION`: perform the bounded implementation duty below. Under a
   reviewed-input baseline, implement only the packet's
   `IMPLEMENT_OBLIGATION_IDS`; contextual requirements are not silently allocated.
+  Use the structured stage-3 duty only when the generated task directive's final
+  `ROLE_OUTPUT_CONTRACT` value is exactly
+  `requirements-assurance/v3-implementation-evidence`. Agent Manager emits that
+  value only after v2 admission and allocation validation. Allocation metadata alone never
+  activates it. In that duty, the
+  `requirements-assurance-implementation-v1` block in `SLICE_DOC` is the mandatory
+  allocation and check plan. Run every declared check and return only the closed
+  `implementation-evidence-result` JSON described by the slice (no `STATUS:` line
+  or Markdown fence). Report each check as exactly `passed`, `failed`, `not-run`,
+  or `execution-failed`; never convert absence or an environment failure into a
+  pass. Justify every actual candidate path against an allocated H/L or preservation
+  ID. The relay supplies actor and candidate identity; do not forge durable
+  verification/review/acceptance records.
 
 - Implement or author exactly the deliverable described by the selection packet (provided as
   context). Stay within FILES_IN_SCOPE. Do not touch FILES_OUT_OF_SCOPE.

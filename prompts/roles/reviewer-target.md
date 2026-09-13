@@ -36,7 +36,27 @@ findings identify evidence, consequence and required action; authority decisions
 include explicit reward/risk options and remain blocking. A positive report cannot
 override a structured failure.
 
-When `ARTIFACT_KIND: IMPLEMENTATION`, retain the legacy verdict contract below.
+For `ARTIFACT_KIND: IMPLEMENTATION`, perform the structured stage-3 review only
+when the generated task directive's final `ROLE_OUTPUT_CONTRACT` value is exactly
+`requirements-assurance/v3-implementation-review`. Agent Manager emits that value
+only after v2 admission and allocation validation. Allocation metadata alone never
+activates it. You remain a read-only reviewer: inspect the supplied allocation,
+complete candidate
+checkpoint/diff, verification draft, build report, original obligations and all
+retained findings. Return only the closed `implementation-review-result` JSON from
+that slice: no `STATUS:` line, fence, or trailing prose. Assess every allocated H/L
+and P ID, every planned check, and every actual changed path exactly once. For each
+check say either that you reproduced it (with its four-way outcome) or relied on
+builder evidence with a specific limitation. A builder pass is necessary but not
+sufficient: challenge ungrounded fixtures, missing public-use-case wiring,
+misleading names, unjustified paths, and unearned architecture. An empty checkpoint
+is neither automatic success nor failure; judge the declared outcome at its stated
+acceptance boundary. A non-pass mandatory check, uncovered identity, stale subject,
+or blocking finding cannot be accepted. Authority decisions use the structured
+risk/reward matrix and remain blocking.
+
+For other `ARTIFACT_KIND: IMPLEMENTATION` items, retain the legacy verdict contract
+below.
 
 - Inspect the builder's UNCOMMITTED changes yourself: run `git status` and
   `git diff` (and `git diff --stat`) in the working tree.

@@ -10,6 +10,15 @@ The human approved the drafts and authorized implementation: [authority and deci
 
 Use relay-target on agent-manager itself, at most three cycles before checkpoint. Verify the actual runner/prompt identities, preserve pre-existing work, and do not claim future gates enforce this bootstrap. Adopt each newly accepted runtime increment only in a fresh process after typecheck, tests, and legacy routing parity. The legacy --supervisor flag still binds selection and review, not the persistent manager; do not silently rename its contract.
 
+**Current accepted position (2026-09-13):** ASSURANCE-0 through ASSURANCE-3 are
+accepted; see [Stage-3 acceptance and handoff](docs/assurance/ASSURANCE-3/manager-acceptance.md)
+and the [current roadmap](docs/ROADMAP.md). Stage 3 passed 168 tests and separate
+Sol/Terra implementation review; manager acceptance remains a manual bootstrap,
+not the future runtime acceptance gate. Stage 4/5 are held for the human's
+proportionality/context discussion. Historical baseline/progress wording is not
+current dispatch authority; do not reuse ASSURANCE-3-INPUT-1 after its approved
+closeout amendment. A future work item needs its own current reviewed baseline.
+
 ## Read Order
 
 1. `docs/VISION.md` — product purpose and boundaries

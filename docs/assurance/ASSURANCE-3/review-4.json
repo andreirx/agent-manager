@@ -1,0 +1,5 @@
+{
+  "iteration": 4,
+  "verdict": "approved",
+  "raw": "STATUS: approved\n\nOBSERVED:\n- Diff is limited to the seven authorized paths; `git diff --check` and `npm run typecheck` passed independently.\n- Stage-3 policy remains pure in `assurance.ts`; Git/index/filesystem observation stays in the CLI mechanism.\n- The reviewer input now separates HEAD→index, index→working-tree, and untracked bytes, closing the staged-only blind spot.\n- Tests cover structured evidence/review coverage, candidate drift, decision-resume blocking, publication failures, and built-CLI staged/unstaged cases.\n\nBUILDER-EXECUTED evidence reports all A3-C01–C10 commands passing, including 168 Jest tests. I did not independently rerun write-requiring Jest/CLI fixtures in this read-only sandbox.\n\nINFERRED: the implementation satisfies the allocated evidence-binding and review-readiness behavior without claiming operator acceptance, release, or deployment.\n"
+}

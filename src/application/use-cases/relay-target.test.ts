@@ -13,10 +13,11 @@
  */
 
 import { createHash } from 'node:crypto';
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, readFile, rm, access, readdir } from 'node:fs/promises';
+import { execFile as execFileCallback, spawn } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
+import { mkdtemp, mkdir, writeFile, readFile, rm, access, readdir, chmod, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { ClockPort } from '../ports/clock.js';
@@ -34,11 +35,19 @@ import {
   parseRequirementsReviewResult,
   parseRequirementsReviewRecord,
   parseApprovalRecordV2,
+  parseImplementationAllocation,
+  parseImplementationEvidenceResult,
+  parseImplementationReviewResult,
+  makeCandidateCheckpoint,
   renderAssuranceError,
   validateBaselineAdmission,
   type AssuranceFileSnapshot,
   type AssuranceSnapshot,
   type RequirementsReviewResult,
+  type ImplementationAllocation,
+  type ImplementationReviewResult,
+  type CandidateTreeObservation,
+  type CandidateCheckpoint,
 } from '../../core/assurance.js';
 import { ClaudeAdapter } from '../../adapters/providers/claude-code/adapter.js';
 import { CodexAdapter } from '../../adapters/providers/codex/adapter.js';
@@ -131,6 +140,7 @@ function requirementText(
 
 interface ClosureOptions {
   requirementFiles?: { path: string; content: string }[];
+  allocationContent?: string;
   sourcePlacement?: 'dependency' | 'requirement' | 'both' | 'absent' | 'governance';
   reviewResult?: 'accepted' | 'rejected' | 'decision-required';
   approvalDecision?: 'approved' | 'rejected';
@@ -143,6 +153,7 @@ function validClosure(options: ClosureOptions = {}): {
 } {
   const manifestPath = 'docs/requirements/baselines/B1.json';
   const allocationPath = 'docs/slices/S1.md';
+  const allocationContent = options.allocationContent ?? '# Slice\n';
   const sourcePath = 'docs/source.md';
   const sourcePlacement = options.sourcePlacement ?? 'dependency';
   const requirementSourcePath = 'docs/requirements/source-req.md';
@@ -163,7 +174,7 @@ function validClosure(options: ClosureOptions = {}): {
   const requirements = requirementFiles.map((r) => snapshot(r.path, r.content));
   const manifestRequirements = requirements.map((r) => ({ path: r.path, sha256: r.sha256 }));
   const dependencies: { role: string; path: string; sha256: string }[] = [
-    { role: 'allocation', path: allocationPath, sha256: computeDigest('# Slice\n') },
+    { role: 'allocation', path: allocationPath, sha256: computeDigest(allocationContent) },
   ];
   if (sourcePlacement === 'dependency' || sourcePlacement === 'requirement') {
     dependencies.push({ role: 'source', path: source.path, sha256: source.sha256 });
@@ -212,7 +223,7 @@ function validClosure(options: ClosureOptions = {}): {
     decidedAt: '2026-09-11T20:01:00.000Z',
     rationale: 'Reviewed and approved.',
   }));
-  const allocation = snapshot(allocationPath, '# Slice\n');
+  const allocation = snapshot(allocationPath, allocationContent);
   return {
     manifestPath,
     allocationPath,
@@ -1131,22 +1142,104 @@ describe('ASSURANCE-1 use-case dispatch and resume (A1-C03)', () => {
 const execFileTest = promisify(execFileCallback);
 
 async function builtCli(
-  args: string[]
+  args: string[],
+  options: { providerBin?: string; environment?: Readonly<Record<string, string>> } = {}
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  try {
-    const result = await execFileTest(process.execPath, ['dist/cli/relay-target.js', ...args], {
-      cwd: process.cwd(),
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
-  } catch (cause) {
-    const failed = cause as { code?: number; stdout?: string; stderr?: string };
-    return {
-      exitCode: typeof failed.code === 'number' ? failed.code : -1,
-      stdout: failed.stdout ?? '',
-      stderr: failed.stderr ?? String(cause),
-    };
+  if (!isAbsolute(process.execPath)) throw new Error('Node executable path must be absolute for isolated CLI tests.');
+  if (options.providerBin !== undefined && !isAbsolute(options.providerBin)) {
+    throw new Error('Provider fixture directory must be absolute.');
   }
+  const gitExecutable = await findExecutableOnCurrentPath('git');
+  const isolatedHome = await mkdtemp('/private/tmp/ASSURANCE-3-cli-home-');
+  const isolatedBin = join(isolatedHome, 'bin');
+  try {
+    await mkdir(isolatedBin);
+    await symlink(gitExecutable, join(isolatedBin, 'git'));
+    return await new Promise((accept) => {
+      let timedOut = false;
+      let outputExceeded = false;
+      let settled = false;
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      let outputBytes = 0;
+      const child = spawn(process.execPath, ['dist/cli/relay-target.js', ...args], {
+        cwd: process.cwd(),
+        detached: true,
+        env: {
+          ...options.environment,
+          PATH: options.providerBin === undefined ? isolatedBin : `${options.providerBin}${delimiter}${isolatedBin}`,
+          HOME: isolatedHome,
+          CODEX_HOME: join(isolatedHome, 'codex'),
+          CLAUDE_CONFIG_DIR: join(isolatedHome, 'claude'),
+          COPILOT_CONFIG_DIR: join(isolatedHome, 'copilot'),
+          XDG_CONFIG_HOME: join(isolatedHome, 'xdg-config'),
+          XDG_CACHE_HOME: join(isolatedHome, 'xdg-cache'),
+          XDG_DATA_HOME: join(isolatedHome, 'xdg-data'),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const retainOutput = (destination: Buffer[], chunk: Buffer): void => {
+        outputBytes += chunk.byteLength;
+        if (outputBytes > 8 * 1024 * 1024) {
+          outputExceeded = true;
+          killOwnedProcessGroup(child.pid);
+          return;
+        }
+        destination.push(chunk);
+      };
+      child.stdout.on('data', (chunk: Buffer) => retainOutput(stdout, chunk));
+      child.stderr.on('data', (chunk: Buffer) => retainOutput(stderr, chunk));
+      const finish = (exitCode: number, failure = ''): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        killOwnedProcessGroup(child.pid);
+        accept({
+          exitCode,
+          stdout: Buffer.concat(stdout).toString('utf8'),
+          stderr: `${Buffer.concat(stderr).toString('utf8')}${failure}`,
+        });
+      };
+      child.on('error', (cause) => finish(-1, `\n${String(cause)}`));
+      child.on('close', (code) => finish(
+        code ?? -1,
+        timedOut
+          ? '\nisolated CLI fixture exceeded 15000ms and its process group was killed'
+          : outputExceeded
+            ? '\nisolated CLI fixture exceeded the 8 MiB output bound and its process group was killed'
+            : ''
+      ));
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        killOwnedProcessGroup(child.pid);
+      }, 15_000);
+    });
+  } finally {
+    await rm(isolatedHome, { recursive: true, force: true });
+  }
+}
+
+function killOwnedProcessGroup(pid: number | undefined): void {
+  if (pid === undefined) return;
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch (cause) {
+    if (!(typeof cause === 'object' && cause !== null && 'code' in cause && (cause as { code: unknown }).code === 'ESRCH')) throw cause;
+  }
+}
+
+async function findExecutableOnCurrentPath(name: string): Promise<string> {
+  for (const entry of (process.env.PATH ?? '').split(delimiter)) {
+    if (entry.length === 0) continue;
+    const candidate = resolve(entry, name);
+    try {
+      await access(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      // Continue until an executable is found. The child never receives this host PATH.
+    }
+  }
+  throw new Error(`Required test executable '${name}' was not found on the current PATH.`);
 }
 
 async function readRegularFileBytesByPath(root: string): Promise<Record<string, string>> {
@@ -1249,6 +1342,59 @@ describe('ASSURANCE-1 built CLI isolation and dry-run (A1-C04)', () => {
     expect(result.stdout).toContain('no snapshot files written');
     expect(await readFile(statusPath, 'utf-8')).toBe(beforeStatus);
     expect(await readFile(currentPath, 'utf-8')).toBe(beforeCurrent);
+    expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
+  });
+
+  it('built live CLI persists valid v2 instruction grouping and resumes it without provider dispatch', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-2-cli-v2-resume-');
+    const configured = await seedV2Implementation(target);
+    const statusPath = join(target, '.agent-manager/slices/S2/status.json');
+    const currentPath = join(target, '.agent-manager/current.json');
+    const statusBefore = JSON.parse(await readFile(statusPath, 'utf-8')) as Record<string, unknown>;
+    statusBefore.iteration = 1;
+    await writeFile(statusPath, json(statusBefore), 'utf-8');
+
+    const first = await builtCli([
+      target, '--baseline', configured.baselinePath as string, '--slice', 'S2',
+      '--max-iter', '1', '--shared-prompt', join(process.cwd(), 'SYSTEM.txt'),
+    ]);
+    expect(first.exitCode).toBe(1);
+    expect(first.stdout).toContain('[assurance] reviewed-inputs');
+    expect(first.stdout).toContain('Final phase: blocked');
+    expect(first.stdout).not.toContain('[cycle');
+
+    const persistedStatus = JSON.parse(await readFile(statusPath, 'utf-8')) as { assurance: unknown };
+    const persistedCurrent = JSON.parse(await readFile(currentPath, 'utf-8')) as { assurance: unknown };
+    for (const [path, raw] of [[statusPath, persistedStatus.assurance], [currentPath, persistedCurrent.assurance]] as const) {
+      const parsed = parsePersistedAssurance(raw, path);
+      if (!parsed.ok) throw new Error(parsed.errors.map(renderAssuranceError).join('\n'));
+      expect(parsed.value.contract).toBe('requirements-assurance/v2-stage2');
+      if (parsed.value.contract !== 'requirements-assurance/v2-stage2') throw new Error('Expected persisted v2 mode.');
+      expect(parsed.value.instructions.commonRole.map((item) => item.path)).toEqual(['prompts/system/base.md']);
+      expect(parsed.value.instructions.selectorRole.map((item) => item.path)).toEqual(['prompts/roles/supervisor-select.md']);
+      expect(parsed.value.instructions.builderRole.map((item) => item.path)).toEqual(['prompts/roles/builder-target.md']);
+      expect(parsed.value.instructions.reviewerRole.map((item) => item.path)).toEqual(['prompts/roles/reviewer-target.md']);
+      expect(parsed.value.instructions.challengerRole.map((item) => item.path)).toEqual(['prompts/roles/decision-challenger.md']);
+      expect(parsed.value.instructions.rebutterRole.map((item) => item.path)).toEqual(['prompts/roles/decision-rebutter.md']);
+    }
+    expect(persistedCurrent.assurance).toEqual(persistedStatus.assurance);
+    expect(await readFile(join(target, '.agent-manager/slices/S2/notes-for-human.md'), 'utf-8'))
+      .toContain('Max iterations (1 cycles) reached without an approved verdict.');
+    expect(await readdir(join(target, '.agent-manager/slices/S2/runs'))).toEqual([]);
+    expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
+
+    const resumed = await builtCli([
+      target, '--slice', 'S2', '--max-iter', '1',
+      '--shared-prompt', join(process.cwd(), 'SYSTEM.txt'),
+    ]);
+    expect(resumed.exitCode).toBe(1);
+    expect(resumed.stdout).toContain('[resume] unblocked slice S2; retrying at cycle 2');
+    expect(resumed.stdout).toContain('[assurance] reviewed-inputs');
+    expect(resumed.stdout).toContain('Final phase: blocked');
+    expect(resumed.stdout).not.toContain('[cycle');
+    expect(await readFile(join(target, '.agent-manager/slices/S2/notes-for-human.md'), 'utf-8'))
+      .toContain('Max iterations (1 cycles) reached without an approved verdict.');
+    expect(await readdir(join(target, '.agent-manager/slices/S2/runs'))).toEqual([]);
     expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
   });
 
@@ -2472,6 +2618,740 @@ describe('ASSURANCE-2 pure v2 grammar, coverage and compatibility (A2-C01/C02)',
     expect(parse({ ...validDecision, decisions: [{ ...decision, recommendation: 'C' }] }).errors.map((error) => error.code)).toContain('review-result-mismatch');
     expect(parse({ ...validDecision, findings: [{ ...finding, obligationId: 'EX-REQ-999' }] }).errors.map((error) => error.code)).toContain('review-coverage-unknown');
   });
+});
+
+function allocationText(overrides: Record<string, unknown> = {}): string {
+  const metadata = {
+    formatVersion: 1,
+    kind: 'implementation-allocation',
+    workItemId: 'S2',
+    baselinePath: 'docs/requirements/baselines/B2.json',
+    parentRequirementIds: ['EX-REQ-001', 'EX-REQ-002'],
+    implements: ['EX-REQ-001-L01', 'EX-REQ-002-L01'],
+    preserves: [],
+    preservationObligationIds: ['P-A3-01'],
+    changes: [],
+    acceptanceBoundary: 'targetRelayLoop public result',
+    candidatePaths: ['src/a.ts'],
+    postReviewRecordPaths: ['docs/assurance/S2/verification.json', 'docs/assurance/S2/implementation-review.json'],
+    candidateExclusions: [{ pathPrefix: '.agent-manager/', reason: 'local operational state' }],
+    checks: [{ checkId: 'A3-C04', obligationIds: ['EX-REQ-001-L01', 'EX-REQ-002-L01', 'P-A3-01'], owner: 'builder', method: { kind: 'command', command: 'npm test', cwd: '.', environment: 'fixture', inputs: 'public relay fixture' }, expected: 'exit 0; public behavior and preservation remain valid' }],
+    ...overrides,
+  };
+  return `<!-- requirements-assurance-implementation-v1\n${JSON.stringify(metadata, null, 2)}\n-->\n# S2\n\n| P-A3-01 | preserved behavior |\n`;
+}
+
+function parsedAllocation(overrides: Record<string, unknown> = {}): { allocation: ImplementationAllocation; ref: { path: string; sha256: string }; snapshot: AssuranceFileSnapshot } {
+  const item = snapshot('docs/slices/S2.md', allocationText(overrides));
+  const parsed = parseImplementationAllocation({ snapshot: item, expectedWorkItemId: 'S2', expectedBaselinePath: 'docs/requirements/baselines/B2.json', expectedPacketObligationIds: ['EX-REQ-001-L01', 'EX-REQ-002-L01'], reviewedObligationIds: ['EX-REQ-001', 'EX-REQ-001-L01', 'EX-REQ-002', 'EX-REQ-002-L01'] });
+  if (!parsed.ok) throw new Error(parsed.errors.map(renderAssuranceError).join('\n'));
+  return { allocation: parsed.value, ref: { path: item.path, sha256: item.sha256 }, snapshot: item };
+}
+
+function observation(entries: CandidateTreeObservation['entries'] = []): CandidateTreeObservation {
+  return { baseRevision: 'a'.repeat(40), entries };
+}
+
+function candidateEntry(indexSha = computeDigest('old'), workingSha = computeDigest('new')): CandidateTreeObservation['entries'][number] {
+  return { path: 'src/a.ts', porcelainStatus: 'MM', index: { kind: 'present', gitMode: '100644', stage: 0, sha256: indexSha, byteLength: 3 }, workingTree: { kind: 'present', gitMode: '100644', sha256: workingSha, byteLength: 3 } };
+}
+
+function evidenceResult(allocationRef: { path: string; sha256: string }, path = 'src/a.ts', outcome: 'passed' | 'failed' | 'not-run' | 'execution-failed' = 'passed') {
+  const result = outcome === 'passed' || outcome === 'failed'
+    ? { kind: outcome, actual: outcome === 'passed' ? 'exit 0; public case passed' : 'exit 1', supportingEvidence: ['build-progress.md#A3-C04'] }
+    : outcome === 'not-run' ? { kind: outcome, reason: 'environment unavailable' } : { kind: outcome, failure: 'runner crashed' };
+  return { formatVersion: 3, kind: 'implementation-evidence-result', allocation: allocationRef, checks: [{ checkId: 'A3-C04', outcome: result }], changeJustifications: path ? [{ path, obligationIds: ['EX-REQ-001-L01'], summary: 'Wires the public evidence gate.' }] : [], limitations: [], report: 'Executed the declared plan against this checkpoint.' };
+}
+
+function implementationReview(checkpoint: CandidateCheckpoint, verificationSha256: string, outcome: 'accepted' | 'refinement-required' = 'accepted') {
+  const obligations = ['EX-REQ-001-L01', 'EX-REQ-002-L01', 'P-A3-01'];
+  const finding = { findingId: 'F-A3-1', obligationIds: ['EX-REQ-001-L01'], locations: ['src/a.ts'], category: 'integration', evidence: 'Public behavior is absent.', consequence: 'The user cannot observe the gate.', requiredAction: 'Wire the policy into targetRelayLoop.' };
+  return {
+    formatVersion: 3, kind: 'implementation-review-result', subject: { candidateSha256: checkpoint.sha256, verificationSha256 }, result: outcome,
+    obligationAssessments: obligations.map((obligationId, index) => ({ obligationId, result: outcome === 'refinement-required' && index === 0 ? 'refinement-required' : 'accepted', findingIds: outcome === 'refinement-required' && index === 0 ? ['F-A3-1'] : [], decisionIds: [] })),
+    checkAssessments: [{ checkId: 'A3-C04', result: 'accepted', findingIds: [], verification: { kind: 'relied-on-builder-evidence', limitation: 'Stub review inspects the structured report rather than running Jest.' } }],
+    changedPathAssessments: checkpoint.entries.map((entry, index) => ({ path: entry.path, result: outcome === 'refinement-required' && index === 0 ? 'refinement-required' : 'accepted', findingIds: outcome === 'refinement-required' && index === 0 ? ['F-A3-1'] : [], decisionIds: [] })),
+    findings: outcome === 'refinement-required' ? [finding] : [], decisions: [], report: 'Every obligation, check, and changed path was inspected.',
+  };
+}
+
+describe('ASSURANCE-3 pure allocation, evidence and review policy', () => {
+  it('accepts exact closed allocation/evidence/review records and rejects uncovered or unrelated data', () => {
+    const { allocation, ref } = parsedAllocation();
+    const checkpointResult = makeCandidateCheckpoint({ observation: observation([candidateEntry()]), allocation, computeDigest });
+    expect(checkpointResult.ok).toBe(true);
+    if (!checkpointResult.ok) return;
+    const evidence = parseImplementationEvidenceResult({ snapshot: snapshot('provider-result', json(evidenceResult(ref))), allocation, allocationRef: ref, checkpoint: checkpointResult.value });
+    expect(evidence.ok).toBe(true);
+    if (!evidence.ok) return;
+    const verificationSha = computeDigest('verification');
+    expect(parseImplementationReviewResult({ snapshot: snapshot('review-result', json(implementationReview(checkpointResult.value, verificationSha))), allocation, checkpoint: checkpointResult.value, verificationSha256: verificationSha, evidence: evidence.value }).ok).toBe(true);
+    const unrelated = evidenceResult(ref);
+    unrelated.checks[0]!.checkId = 'UNPLANNED';
+    const rejected = parseImplementationEvidenceResult({ snapshot: snapshot('provider-result', json(unrelated)), allocation, allocationRef: ref, checkpoint: checkpointResult.value });
+    expect(rejected.ok ? [] : rejected.errors.map((item) => item.code)).toEqual(expect.arrayContaining(['review-coverage-unknown', 'review-coverage-missing']));
+  });
+
+  it('admits explicit preservation-only no-change allocation without a minimum-diff rule', () => {
+    const parsed = parseImplementationAllocation({ snapshot: snapshot('docs/slices/S2.md', allocationText({ implements: [], preserves: ['EX-REQ-001-L01', 'EX-REQ-002-L01'] })), expectedWorkItemId: 'S2', expectedBaselinePath: 'docs/requirements/baselines/B2.json', expectedPacketObligationIds: ['EX-REQ-001-L01', 'EX-REQ-002-L01'], reviewedObligationIds: ['EX-REQ-001', 'EX-REQ-001-L01', 'EX-REQ-002', 'EX-REQ-002-L01'] });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(makeCandidateCheckpoint({ observation: observation(), allocation: parsed.value, computeDigest }).ok).toBe(true);
+  });
+
+  it('binds the allocation to the active work item and requires every allocated L parent', () => {
+    const parse = (overrides: Record<string, unknown>, expectedWorkItemId = 'S2') => parseImplementationAllocation({
+      snapshot: snapshot('docs/slices/S2.md', allocationText(overrides)),
+      expectedWorkItemId,
+      expectedBaselinePath: 'docs/requirements/baselines/B2.json',
+      expectedPacketObligationIds: ['EX-REQ-001-L01', 'EX-REQ-002-L01'],
+      reviewedObligationIds: ['EX-REQ-001', 'EX-REQ-001-L01', 'EX-REQ-002', 'EX-REQ-002-L01'],
+    });
+    const wrongWorkItem = parse({}, 'OTHER');
+    expect(wrongWorkItem.ok ? [] : wrongWorkItem.errors.map((item) => item.code)).toContain('subject-mismatch');
+    const missingParent = parse({ parentRequirementIds: ['EX-REQ-001'] });
+    expect(missingParent.ok ? [] : missingParent.errors.map((item) => item.code)).toContain('parent-mismatch');
+  });
+
+  it('does not route a check-only decision outcome without a decision matrix', () => {
+    const { allocation, ref } = parsedAllocation();
+    const checkpoint = makeCandidateCheckpoint({ observation: observation([candidateEntry()]), allocation, computeDigest });
+    if (!checkpoint.ok) throw new Error('checkpoint fixture failed');
+    const evidence = parseImplementationEvidenceResult({ snapshot: snapshot('provider-result', json(evidenceResult(ref))), allocation, allocationRef: ref, checkpoint: checkpoint.value });
+    if (!evidence.ok) throw new Error('evidence fixture failed');
+    const review = implementationReview(checkpoint.value, computeDigest('verification'));
+    review.result = 'decision-required' as 'accepted';
+    review.checkAssessments[0]!.result = 'decision-required';
+    const parsed = parseImplementationReviewResult({ snapshot: snapshot('review-result', json(review)), allocation, checkpoint: checkpoint.value, verificationSha256: computeDigest('verification'), evidence: evidence.value });
+    expect(parsed.ok ? [] : parsed.errors.map((item) => item.code)).toContain('review-result-mismatch');
+  });
+});
+
+describe('ASSURANCE-3 candidate identity and scope', () => {
+  it('binds index and working identities independently and rejects scope/HEAD/mode violations', () => {
+    const { allocation } = parsedAllocation();
+    const first = makeCandidateCheckpoint({ observation: observation([candidateEntry(computeDigest('index-a'))]), allocation, computeDigest });
+    const second = makeCandidateCheckpoint({ observation: observation([candidateEntry(computeDigest('index-b'))]), allocation, computeDigest });
+    expect(first.ok && second.ok && first.value.sha256).not.toBe(second.ok ? second.value.sha256 : '');
+    const modeChanged = makeCandidateCheckpoint({ observation: observation([{ ...candidateEntry(computeDigest('index-a')), index: { kind: 'present', gitMode: '100755', stage: 0, sha256: computeDigest('index-a'), byteLength: 3 } }]), allocation, computeDigest });
+    expect(first.ok && modeChanged.ok && first.value.sha256).not.toBe(modeChanged.ok ? modeChanged.value.sha256 : '');
+    expect(makeCandidateCheckpoint({ observation: observation([{ path: 'src/a.ts', porcelainStatus: '??', index: { kind: 'absent' }, workingTree: { kind: 'present', gitMode: '100644', sha256: computeDigest('new'), byteLength: 3 } }]), allocation, computeDigest }).ok).toBe(true);
+    expect(makeCandidateCheckpoint({ observation: observation([{ path: 'src/a.ts', porcelainStatus: ' D', index: { kind: 'present', gitMode: '100644', stage: 0, sha256: computeDigest('old'), byteLength: 3 }, workingTree: { kind: 'absent' } }]), allocation, computeDigest }).ok).toBe(true);
+    expect(makeCandidateCheckpoint({ observation: observation([{ path: 'src/a.ts', porcelainStatus: 'D ', index: { kind: 'absent' }, workingTree: { kind: 'absent' } }]), allocation, computeDigest }).ok).toBe(true);
+    expect(makeCandidateCheckpoint({ observation: observation([{ ...candidateEntry(), path: 'src/outside.ts' }]), allocation, computeDigest }).ok).toBe(false);
+    expect(makeCandidateCheckpoint({ observation: { ...observation(), baseRevision: 'not-head' }, allocation, computeDigest }).ok).toBe(false);
+    expect(makeCandidateCheckpoint({ observation: observation([{ ...candidateEntry(), workingTree: { kind: 'present', gitMode: '120000' as '100644', sha256: computeDigest('x'), byteLength: 1 } }]), allocation, computeDigest }).ok).toBe(false);
+    expect(makeCandidateCheckpoint({ observation: observation([{ ...candidateEntry(), porcelainStatus: 'UU' }]), allocation, computeDigest }).ok).toBe(false);
+    expect(makeCandidateCheckpoint({ observation: observation([{ ...candidateEntry(), workingTree: { kind: 'absent' } }]), allocation, computeDigest }).ok).toBe(false);
+  });
+});
+
+describe('ASSURANCE-3 evidence outcomes and completion readiness', () => {
+  it.each(['failed', 'not-run', 'execution-failed'] as const)('keeps %s distinct and prevents an accepted check review', (outcome) => {
+    const { allocation, ref } = parsedAllocation();
+    const checkpoint = makeCandidateCheckpoint({ observation: observation([candidateEntry()]), allocation, computeDigest });
+    if (!checkpoint.ok) throw new Error('fixture checkpoint failed');
+    const evidence = parseImplementationEvidenceResult({ snapshot: snapshot('provider-result', json(evidenceResult(ref, 'src/a.ts', outcome))), allocation, allocationRef: ref, checkpoint: checkpoint.value });
+    expect(evidence.ok).toBe(true);
+    if (!evidence.ok) return;
+    const parsed = parseImplementationReviewResult({ snapshot: snapshot('review-result', json(implementationReview(checkpoint.value, computeDigest('verification')))), allocation, checkpoint: checkpoint.value, verificationSha256: computeDigest('verification'), evidence: evidence.value });
+    expect(parsed.ok ? [] : parsed.errors.map((item) => item.code)).toContain('review-result-mismatch');
+  });
+});
+
+async function seedStage3Implementation(target: string, allocationOverrides: Record<string, unknown> = {}): Promise<{ input: TargetRelayInput; allocation: ImplementationAllocation; allocationRef: { path: string; sha256: string }; checkpoint: CandidateCheckpoint }> {
+  const fixture = validV2Snapshots();
+  const allocated = parsedAllocation(allocationOverrides);
+  const replacements = new Map<string, AssuranceFileSnapshot>();
+  replacements.set(fixture.allocationPath, allocated.snapshot);
+  const oldManifest = fixture.snapshots[0] as AssuranceFileSnapshot;
+  const manifestValue = JSON.parse(snapshotContent(oldManifest)) as { dependencies: { path: string; sha256: string }[] };
+  const allocationDependency = manifestValue.dependencies.find((item) => item.path === fixture.allocationPath);
+  if (!allocationDependency) throw new Error('fixture allocation dependency missing');
+  allocationDependency.sha256 = allocated.snapshot.sha256;
+  const manifest = snapshot(fixture.manifestPath, json(manifestValue));
+  replacements.set(fixture.manifestPath, manifest);
+  const oldReview = fixture.snapshots.find((item) => item.path.endsWith('requirements-review.json')) as AssuranceFileSnapshot;
+  const reviewValue = JSON.parse(snapshotContent(oldReview)) as { subject: { path: string; sha256: string } };
+  reviewValue.subject = { path: manifest.path, sha256: manifest.sha256 };
+  const review = snapshot(oldReview.path, json(reviewValue));
+  replacements.set(oldReview.path, review);
+  const oldApproval = fixture.snapshots.find((item) => item.path.endsWith('baseline-approval.json')) as AssuranceFileSnapshot;
+  const approvalValue = JSON.parse(snapshotContent(oldApproval)) as { subject: { path: string; sha256: string }; review: { path: string; sha256: string } };
+  approvalValue.subject = { path: manifest.path, sha256: manifest.sha256 };
+  approvalValue.review = { path: review.path, sha256: review.sha256 };
+  replacements.set(oldApproval.path, snapshot(oldApproval.path, json(approvalValue)));
+  const snapshots = fixture.snapshots.map((item) => item.status === 'ok' ? replacements.get(item.path) ?? item : item);
+  await writeClosure(target, { ...fixture, snapshots });
+  const sliceDir = join(target, '.agent-manager/slices/S2');
+  await mkdir(join(sliceDir, 'runs'), { recursive: true });
+  const packet = `STATUS: selected\nSLICE_ID: S2\nSLICE_DOC: ${fixture.allocationPath}\nARTIFACT_KIND: IMPLEMENTATION\nIMPLEMENT_OBLIGATION_IDS: EX-REQ-001-L01,EX-REQ-002-L01\n`;
+  await writeFile(join(sliceDir, 'selection.md'), packet, 'utf-8');
+  await writeFile(join(sliceDir, 'status.json'), json({ phase: 'implement', sliceId: 'S2', sliceDoc: fixture.allocationPath, iteration: 0, updatedAt: '2026-09-12T00:00:00.000Z', lastActor: 'human', builderProvider: 'claude', supervisorProvider: 'codex' }));
+  await writeFile(join(target, '.agent-manager/current.json'), json({ sliceId: 'S2', sliceDoc: fixture.allocationPath, updatedAt: '2026-09-12T00:00:00.000Z' }));
+  for (const path of ['SYSTEM.txt', 'prompts/system/base.md', 'prompts/roles/supervisor-select.md', 'prompts/roles/builder-target.md', 'prompts/roles/reviewer-target.md', 'prompts/roles/decision-challenger.md', 'prompts/roles/decision-rebutter.md']) {
+    await mkdir(dirname(join(target, path)), { recursive: true });
+    await writeFile(join(target, path), `fixture ${path}\n`, 'utf-8');
+  }
+  const checkpoint = makeCandidateCheckpoint({ observation: observation([candidateEntry()]), allocation: allocated.allocation, computeDigest });
+  if (!checkpoint.ok) throw new Error('candidate fixture failed');
+  return { input: { ...makeInput(target), promptRoot: target, commonPromptPaths: ['prompts/system/base.md'], sharedInstruction: { root: 'prompt', path: 'SYSTEM.txt' }, sliceId: 'S2', baselinePath: fixture.manifestPath }, allocation: allocated.allocation, allocationRef: allocated.ref, checkpoint: checkpoint.value };
+}
+
+function stage3Deps(builder: ProviderRunnerPort, reviewer: ProviderRunnerPort, observations: readonly CandidateTreeObservation[], create?: TargetRelayDeps['createTrackedFileExclusively']): TargetRelayDeps {
+  let index = 0;
+  const filesystem = new FilesystemArtifactStore();
+  return {
+    ...makeDeps(builder, reviewer),
+    observeCandidateTree: async () => observations[Math.min(index++, observations.length - 1)] as CandidateTreeObservation,
+    candidateDiff: async () => 'diff --git a/src/a.ts b/src/a.ts\n',
+    createTrackedFileExclusively: create ?? (async (root, path, bytes) => {
+      await mkdir(dirname(join(root, path)), { recursive: true });
+      await writeFile(join(root, path), bytes, { flag: 'wx' });
+    }),
+    artifactStore: filesystem,
+  };
+}
+
+function generatedInput(request: RunRequest, label: string) {
+  if (request.delivery.kind !== 'reviewed-input-snapshots') throw new Error('expected reviewed delivery');
+  const item = request.delivery.roleSpecific.find((candidate) => candidate.origin === 'generated' && candidate.label === label);
+  if (!item || item.origin !== 'generated') throw new Error(`missing generated input ${label}`);
+  return item;
+}
+
+describe('ASSURANCE-3 target relay evidence gate', () => {
+  let target = '';
+  afterEach(async () => { if (target) await rm(target, { recursive: true, force: true }); target = ''; });
+
+  it('binds evidence to a stable candidate, publishes both records, and reports only review readiness', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-3-relay-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const reviewer = new StubRunner((request) => {
+      const checkpointInput = generatedInput(request, 'candidate-checkpoint-0');
+      const verification = generatedInput(request, 'verification-draft-0');
+      return json(implementationReview(JSON.parse(new TextDecoder().decode(checkpointInput.bytes)) as CandidateCheckpoint, verification.sha256));
+    });
+    const result = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()])]));
+    expect(result.phase).toBe('done');
+    expect(result.reason).toContain('operator acceptance: not recorded');
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(1);
+    expect(new TextDecoder().decode(generatedInput(builder.calls[0] as RunRequest, 'implementation-builder-task').bytes))
+      .toContain('ROLE_OUTPUT_CONTRACT: requirements-assurance/v3-implementation-evidence');
+    expect(new TextDecoder().decode(generatedInput(reviewer.calls[0] as RunRequest, 'implementation-reviewer-task').bytes))
+      .toContain('ROLE_OUTPUT_CONTRACT: requirements-assurance/v3-implementation-review');
+    expect(await exists(join(target, 'docs/assurance/S2/verification.json'))).toBe(true);
+    expect(await exists(join(target, 'docs/assurance/S2/implementation-review.json'))).toBe(true);
+  });
+
+  it.each(['legacy', 'v1'] as const)('keeps a metadata-bearing %s implementation on its existing output contracts', async (mode) => {
+    target = await mkdtemp(`/private/tmp/ASSURANCE-3-${mode}-metadata-`);
+    const allocation = allocationText({ baselinePath: 'docs/requirements/baselines/B1.json' });
+    const closure = validClosure({ allocationContent: allocation });
+    if (mode === 'v1') await writeClosure(target, closure);
+    else {
+      await mkdir(dirname(join(target, closure.allocationPath)), { recursive: true });
+      await writeFile(join(target, closure.allocationPath), allocation, 'utf-8');
+    }
+    const sliceDir = join(target, '.agent-manager/slices/S2');
+    await mkdir(join(sliceDir, 'runs'), { recursive: true });
+    const packet = `STATUS: selected\nSLICE_ID: S2\nSLICE_DOC: ${closure.allocationPath}\nARTIFACT_KIND: IMPLEMENTATION\nIMPLEMENT_OBLIGATION_IDS: EX-REQ-001-L01,EX-REQ-002-L01\n`;
+    await writeFile(join(sliceDir, 'selection.md'), packet, 'utf-8');
+    await writeFile(join(sliceDir, 'status.json'), json({ phase: 'implement', sliceId: 'S2', sliceDoc: closure.allocationPath, iteration: 0, updatedAt: '2026-09-12T00:00:00.000Z', lastActor: 'human', builderProvider: 'claude', supervisorProvider: 'codex' }));
+    await writeFile(join(target, '.agent-manager/current.json'), json({ sliceId: 'S2', sliceDoc: closure.allocationPath, updatedAt: '2026-09-12T00:00:00.000Z' }));
+    const builder = new StubRunner(() => 'existing implementation report');
+    const reviewer = new StubRunner(() => 'STATUS: approved\nExisting review protocol accepted.');
+    const input = { ...makeInput(target), sliceId: 'S2', ...(mode === 'v1' ? { baselinePath: closure.manifestPath } : {}) };
+
+    const result = await targetRelayLoop(input, makeDeps(builder, reviewer));
+
+    expect(result.phase).toBe('done');
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(1);
+    const builderDelivery = builder.calls[0]?.delivery;
+    const reviewerDelivery = reviewer.calls[0]?.delivery;
+    expect(builderDelivery?.kind).toBe('legacy-live-inputs');
+    expect(reviewerDelivery?.kind).toBe('legacy-live-inputs');
+    if (builderDelivery?.kind !== 'legacy-live-inputs' || reviewerDelivery?.kind !== 'legacy-live-inputs') throw new Error('expected preserved live-input delivery');
+    expect(builderDelivery.contextText).toContain('ROLE_OUTPUT_CONTRACT: legacy-implementation-report');
+    expect(builderDelivery.contextText).not.toContain('ROLE_OUTPUT_CONTRACT: requirements-assurance/v3-implementation-evidence');
+    expect(reviewerDelivery.contextText).toContain('ROLE_OUTPUT_CONTRACT: legacy-status-verdict');
+    expect(reviewerDelivery.contextText).not.toContain('ROLE_OUTPUT_CONTRACT: requirements-assurance/v3-implementation-review');
+  });
+
+  it('refuses a pre-existing dirty tree before the builder and preserves a failed check as non-pass', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-3-dirty-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef, 'src/a.ts', 'failed')));
+    const reviewer = new StubRunner(() => 'must not run');
+    const dirty = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation([candidateEntry()])]));
+    expect(dirty.phase).toBe('blocked');
+    expect(builder.calls).toHaveLength(0);
+    expect(reviewer.calls).toHaveLength(0);
+  });
+
+  it('allows a reviewed preservation-only item to publish an empty checkpoint without padding', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-3-preservation-only-');
+    const seeded = await seedStage3Implementation(target, { implements: [], preserves: ['EX-REQ-001-L01', 'EX-REQ-002-L01'] });
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef, '')));
+    const reviewer = new StubRunner((request) => json(implementationReview(
+      JSON.parse(new TextDecoder().decode(generatedInput(request, 'candidate-checkpoint-0').bytes)) as CandidateCheckpoint,
+      generatedInput(request, 'verification-draft-0').sha256,
+    )));
+    const result = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), observation(), observation(), observation(), observation()]));
+    expect(result.phase).toBe('done');
+    expect(await exists(join(target, 'docs/assurance/S2/verification.json'))).toBe(true);
+  });
+
+  it('returns an implements item with an empty checkpoint for substantive refinement', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-3-no-change-refinement-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef, '')));
+    const reviewer = new StubRunner((request) => json(implementationReview(
+      JSON.parse(new TextDecoder().decode(generatedInput(request, 'candidate-checkpoint-0').bytes)) as CandidateCheckpoint,
+      generatedInput(request, 'verification-draft-0').sha256,
+      'refinement-required',
+    )));
+    const result = await targetRelayLoop({ ...seeded.input, maxIterations: 1 }, stage3Deps(builder, reviewer, [observation(), observation(), observation(), observation()]));
+    expect(result.phase).toBe('blocked');
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(1);
+    expect(await exists(join(target, 'docs/assurance/S2/verification.json'))).toBe(false);
+  });
+
+  it('retains the original allocation and every prior structured review across revise cycles', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-3-continuity-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const reviewer = new StubRunner((request) => {
+      const match = (request.runId.match(/-([0-9]+)$/)?.[1] ?? '0');
+      const iteration = Number(match);
+      const checkpointInput = generatedInput(request, `candidate-checkpoint-${iteration}`);
+      const verification = generatedInput(request, `verification-draft-${iteration}`);
+      return json(implementationReview(
+        JSON.parse(new TextDecoder().decode(checkpointInput.bytes)) as CandidateCheckpoint,
+        verification.sha256,
+        iteration < 2 ? 'refinement-required' : 'accepted'
+      ));
+    });
+    const candidate = observation([candidateEntry()]);
+    const observations = [observation(), ...Array.from({ length: 12 }, () => candidate)];
+    const result = await targetRelayLoop({ ...seeded.input, maxIterations: 3 }, stage3Deps(builder, reviewer, observations));
+    expect(result.phase).toBe('done');
+    expect(builder.calls).toHaveLength(3);
+    expect(reviewer.calls).toHaveLength(3);
+    for (const request of [builder.calls[2], reviewer.calls[2]]) {
+      if (!request || request.delivery.kind !== 'reviewed-input-snapshots') throw new Error('expected reviewed third-cycle delivery');
+      expect(request.delivery.roleSpecific.filter((item) => item.purpose === 'prior-review')).toHaveLength(2);
+      expect(request.delivery.common.some((item) => item.origin === 'file' && item.path === seeded.allocationRef.path)).toBe(true);
+    }
+  });
+
+  it('retains the implementation base after invalid builder evidence and resumes the partial candidate', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-3-resume-');
+    const seeded = await seedStage3Implementation(target);
+    let builderAttempt = 0;
+    const builder = new StubRunner(() => {
+      builderAttempt += 1;
+      return builderAttempt === 1 ? '{' : json(evidenceResult(seeded.allocationRef));
+    });
+    const reviewer = new StubRunner((request) => {
+      const checkpointInput = generatedInput(request, 'candidate-checkpoint-1');
+      const verification = generatedInput(request, 'verification-draft-1');
+      return json(implementationReview(JSON.parse(new TextDecoder().decode(checkpointInput.bytes)) as CandidateCheckpoint, verification.sha256));
+    });
+    const partial = observation([candidateEntry()]);
+    const first = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), partial]));
+    expect(first.phase).toBe('blocked');
+    const blockedStatus = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')) as { candidateTracking?: { state: string; baseRevision: string } };
+    expect(blockedStatus.candidateTracking).toEqual({ contract: 'requirements-assurance/v3-candidate-tracking', state: 'building', baseRevision: 'a'.repeat(40) });
+
+    const resumed = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [partial, partial, partial, partial, partial]));
+    expect(resumed.phase).toBe('done');
+    expect(builder.calls).toHaveLength(2);
+    expect(reviewer.calls).toHaveLength(1);
+    expect(await exists(join(target, 'docs/assurance/S2/verification.json'))).toBe(true);
+  });
+
+  it('keeps a structured decision block on plain resume without invoking another builder', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-3-decision-resume-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const reviewer = new StubRunner((request) => {
+      const checkpoint = JSON.parse(new TextDecoder().decode(generatedInput(request, 'candidate-checkpoint-0').bytes)) as CandidateCheckpoint;
+      const review = implementationReview(checkpoint, generatedInput(request, 'verification-draft-0').sha256) as unknown as ImplementationReviewResult;
+      review.result = 'decision-required';
+      review.obligationAssessments[0] = { ...review.obligationAssessments[0]!, result: 'decision-required', decisionIds: ['D-A3-OUTPUT'] };
+      review.decisions = [{
+        decisionId: 'D-A3-OUTPUT',
+        obligationIds: ['EX-REQ-001-L01'],
+        question: 'Which acceptance-boundary output is authoritative?',
+        options: [
+          { option: 'A', reward: 'The operator receives the direct delivered result.', risk: 'The fixture must exercise the public relay.' },
+          { option: 'B', reward: 'The existing helper-only fixture remains sufficient.', risk: 'The user-visible behavior can remain absent.' },
+        ],
+        recommendation: 'A',
+        blockingReason: 'The accepted inputs do not authorize either interpretation.',
+      }];
+      return json(review);
+    });
+    const candidate = observation([candidateEntry()]);
+    const first = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), candidate, candidate, candidate]));
+    expect(first.phase).toBe('blocked');
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(1);
+    const notesBeforeResume = await readFile(join(target, '.agent-manager/slices/S2/notes-for-human.md'), 'utf-8');
+    const statusBeforeResume = await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8');
+    expect(notesBeforeResume).toContain('D-A3-OUTPUT');
+
+    const resumed = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, []));
+    expect(resumed).toEqual(expect.objectContaining({ phase: 'blocked', stopped: true, reason: expect.stringContaining('D-A3-OUTPUT') }));
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(1);
+    expect(await readFile(join(target, '.agent-manager/slices/S2/notes-for-human.md'), 'utf-8')).toBe(notesBeforeResume);
+    expect(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')).toBe(statusBeforeResume);
+  });
+
+  it('refuses plain resume when retained Stage-3 review evidence is malformed', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-3-malformed-review-resume-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const reviewer = new StubRunner((request) => json(implementationReview(
+      JSON.parse(new TextDecoder().decode(generatedInput(request, 'candidate-checkpoint-0').bytes)) as CandidateCheckpoint,
+      generatedInput(request, 'verification-draft-0').sha256,
+      'refinement-required',
+    )));
+    const candidate = observation([candidateEntry()]);
+    expect((await targetRelayLoop({ ...seeded.input, maxIterations: 1 }, stage3Deps(builder, reviewer, [observation(), candidate, candidate, candidate]))).phase).toBe('blocked');
+    await writeFile(join(target, '.agent-manager/slices/S2/review-1.json'), '{', 'utf-8');
+
+    const resumed = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, []));
+    expect(resumed).toEqual(expect.objectContaining({ phase: 'blocked', stopped: true, reason: expect.stringContaining('malformed or unreadable') }));
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(1);
+  });
+});
+
+describe('ASSURANCE-3 implementation reviewer contract', () => {
+  it('requires exact obligation/check/path coverage and rejects an ungrounded accepted check', () => {
+    const { allocation, ref } = parsedAllocation();
+    const checkpoint = makeCandidateCheckpoint({ observation: observation([candidateEntry()]), allocation, computeDigest });
+    if (!checkpoint.ok) throw new Error('checkpoint fixture failed');
+    const evidence = parseImplementationEvidenceResult({ snapshot: snapshot('provider-result', json(evidenceResult(ref))), allocation, allocationRef: ref, checkpoint: checkpoint.value });
+    if (!evidence.ok) throw new Error('evidence fixture failed');
+    const review = implementationReview(checkpoint.value, computeDigest('v'));
+    review.changedPathAssessments = [];
+    const parsed = parseImplementationReviewResult({ snapshot: snapshot('review-result', json(review)), allocation, checkpoint: checkpoint.value, verificationSha256: computeDigest('v'), evidence: evidence.value });
+    expect(parsed.ok ? [] : parsed.errors.map((item) => item.code)).toContain('review-coverage-missing');
+  });
+
+  it.each(['evidence', 'naming', 'architecture'] as const)('retains a structured %s refinement despite unsupported positive prose', (category) => {
+    const { allocation, ref } = parsedAllocation();
+    const checkpoint = makeCandidateCheckpoint({ observation: observation([candidateEntry()]), allocation, computeDigest });
+    if (!checkpoint.ok) throw new Error('checkpoint fixture failed');
+    const evidence = parseImplementationEvidenceResult({ snapshot: snapshot('provider-result', json(evidenceResult(ref))), allocation, allocationRef: ref, checkpoint: checkpoint.value });
+    if (!evidence.ok) throw new Error('evidence fixture failed');
+    const review = implementationReview(checkpoint.value, computeDigest('v'), 'refinement-required');
+    review.findings[0]!.category = category;
+    review.report = 'Everything is approved.';
+    const parsed = parseImplementationReviewResult({ snapshot: snapshot('review-result', json(review)), allocation, checkpoint: checkpoint.value, verificationSha256: computeDigest('v'), evidence: evidence.value });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.value.result).toBe('refinement-required');
+  });
+
+  it('instructs the read-only reviewer to challenge semantic fixture, naming, scope, and architecture defects', async () => {
+    const reviewerPrompt = await readFile(join(process.cwd(), 'prompts/roles/reviewer-target.md'), 'utf-8');
+    const builderPrompt = await readFile(join(process.cwd(), 'prompts/roles/builder-target.md'), 'utf-8');
+    expect(reviewerPrompt).toContain('challenge ungrounded fixtures');
+    expect(reviewerPrompt).toContain('misleading names');
+    expect(reviewerPrompt).toContain('unjustified paths');
+    expect(reviewerPrompt).toContain('unearned architecture');
+    expect(reviewerPrompt).toContain('read-only reviewer');
+    expect(reviewerPrompt).toContain('Allocation metadata alone never');
+    expect(reviewerPrompt).toContain('requirements-assurance/v3-implementation-review');
+    expect(builderPrompt).toContain('Allocation metadata alone never');
+    expect(builderPrompt).toContain('requirements-assurance/v3-implementation-evidence');
+  });
+});
+
+describe('ASSURANCE-3 mutation and publication ordering', () => {
+  let target = '';
+  afterEach(async () => { if (target) await rm(target, { recursive: true, force: true }); target = ''; });
+
+  it('withholds completion when the candidate changes during review', async () => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-3-drift-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const reviewer = new StubRunner((request) => json(implementationReview(JSON.parse(new TextDecoder().decode(generatedInput(request, 'candidate-checkpoint-0').bytes)) as CandidateCheckpoint, generatedInput(request, 'verification-draft-0').sha256)));
+    const drifted = observation([candidateEntry(computeDigest('old'), computeDigest('changed-during-review'))]);
+    const result = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), observation([candidateEntry()]), observation([candidateEntry()]), drifted]));
+    expect(result.phase).toBe('blocked');
+    expect(await readFile(join(target, '.agent-manager/slices/S2/notes-for-human.md'), 'utf-8')).toContain('candidate changed during implementation review');
+    expect(await exists(join(target, 'docs/assurance/S2/verification.json'))).toBe(false);
+  });
+
+  it.each([1, 2])('withholds completion on an injected ordered write-%i failure', async (failedWrite) => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-3-publish-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const reviewer = new StubRunner((request) => json(implementationReview(JSON.parse(new TextDecoder().decode(generatedInput(request, 'candidate-checkpoint-0').bytes)) as CandidateCheckpoint, generatedInput(request, 'verification-draft-0').sha256)));
+    let writes = 0;
+    const deps = stage3Deps(builder, reviewer, [observation(), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()])], async (root, path, bytes) => {
+      writes += 1;
+      if (writes === failedWrite) throw new Error(`injected write-${failedWrite} failure`);
+      await mkdir(dirname(join(root, path)), { recursive: true });
+      await writeFile(join(root, path), bytes, { flag: 'wx' });
+    });
+    const result = await targetRelayLoop(seeded.input, deps);
+    expect(result.phase).toBe('blocked');
+    expect(await readFile(join(target, '.agent-manager/slices/S2/notes-for-human.md'), 'utf-8')).toContain('unaccepted partial publication');
+    expect(writes).toBe(failedWrite);
+    expect(await exists(join(target, 'docs/assurance/S2/implementation-review.json'))).toBe(false);
+  });
+
+  it.each(['docs/assurance/S2/verification.json', 'docs/assurance/S2/implementation-review.json'])('preflights existing %s before either create', async (collisionPath) => {
+    target = await mkdtemp('/private/tmp/ASSURANCE-3-collision-');
+    const seeded = await seedStage3Implementation(target);
+    await mkdir(dirname(join(target, collisionPath)), { recursive: true });
+    await writeFile(join(target, collisionPath), 'existing\n', 'utf-8');
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const reviewer = new StubRunner((request) => json(implementationReview(JSON.parse(new TextDecoder().decode(generatedInput(request, 'candidate-checkpoint-0').bytes)) as CandidateCheckpoint, generatedInput(request, 'verification-draft-0').sha256)));
+    let writes = 0;
+    const result = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()])], async () => { writes += 1; }));
+    expect(result.phase).toBe('blocked');
+    expect(writes).toBe(0);
+    expect(await readFile(join(target, collisionPath), 'utf-8')).toBe('existing\n');
+  });
+});
+
+describe('ASSURANCE-3 built CLI evidence gate', () => {
+  const roots: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  });
+
+  async function committedStage3Target(): Promise<{ target: string; seeded: Awaited<ReturnType<typeof seedStage3Implementation>> }> {
+    const target = await mkdtemp('/private/tmp/ASSURANCE-3-cli-target-');
+    roots.push(target);
+    const seeded = await seedStage3Implementation(target);
+    await writeFile(join(target, '.gitignore'), '.agent-manager/\n', 'utf-8');
+    await execFileTest('git', ['init'], { cwd: target });
+    await execFileTest('git', ['config', 'user.email', 'fixture@example.invalid'], { cwd: target });
+    await execFileTest('git', ['config', 'user.name', 'Fixture'], { cwd: target });
+    await execFileTest('git', ['add', '.'], { cwd: target });
+    await execFileTest('git', ['commit', '-m', 'fixture baseline'], { cwd: target });
+    return { target, seeded };
+  }
+
+  async function fakeCodexBin(): Promise<{ bin: string; calls: string }> {
+    const bin = await mkdtemp('/private/tmp/ASSURANCE-3-cli-bin-');
+    roots.push(bin);
+    const calls = join(bin, 'calls.log');
+    const script = String.raw`#!${process.execPath}
+const fs = require('node:fs');
+const path = require('node:path');
+const childProcess = require('node:child_process');
+const raw = fs.readFileSync(0);
+const inputs = [];
+let offset = 0;
+while (offset < raw.length) {
+  const marker = Buffer.from('AGENT_MANAGER_INPUT_V2 ');
+  const start = raw.indexOf(marker, offset);
+  if (start < 0) break;
+  const lineEnd = raw.indexOf(0x0a, start);
+  const header = JSON.parse(raw.subarray(start + marker.length, lineEnd).toString('utf8'));
+  const bodyStart = lineEnd + 1;
+  const bodyEnd = bodyStart + header.byteLength;
+  inputs.push({ header, text: raw.subarray(bodyStart, bodyEnd).toString('utf8') });
+  offset = bodyEnd;
+}
+fs.appendFileSync(process.env.A3_CALL_LOG, 'call\n');
+const builder = inputs.some((item) => item.header.label === 'implementation-builder-task');
+const allocationInput = builder
+  ? inputs.find((item) => item.header.path === 'docs/slices/S2.md')
+  : inputs.find((item) => item.header.label?.startsWith('implementation-allocation-'));
+if (!allocationInput) throw new Error('allocation input missing');
+const allocation = builder
+  ? JSON.parse(allocationInput.text.match(/<!-- requirements-assurance-implementation-v1\n([\s\S]*?)\n-->/)[1])
+  : JSON.parse(allocationInput.text);
+if (builder) {
+  fs.mkdirSync(path.join(process.cwd(), 'src'), { recursive: true });
+  const candidatePath = path.join(process.cwd(), 'src/a.ts');
+  if (process.env.A3_CANDIDATE_SHAPE === 'index-working') {
+    fs.writeFileSync(candidatePath, 'export const delivered = "index";\n');
+    childProcess.execFileSync('git', ['add', '--', 'src/a.ts'], { cwd: process.cwd(), stdio: 'ignore' });
+    fs.writeFileSync(candidatePath, 'export const delivered = "working";\n');
+    fs.chmodSync(candidatePath, 0o755);
+  } else if (process.env.A3_CANDIDATE_SHAPE === 'staged-only') {
+    const headBytes = fs.readFileSync(candidatePath);
+    fs.writeFileSync(candidatePath, 'export const delivered = "staged";\n');
+    childProcess.execFileSync('git', ['add', '--', 'src/a.ts'], { cwd: process.cwd(), stdio: 'ignore' });
+    fs.writeFileSync(candidatePath, headBytes);
+  } else if (process.env.A3_CANDIDATE_SHAPE === 'untracked') {
+    fs.writeFileSync(candidatePath, 'export const delivered = "untracked";\n');
+  } else if (process.env.A3_CANDIDATE_SHAPE === 'staged-delete') {
+    fs.unlinkSync(candidatePath);
+    childProcess.execFileSync('git', ['add', '--', 'src/a.ts'], { cwd: process.cwd(), stdio: 'ignore' });
+  } else if (process.env.A3_CANDIDATE_SHAPE === 'working-delete') {
+    fs.unlinkSync(candidatePath);
+  } else if (process.env.A3_CANDIDATE_SHAPE === 'binary-index-working') {
+    fs.writeFileSync(candidatePath, Buffer.from([0, 1, 2, 3]));
+    childProcess.execFileSync('git', ['add', '--', 'src/a.ts'], { cwd: process.cwd(), stdio: 'ignore' });
+    fs.writeFileSync(candidatePath, Buffer.from([0, 4, 5]));
+  } else {
+    fs.writeFileSync(candidatePath, 'export const delivered = true;\n');
+  }
+  process.stdout.write(JSON.stringify({
+    formatVersion: 3,
+    kind: 'implementation-evidence-result',
+    allocation: { path: allocationInput.header.path, sha256: allocationInput.header.sha256 },
+    checks: allocation.checks.map((check) => ({ checkId: check.checkId, outcome: { kind: 'passed', actual: 'fixture command exited 0', supportingEvidence: ['fake-codex#builder'] } })),
+    changeJustifications: [{ path: 'src/a.ts', obligationIds: [allocation.implements[0]], summary: 'Makes the acceptance-boundary fixture observable.' }],
+    limitations: ['Fixture provider; no external service was invoked.'],
+    report: 'All planned fixture checks completed against the final candidate.'
+  }));
+} else {
+  const checkpointInput = inputs.find((item) => item.header.label?.startsWith('candidate-checkpoint-'));
+  const verificationInput = inputs.find((item) => item.header.label?.startsWith('verification-draft-'));
+  const candidateDiffInput = inputs.find((item) => item.header.label?.startsWith('candidate-diff-'));
+  if (!checkpointInput || !verificationInput || !candidateDiffInput) throw new Error('review subjects missing');
+  fs.writeFileSync(process.env.A3_DIFF_LOG, candidateDiffInput.text);
+  const checkpoint = JSON.parse(checkpointInput.text);
+  const obligations = [...allocation.implements, ...allocation.preserves, ...allocation.changes, ...allocation.preservationObligationIds];
+  process.stdout.write(JSON.stringify({
+    formatVersion: 3,
+    kind: 'implementation-review-result',
+    subject: { candidateSha256: checkpoint.sha256, verificationSha256: verificationInput.header.sha256 },
+    result: 'accepted',
+    obligationAssessments: obligations.map((obligationId) => ({ obligationId, result: 'accepted', findingIds: [], decisionIds: [] })),
+    checkAssessments: allocation.checks.map((check) => ({ checkId: check.checkId, result: 'accepted', findingIds: [], verification: { kind: 'relied-on-builder-evidence', limitation: 'Fixture reviewer inspected the bound report without rerunning its command.' } })),
+    changedPathAssessments: checkpoint.entries.map((entry) => ({ path: entry.path, result: 'accepted', findingIds: [], decisionIds: [] })),
+    findings: [], decisions: [], report: 'Every allocated obligation, check, and changed path was inspected.'
+  }));
+}
+`;
+    const executable = join(bin, 'codex');
+    await writeFile(executable, script, 'utf-8');
+    await chmod(executable, 0o755);
+    return { bin, calls };
+  }
+
+  it('runs the freshly built CLI through publication and refuses an out-of-scope tree before provider dispatch', async () => {
+    const fake = await fakeCodexBin();
+    const diffLog = join(fake.bin, 'candidate-diff.log');
+    const valid = await committedStage3Target();
+    const cliOptions = { providerBin: fake.bin, environment: { A3_CALL_LOG: fake.calls, A3_DIFF_LOG: diffLog, A3_CANDIDATE_SHAPE: 'index-working' } };
+    const args = (target: string, baselinePath: string) => [target, '--baseline', baselinePath, '--slice', 'S2', '--shared-prompt', join(target, 'SYSTEM.txt'), '--builder', 'codex', '--builder-model', 'gpt-5.6-sol', '--supervisor', 'codex', '--supervisor-model', 'gpt-5.6-terra', '--max-iter', '1'];
+    const accepted = await builtCli(args(valid.target, valid.seeded.input.baselinePath as string), cliOptions);
+    expect(accepted.exitCode).toBe(0);
+    expect(accepted.stdout).toContain('implementation review: accepted');
+    expect(accepted.stdout).toContain('verification: required checks passed for sha256:');
+    expect(accepted.stdout).toContain('operator acceptance: not recorded');
+    expect(accepted.stdout).toContain('release/deployment: not performed');
+    expect(await exists(join(valid.target, 'docs/assurance/S2/verification.json'))).toBe(true);
+    expect(await exists(join(valid.target, 'docs/assurance/S2/implementation-review.json'))).toBe(true);
+    const verificationRaw = await readFile(join(valid.target, 'docs/assurance/S2/verification.json'), 'utf-8');
+    const reviewRaw = await readFile(join(valid.target, 'docs/assurance/S2/implementation-review.json'), 'utf-8');
+    expect(accepted.stdout).toContain(`verification record: docs/assurance/S2/verification.json ${computeDigest(verificationRaw)}`);
+    expect(accepted.stdout).toContain(`implementation review record: docs/assurance/S2/implementation-review.json ${computeDigest(reviewRaw)}`);
+    expect(await readFile(fake.calls, 'utf-8')).toBe('call\ncall\n');
+    const verification = JSON.parse(verificationRaw) as { candidateCheckpoint: CandidateCheckpoint };
+    expect(verification.candidateCheckpoint.entries).toEqual([
+      expect.objectContaining({
+        path: 'src/a.ts',
+        porcelainStatus: 'AM',
+        index: expect.objectContaining({ kind: 'present', gitMode: '100644' }),
+        workingTree: expect.objectContaining({ kind: 'present', gitMode: '100755' }),
+      }),
+    ]);
+    const observedEntry = verification.candidateCheckpoint.entries[0];
+    if (!observedEntry || observedEntry.index.kind !== 'present' || observedEntry.workingTree.kind !== 'present') throw new Error('expected two present candidate states');
+    expect(observedEntry.index.sha256).not.toBe(observedEntry.workingTree.sha256);
+    const splitDiff = await readFile(diffLog, 'utf-8');
+    expect(splitDiff).toContain('=== HEAD-to-index diff (staged candidate state) ===');
+    expect(splitDiff).toContain('+export const delivered = "index";');
+    expect(splitDiff).toContain('=== Index-to-working-tree diff (unstaged candidate state) ===');
+    expect(splitDiff).toContain('-export const delivered = "index";');
+    expect(splitDiff).toContain('+export const delivered = "working";');
+    expect(splitDiff).toContain('old mode 100644');
+    expect(splitDiff).toContain('new mode 100755');
+
+    const stagedOnly = await committedStage3Target();
+    await mkdir(join(stagedOnly.target, 'src'), { recursive: true });
+    await writeFile(join(stagedOnly.target, 'src/a.ts'), 'export const delivered = "head";\n', 'utf-8');
+    await execFileTest('git', ['add', '--', 'src/a.ts'], { cwd: stagedOnly.target });
+    await execFileTest('git', ['commit', '--amend', '--no-edit'], { cwd: stagedOnly.target });
+    await writeFile(fake.calls, '', 'utf-8');
+    const stagedOnlyResult = await builtCli(args(stagedOnly.target, stagedOnly.seeded.input.baselinePath as string), {
+      providerBin: fake.bin,
+      environment: { A3_CALL_LOG: fake.calls, A3_DIFF_LOG: diffLog, A3_CANDIDATE_SHAPE: 'staged-only' },
+    });
+    expect(stagedOnlyResult.exitCode).toBe(0);
+    expect(await readFile(fake.calls, 'utf-8')).toBe('call\ncall\n');
+    const stagedOnlyDiff = await readFile(diffLog, 'utf-8');
+    expect(stagedOnlyDiff).toContain('=== HEAD-to-index diff (staged candidate state) ===');
+    expect(stagedOnlyDiff).toContain('+export const delivered = "staged";');
+    expect(stagedOnlyDiff).toContain('=== Index-to-working-tree diff (unstaged candidate state) ===');
+    expect(stagedOnlyDiff).toContain('-export const delivered = "staged";');
+    expect(stagedOnlyDiff).toContain('+export const delivered = "head";');
+
+    const untracked = await committedStage3Target();
+    await writeFile(fake.calls, '', 'utf-8');
+    const untrackedResult = await builtCli(args(untracked.target, untracked.seeded.input.baselinePath as string), {
+      providerBin: fake.bin,
+      environment: { A3_CALL_LOG: fake.calls, A3_DIFF_LOG: diffLog, A3_CANDIDATE_SHAPE: 'untracked' },
+    });
+    expect(untrackedResult.exitCode).toBe(0);
+    expect(await readFile(fake.calls, 'utf-8')).toBe('call\ncall\n');
+    const untrackedDiff = await readFile(diffLog, 'utf-8');
+    expect(untrackedDiff).toContain('=== Untracked working-tree files (raw bytes as base64) ===');
+    expect(untrackedDiff).toContain(Buffer.from('export const delivered = "untracked";\n').toString('base64'));
+
+    for (const shape of ['staged-delete', 'working-delete'] as const) {
+      const deleted = await committedStage3Target();
+      await mkdir(join(deleted.target, 'src'), { recursive: true });
+      await writeFile(join(deleted.target, 'src/a.ts'), 'export const delivered = "head";\n', 'utf-8');
+      await execFileTest('git', ['add', '--', 'src/a.ts'], { cwd: deleted.target });
+      await execFileTest('git', ['commit', '--amend', '--no-edit'], { cwd: deleted.target });
+      await writeFile(fake.calls, '', 'utf-8');
+      const deletedResult = await builtCli(args(deleted.target, deleted.seeded.input.baselinePath as string), {
+        providerBin: fake.bin,
+        environment: { A3_CALL_LOG: fake.calls, A3_DIFF_LOG: diffLog, A3_CANDIDATE_SHAPE: shape },
+      });
+      expect(deletedResult.exitCode).toBe(0);
+      expect(await readFile(fake.calls, 'utf-8')).toBe('call\ncall\n');
+      const deletedDiff = await readFile(diffLog, 'utf-8');
+      expect(deletedDiff).toContain('deleted file mode 100644');
+      expect(deletedDiff).toContain('-export const delivered = "head";');
+      const activeSection = shape === 'staged-delete'
+        ? '=== HEAD-to-index diff (staged candidate state) ==='
+        : '=== Index-to-working-tree diff (unstaged candidate state) ===';
+      expect(deletedDiff.indexOf(activeSection)).toBeLessThan(deletedDiff.indexOf('deleted file mode 100644'));
+    }
+
+    const binary = await committedStage3Target();
+    await writeFile(fake.calls, '', 'utf-8');
+    const binaryResult = await builtCli(args(binary.target, binary.seeded.input.baselinePath as string), {
+      providerBin: fake.bin,
+      environment: { A3_CALL_LOG: fake.calls, A3_DIFF_LOG: diffLog, A3_CANDIDATE_SHAPE: 'binary-index-working' },
+    });
+    expect(binaryResult.exitCode).toBe(0);
+    expect(await readFile(fake.calls, 'utf-8')).toBe('call\ncall\n');
+    const binaryDiff = await readFile(diffLog, 'utf-8');
+    expect(binaryDiff.match(/GIT binary patch/g)).toHaveLength(2);
+
+    const sabotaged = await committedStage3Target();
+    await mkdir(join(sabotaged.target, 'src'), { recursive: true });
+    await writeFile(join(sabotaged.target, 'src/outside.ts'), 'unallocated\n', 'utf-8');
+    await writeFile(fake.calls, '', 'utf-8');
+    const refused = await builtCli(args(sabotaged.target, sabotaged.seeded.input.baselinePath as string), cliOptions);
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stdout).toContain('Final phase: blocked');
+    expect(await readFile(join(sabotaged.target, '.agent-manager/slices/S2/notes-for-human.md'), 'utf-8')).toContain("changed path 'src/outside.ts' is outside candidatePaths");
+    expect(await readFile(fake.calls, 'utf-8')).toBe('');
+  }, 60_000);
 });
 
 describe('ASSURANCE-2 adapter delivery composition (A2-C05/C06)', () => {

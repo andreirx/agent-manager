@@ -31,10 +31,11 @@
  * @maturity PROTOTYPE
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
-import { resolve, relative, sep } from 'node:path';
+import { lstat, readFile, mkdir, writeFile } from 'node:fs/promises';
+import { resolve, relative, sep, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -54,6 +55,7 @@ import {
 } from '../application/use-cases/relay-target.js';
 import type { RunRequest } from '../application/ports/provider-runner.js';
 import { parseAssuranceJson, parsePersistedAssurance, renderAssuranceError } from '../core/assurance.js';
+import type { CandidateCheckpoint, CandidateTreeObservation, CandidateIndexState, CandidateFileState } from '../core/assurance.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 /** agent-manager root: prompt-asset root (NOT the target working dir). */
@@ -129,6 +131,114 @@ async function gitChangedPaths(targetDir: string): Promise<readonly string[]> {
   } catch {
     return [];
   }
+}
+
+function execFileBuffer(file: string, args: readonly string[], options: { cwd?: string; maxBuffer?: number } = {}): Promise<Buffer> {
+  return new Promise((accept, reject) => {
+    execFile(file, [...args], { ...options, encoding: 'buffer' }, (cause, stdout) => {
+      if (cause) reject(cause);
+      else accept(stdout as Buffer);
+    });
+  });
+}
+
+function sha256Bytes(bytes: Uint8Array): string {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+async function readGitBlobThroughBatch(targetDir: string, objectId: string): Promise<Buffer> {
+  return new Promise((accept, reject) => {
+    const child = spawn('git', ['-C', targetDir, 'cat-file', '--batch'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`git cat-file --batch exited ${String(code)}: ${Buffer.concat(stderr).toString('utf8')}`));
+        return;
+      }
+      const output = Buffer.concat(stdout);
+      const newline = output.indexOf(0x0a);
+      if (newline < 0) { reject(new Error(`git cat-file --batch returned no header for '${objectId}'`)); return; }
+      const header = output.subarray(0, newline).toString('ascii').match(/^([0-9a-f]{40,64}) blob ([0-9]+)$/);
+      if (!header || header[1] !== objectId) { reject(new Error(`git cat-file --batch returned an unexpected header for '${objectId}'`)); return; }
+      const size = Number(header[2]);
+      const body = output.subarray(newline + 1, newline + 1 + size);
+      if (!Number.isSafeInteger(size) || body.byteLength !== size || output[newline + 1 + size] !== 0x0a) { reject(new Error(`git cat-file --batch returned malformed blob bytes for '${objectId}'`)); return; }
+      accept(body);
+    });
+    child.stdin.end(`${objectId}\n`);
+  });
+}
+
+/**
+ * Observe the Git-visible candidate without collapsing index and working bytes.
+ * Policy remains in core; this mechanism only reports raw, deterministic facts.
+ */
+async function observeCandidateTree(targetDir: string): Promise<CandidateTreeObservation> {
+  const head = (await execFileBuffer('git', ['-C', targetDir, 'rev-parse', 'HEAD'])).toString('utf8').trim();
+  const statusBytes = await execFileBuffer('git', ['-C', targetDir, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']);
+  const records = new TextDecoder('utf-8', { fatal: true }).decode(statusBytes).split('\0').filter((value) => value.length > 0);
+  const entries: CandidateTreeObservation['entries'] = [];
+  for (const record of records) {
+    if (record.length < 4 || record[2] !== ' ') throw new Error(`Unsupported porcelain record: ${JSON.stringify(record)}`);
+    const porcelainStatus = record.slice(0, 2);
+    const path = record.slice(3);
+    const indexRaw = new TextDecoder('utf-8', { fatal: true }).decode(await execFileBuffer('git', ['-C', targetDir, 'ls-files', '--stage', '-z', '--', path]));
+    const indexRecords = indexRaw.split('\0').filter(Boolean);
+    let index: CandidateIndexState = { kind: 'absent' };
+    if (indexRecords.length > 0) {
+      if (indexRecords.length !== 1) throw new Error(`Unsupported multiple index stages for '${path}'`);
+      const match = indexRecords[0]?.match(/^(\d{6}) ([0-9a-f]{40,64}) (\d)\t/);
+      if (!match) throw new Error(`Malformed index entry for '${path}'`);
+      const gitMode = match[1];
+      const stage = Number(match[3]);
+      if ((gitMode !== '100644' && gitMode !== '100755') || stage !== 0) throw new Error(`Unsupported index node for '${path}' (mode=${gitMode}, stage=${stage})`);
+      const blob = await readGitBlobThroughBatch(targetDir, match[2] as string);
+      index = { kind: 'present', gitMode, stage: 0, sha256: sha256Bytes(blob), byteLength: blob.byteLength };
+    }
+    let workingTree: CandidateFileState;
+    const absolute = join(targetDir, path);
+    try {
+      const stat = await lstat(absolute);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsupported working-tree node for '${path}'`);
+      const bytes = await readFile(absolute);
+      workingTree = { kind: 'present', gitMode: (stat.mode & 0o111) === 0 ? '100644' : '100755', sha256: sha256Bytes(bytes), byteLength: bytes.byteLength };
+    } catch (cause) {
+      if (typeof cause === 'object' && cause !== null && 'code' in cause && ((cause as { code: unknown }).code === 'ENOENT' || (cause as { code: unknown }).code === 'ENOTDIR')) workingTree = { kind: 'absent' };
+      else throw cause;
+    }
+    entries.push({ path, porcelainStatus, index, workingTree });
+  }
+  return { baseRevision: head, entries };
+}
+
+async function candidateDiff(targetDir: string, checkpoint: CandidateCheckpoint): Promise<string> {
+  const headToIndex = (await execFileBuffer('git', ['-C', targetDir, 'diff', '--cached', '--binary', 'HEAD', '--'])).toString('utf8');
+  const indexToWorkingTree = (await execFileBuffer('git', ['-C', targetDir, 'diff', '--binary', '--'])).toString('utf8');
+  const untracked: string[] = [];
+  for (const entry of checkpoint.entries) {
+    if (entry.porcelainStatus === '??' && entry.workingTree.kind === 'present') {
+      const bytes = await readFile(join(targetDir, entry.path));
+      untracked.push(`\n--- /dev/null\n+++ b/${entry.path}\n# untracked raw bytes (base64)\n${bytes.toString('base64')}\n`);
+    }
+  }
+  return [
+    '=== HEAD-to-index diff (staged candidate state) ===',
+    headToIndex,
+    '=== Index-to-working-tree diff (unstaged candidate state) ===',
+    indexToWorkingTree,
+    '=== Untracked working-tree files (raw bytes as base64) ===',
+    untracked.join(''),
+  ].join('\n');
+}
+
+async function createTrackedFileExclusively(targetDir: string, path: string, bytes: Uint8Array): Promise<void> {
+  const absolute = join(targetDir, path);
+  await mkdir(dirname(absolute), { recursive: true });
+  await writeFile(absolute, bytes, { flag: 'wx' });
 }
 
 type RawAdapter = ClaudeAdapter | CodexAdapter | CopilotAdapter;
@@ -660,7 +770,6 @@ async function main(): Promise<void> {
   const adapterConfig = {
     logsDir: resolve(targetDir, '.agent-manager', 'logs'),
     promptRoot,
-    commonPromptPaths: ['prompts/system/base.md'],
     defaultTimeout: args.timeoutMs,
     ...(sharedInstructionPath ? { sharedInstructionPath } : {}),
   };
@@ -691,6 +800,7 @@ async function main(): Promise<void> {
     // when the phase fires; never read for non-DECISION_REQUIRED slices.
     challengerPromptPaths: ['prompts/system/base.md', 'prompts/roles/decision-challenger.md'],
     rebutterPromptPaths: ['prompts/system/base.md', 'prompts/roles/decision-rebutter.md'],
+    commonPromptPaths: ['prompts/system/base.md'],
     builderProvider: args.builder,
     supervisorProvider: args.supervisor,
     builderModel: builderDef.model,
@@ -715,6 +825,9 @@ async function main(): Promise<void> {
       computeDigest,
       changedPaths: gitChangedPaths,
       artifactStore: store,
+      observeCandidateTree,
+      candidateDiff,
+      createTrackedFileExclusively,
     });
 
     console.log(`\nRelay completed.`);

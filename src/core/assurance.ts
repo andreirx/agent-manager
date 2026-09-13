@@ -1,5 +1,6 @@
 /**
- * Pure requirements-assurance stage-1 policy.
+ * Pure requirements-assurance policy for the delivered stage-1/stage-2 gates
+ * and the stage-3 allocation, candidate, evidence, and review records.
  *
  * The filesystem adapter supplies immutable raw-text snapshots and their
  * byte digests. This module validates the closed v1 records and returns either
@@ -43,6 +44,105 @@ export type AssuranceErrorCode =
   | 'review-result-mismatch'
   | 'role-context-mismatch'
   | 'approval-already-exists';
+
+export type EvidenceOutcome =
+  | { kind: 'passed'; actual: string; supportingEvidence: string[] }
+  | { kind: 'failed'; actual: string; supportingEvidence: string[] }
+  | { kind: 'not-run'; reason: string }
+  | { kind: 'execution-failed'; failure: string };
+
+export type ImplementationCheckMethod =
+  | { kind: 'command'; command: string; cwd: string; environment: string; inputs: string }
+  | { kind: 'inspection'; subject: string; criterion: string; inputs: string };
+
+export interface ImplementationCheckPlan {
+  checkId: string;
+  obligationIds: string[];
+  owner: 'builder' | 'reviewer';
+  method: ImplementationCheckMethod;
+  expected: string;
+}
+
+export interface ImplementationAllocation {
+  formatVersion: 1;
+  kind: 'implementation-allocation';
+  workItemId: string;
+  baselinePath: string;
+  parentRequirementIds: string[];
+  implements: string[];
+  preserves: string[];
+  preservationObligationIds: string[];
+  changes: string[];
+  acceptanceBoundary: string;
+  candidatePaths: string[];
+  postReviewRecordPaths: string[];
+  candidateExclusions: { pathPrefix: string; reason: string }[];
+  checks: ImplementationCheckPlan[];
+}
+
+export type CandidateFileState =
+  | { kind: 'absent' }
+  | { kind: 'present'; gitMode: '100644' | '100755'; sha256: string; byteLength: number };
+
+export type CandidateIndexState =
+  | { kind: 'absent' }
+  | { kind: 'present'; gitMode: '100644' | '100755'; stage: 0; sha256: string; byteLength: number };
+
+export interface CandidateTreeObservation {
+  baseRevision: string;
+  entries: {
+    path: string;
+    porcelainStatus: string;
+    index: CandidateIndexState;
+    workingTree: CandidateFileState;
+  }[];
+}
+
+export interface CandidateCheckpoint extends CandidateTreeObservation {
+  contract: 'requirements-assurance/v3-candidate-checkpoint';
+  sha256: string;
+}
+
+export type CandidateTracking =
+  | { contract: 'requirements-assurance/v3-candidate-tracking'; state: 'building'; baseRevision: string }
+  | { contract: 'requirements-assurance/v3-candidate-tracking'; state: 'evidence-bound'; baseRevision: string; candidateSha256: string };
+
+export interface ImplementationEvidenceResult {
+  formatVersion: 3;
+  kind: 'implementation-evidence-result';
+  allocation: ContentRef;
+  checks: { checkId: string; outcome: EvidenceOutcome }[];
+  changeJustifications: { path: string; obligationIds: string[]; summary: string }[];
+  limitations: string[];
+  report: string;
+}
+
+export type ReviewVerification =
+  | { kind: 'reproduced'; outcome: EvidenceOutcome }
+  | { kind: 'relied-on-builder-evidence'; limitation: string };
+
+export interface ImplementationReviewFinding {
+  findingId: string;
+  obligationIds: string[];
+  locations: string[];
+  category: 'correctness' | 'preservation' | 'evidence' | 'integration' | 'scope' | 'naming' | 'architecture' | 'traceability';
+  evidence: string;
+  consequence: string;
+  requiredAction: string;
+}
+
+export interface ImplementationReviewResult {
+  formatVersion: 3;
+  kind: 'implementation-review-result';
+  subject: { candidateSha256: string; verificationSha256: string };
+  result: ReviewOutcome;
+  obligationAssessments: ReviewAssessment[];
+  checkAssessments: { checkId: string; result: ReviewOutcome; findingIds: string[]; verification: ReviewVerification }[];
+  changedPathAssessments: { path: string; result: ReviewOutcome; findingIds: string[]; decisionIds: string[] }[];
+  findings: ImplementationReviewFinding[];
+  decisions: ReviewDecision[];
+  report: string;
+}
 
 type DuplicateErrorCode = 'duplicate-field' | 'duplicate-identity';
 type NonDuplicateErrorCode = Exclude<AssuranceErrorCode, DuplicateErrorCode>;
@@ -1570,6 +1670,459 @@ export function persistedAssurance(admission: BaselineAdmission): PersistedAssur
 export function persistedAssuranceV2(admission: BaselineAdmission, instructions: PersistedAssuranceV2['instructions']): PersistedAssuranceV2 {
   if (admission.enforcement !== REVIEWED_INPUTS) throw new Error('v1 admission cannot be persisted as reviewed-inputs');
   return { contract: STAGE2_CONTRACT, enforcement: REVIEWED_INPUTS, manifest: admission.manifest, instructions };
+}
+
+const OBLIGATION_ID = /^[A-Z][A-Z0-9-]*-REQ-[0-9]{3}(?:-L[0-9]{2})?$/;
+const PRESERVATION_ID = /^P-[A-Z0-9-]+$/;
+const CHECK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
+const GIT_HEAD = /^[0-9a-f]{40}$/;
+const IMPLEMENTATION_METADATA_OPEN = '<!-- requirements-assurance-implementation-v1\n';
+const IMPLEMENTATION_METADATA_CLOSE = '\n-->';
+
+function parseStringArray(
+  value: unknown,
+  recordPath: string,
+  at: string,
+  errors: AssuranceError[],
+  pattern: RegExp,
+  allowEmpty: boolean
+): string[] {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
+    errors.push(error('invalid-field', recordPath, at, `expected ${allowEmpty ? 'an' : 'a non-empty'} array`));
+    return [];
+  }
+  const result: string[] = [];
+  value.forEach((item, index) => {
+    if (typeof item !== 'string' || !pattern.test(item) || item.includes('\0')) errors.push(error('invalid-field', recordPath, `${at}/${index}`, 'invalid identifier'));
+    else result.push(item);
+  });
+  duplicateValues(result.map((value, index) => ({ value, location: `${at}/${index}` })), recordPath, errors);
+  return result;
+}
+
+function parseNonEmptyStrings(value: unknown, recordPath: string, at: string, errors: AssuranceError[], allowEmpty: boolean): string[] {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
+    errors.push(error('invalid-field', recordPath, at, `expected ${allowEmpty ? 'an' : 'a non-empty'} array`));
+    return [];
+  }
+  const result: string[] = [];
+  value.forEach((item, index) => {
+    if (!validString(item)) errors.push(error('invalid-field', recordPath, `${at}/${index}`, 'expected a non-empty string'));
+    else result.push(item);
+  });
+  return result;
+}
+
+function parseCheckMethod(value: unknown, recordPath: string, at: string, errors: AssuranceError[]): ImplementationCheckMethod | undefined {
+  if (!isObject(value) || typeof value.kind !== 'string') {
+    errors.push(error('invalid-field', recordPath, at, 'expected a check method object'));
+    return undefined;
+  }
+  const fields = value.kind === 'command'
+    ? ['kind', 'command', 'cwd', 'environment', 'inputs']
+    : value.kind === 'inspection'
+      ? ['kind', 'subject', 'criterion', 'inputs']
+      : ['kind'];
+  isObjectAndCollectClosedFieldErrors(value, fields, recordPath, at, errors);
+  if (value.kind !== 'command' && value.kind !== 'inspection') {
+    errors.push(error('invalid-field', recordPath, `${at}/kind`, 'unsupported check method'));
+    return undefined;
+  }
+  const required = value.kind === 'command' ? ['command', 'cwd', 'environment', 'inputs'] : ['subject', 'criterion', 'inputs'];
+  let ok = true;
+  for (const field of required) if (!validString(value[field])) { errors.push(error('invalid-field', recordPath, `${at}/${field}`, `${field} must be non-empty`)); ok = false; }
+  return ok ? value as unknown as ImplementationCheckMethod : undefined;
+}
+
+/** Parse the deliberately narrow byte-zero stage-3 allocation metadata block. */
+export function parseImplementationAllocation(args: {
+  snapshot: AssuranceFileSnapshot;
+  expectedWorkItemId: string;
+  expectedBaselinePath: string;
+  expectedPacketObligationIds: readonly string[];
+  reviewedObligationIds: readonly string[];
+}): ParsedRecord<ImplementationAllocation> {
+  const errors: AssuranceError[] = [];
+  const raw = decodeSnapshot(args.snapshot, errors);
+  if (raw === undefined) return { ok: false, errors };
+  if (!raw.startsWith(IMPLEMENTATION_METADATA_OPEN)) {
+    return { ok: false, errors: [error('metadata-delimiter', args.snapshot.path, 'line 1', 'implementation allocation metadata must begin at byte zero')] };
+  }
+  const end = raw.indexOf(IMPLEMENTATION_METADATA_CLOSE, IMPLEMENTATION_METADATA_OPEN.length);
+  if (end < 0 || raw.indexOf(IMPLEMENTATION_METADATA_OPEN, IMPLEMENTATION_METADATA_OPEN.length) >= 0 || raw.indexOf(IMPLEMENTATION_METADATA_CLOSE, end + IMPLEMENTATION_METADATA_CLOSE.length) >= 0) {
+    return { ok: false, errors: [error('metadata-delimiter', args.snapshot.path, 'line 1', 'expected exactly one closed implementation allocation metadata block')] };
+  }
+  const parsed = parseAssuranceJson(raw.slice(IMPLEMENTATION_METADATA_OPEN.length, end), args.snapshot.path);
+  if (!parsed.ok) return parsed as ParsedRecord<ImplementationAllocation>;
+  if (!isObjectAndCollectClosedFieldErrors(parsed.value, ['formatVersion', 'kind', 'workItemId', 'baselinePath', 'parentRequirementIds', 'implements', 'preserves', 'preservationObligationIds', 'changes', 'acceptanceBoundary', 'candidatePaths', 'postReviewRecordPaths', 'candidateExclusions', 'checks'], args.snapshot.path, '', errors)) return { ok: false, errors };
+  const value = parsed.value;
+  if (value.formatVersion !== 1) errors.push(error(typeof value.formatVersion === 'number' ? 'unsupported-version' : 'invalid-field', args.snapshot.path, '/formatVersion', 'formatVersion must equal 1'));
+  if (value.kind !== 'implementation-allocation') errors.push(error(typeof value.kind === 'string' ? 'unsupported-kind' : 'invalid-field', args.snapshot.path, '/kind', "kind must equal 'implementation-allocation'"));
+  const workItemOk = checkId(value.workItemId, args.snapshot.path, '/workItemId', errors);
+  if (workItemOk && value.workItemId !== args.expectedWorkItemId) errors.push(error('subject-mismatch', args.snapshot.path, '/workItemId', `allocation names '${value.workItemId}', expected '${args.expectedWorkItemId}'`));
+  const baselineOk = checkPath(value.baselinePath, args.snapshot.path, '/baselinePath', errors);
+  if (baselineOk && value.baselinePath !== args.expectedBaselinePath) errors.push(error('subject-mismatch', args.snapshot.path, '/baselinePath', `allocation names '${value.baselinePath}', expected '${args.expectedBaselinePath}'`));
+  const parents = parseStringArray(value.parentRequirementIds, args.snapshot.path, '/parentRequirementIds', errors, H_ID, false);
+  const implementsIds = parseStringArray(value.implements, args.snapshot.path, '/implements', errors, OBLIGATION_ID, true);
+  const preserves = parseStringArray(value.preserves, args.snapshot.path, '/preserves', errors, OBLIGATION_ID, true);
+  const changes = parseStringArray(value.changes, args.snapshot.path, '/changes', errors, OBLIGATION_ID, true);
+  const preservationIds = parseStringArray(value.preservationObligationIds, args.snapshot.path, '/preservationObligationIds', errors, PRESERVATION_ID, false);
+  const allocated = [...implementsIds, ...preserves, ...changes];
+  duplicateValues(allocated.map((id, index) => ({ value: id, location: `/allocated/${index}` })), args.snapshot.path, errors);
+  if (allocated.length === 0) errors.push(error('invalid-field', args.snapshot.path, '/implements', 'implements/preserves/changes union must be non-empty'));
+  const packet = new Set(args.expectedPacketObligationIds);
+  const reviewed = new Set(args.reviewedObligationIds);
+  for (const id of allocated) {
+    if (!packet.has(id)) errors.push(error('subject-mismatch', args.snapshot.path, '/implements', `allocated obligation '${id}' is absent from IMPLEMENT_OBLIGATION_IDS`));
+    if (!reviewed.has(id)) errors.push(error('review-coverage-unknown', args.snapshot.path, '/implements', `allocated obligation '${id}' was not reviewed`));
+  }
+  for (const id of packet) if (!allocated.includes(id)) errors.push(error('review-coverage-missing', args.snapshot.path, '/implements', `packet obligation '${id}' is not allocated`));
+  for (const id of allocated) {
+    const parent = id.match(/^(.*-REQ-[0-9]{3})-L[0-9]{2}$/)?.[1];
+    if (parent && !parents.includes(parent)) errors.push(error('parent-mismatch', args.snapshot.path, '/parentRequirementIds', `allocated low-level obligation '${id}' requires contextual parent '${parent}'`));
+  }
+  const fullScope = new Set([...parents, ...allocated]);
+  for (const id of args.reviewedObligationIds) if (!fullScope.has(id)) errors.push(error('review-coverage-missing', args.snapshot.path, '/parentRequirementIds', `reviewed obligation '${id}' is not contextual or allocated`));
+  for (const id of fullScope) if (!reviewed.has(id)) errors.push(error('review-coverage-unknown', args.snapshot.path, '/parentRequirementIds', `allocation identity '${id}' is outside reviewed scope`));
+  if (!validString(value.acceptanceBoundary)) errors.push(error('invalid-field', args.snapshot.path, '/acceptanceBoundary', 'acceptanceBoundary must be non-empty'));
+  const candidatePaths = parseNonEmptyStrings(value.candidatePaths, args.snapshot.path, '/candidatePaths', errors, false).filter((path, index) => checkPath(path, args.snapshot.path, `/candidatePaths/${index}`, errors));
+  const postPaths = parseNonEmptyStrings(value.postReviewRecordPaths, args.snapshot.path, '/postReviewRecordPaths', errors, false).filter((path, index) => checkPath(path, args.snapshot.path, `/postReviewRecordPaths/${index}`, errors));
+  if (postPaths.length !== 2) errors.push(error('invalid-field', args.snapshot.path, '/postReviewRecordPaths', 'exactly two post-review record paths are required'));
+  duplicateValues([...candidatePaths.map((path, index) => ({ value: path, location: `/candidatePaths/${index}` })), ...postPaths.map((path, index) => ({ value: path, location: `/postReviewRecordPaths/${index}` }))], args.snapshot.path, errors);
+  const exclusions: { pathPrefix: string; reason: string }[] = [];
+  if (!Array.isArray(value.candidateExclusions)) errors.push(error('invalid-field', args.snapshot.path, '/candidateExclusions', 'candidateExclusions must be an array'));
+  else value.candidateExclusions.forEach((item, index) => {
+    const at = `/candidateExclusions/${index}`;
+    if (!isObjectAndCollectClosedFieldErrors(item, ['pathPrefix', 'reason'], args.snapshot.path, at, errors)) return;
+    const pathOk = checkPath(typeof item.pathPrefix === 'string' ? item.pathPrefix.replace(/\/$/, '') : item.pathPrefix, args.snapshot.path, `${at}/pathPrefix`, errors) && typeof item.pathPrefix === 'string' && item.pathPrefix.endsWith('/');
+    if (typeof item.pathPrefix === 'string' && !item.pathPrefix.endsWith('/')) errors.push(error('invalid-field', args.snapshot.path, `${at}/pathPrefix`, 'exclusion prefix must end with /'));
+    const reasonOk = validString(item.reason);
+    if (!reasonOk) errors.push(error('invalid-field', args.snapshot.path, `${at}/reason`, 'reason must be non-empty'));
+    if (pathOk && reasonOk) exclusions.push(item as unknown as { pathPrefix: string; reason: string });
+  });
+  duplicateValues(exclusions.map((item, index) => ({ value: item.pathPrefix, location: `/candidateExclusions/${index}/pathPrefix` })), args.snapshot.path, errors);
+  for (const exclusion of exclusions) for (const path of [...candidatePaths, ...postPaths]) if (path === exclusion.pathPrefix.slice(0, -1) || path.startsWith(exclusion.pathPrefix)) errors.push(error('subject-mismatch', args.snapshot.path, '/candidateExclusions', `exclusion conceals declared path '${path}'`));
+  const checks: ImplementationCheckPlan[] = [];
+  if (!Array.isArray(value.checks) || value.checks.length === 0) errors.push(error('invalid-field', args.snapshot.path, '/checks', 'checks must be a non-empty array'));
+  else {
+    duplicateValues(stringMemberIdentities(value.checks, 'checkId', '/checks'), args.snapshot.path, errors);
+    value.checks.forEach((item, index) => {
+      const at = `/checks/${index}`;
+      if (!isObjectAndCollectClosedFieldErrors(item, ['checkId', 'obligationIds', 'owner', 'method', 'expected'], args.snapshot.path, at, errors)) return;
+      const idOk = typeof item.checkId === 'string' && CHECK_ID.test(item.checkId);
+      if (!idOk) errors.push(error('invalid-field', args.snapshot.path, `${at}/checkId`, 'invalid check identifier'));
+      const obligationIds = parseStringArray(item.obligationIds, args.snapshot.path, `${at}/obligationIds`, errors, /^(?:[A-Z][A-Z0-9-]*-REQ-[0-9]{3}(?:-L[0-9]{2})?|P-[A-Z0-9-]+)$/, false);
+      for (const id of obligationIds) if (!allocated.includes(id) && !preservationIds.includes(id)) errors.push(error('review-coverage-unknown', args.snapshot.path, `${at}/obligationIds`, `check references unallocated obligation '${id}'`));
+      const ownerOk = item.owner === 'builder' || item.owner === 'reviewer';
+      if (!ownerOk) errors.push(error('invalid-field', args.snapshot.path, `${at}/owner`, 'owner must be builder or reviewer'));
+      const method = parseCheckMethod(item.method, args.snapshot.path, `${at}/method`, errors);
+      const expectedOk = validString(item.expected);
+      if (!expectedOk) errors.push(error('invalid-field', args.snapshot.path, `${at}/expected`, 'expected must be non-empty'));
+      if (idOk && ownerOk && method && expectedOk) checks.push({ checkId: item.checkId as string, obligationIds, owner: item.owner as 'builder' | 'reviewer', method, expected: item.expected as string });
+    });
+  }
+  const covered = new Set(checks.flatMap((check) => check.obligationIds));
+  for (const id of [...allocated, ...preservationIds]) if (!covered.has(id)) errors.push(error('review-coverage-missing', args.snapshot.path, '/checks', `obligation '${id}' has no planned check`));
+  for (const id of preserves) {
+    const matching = checks.filter((check) => check.obligationIds.includes(id));
+    if (!matching.some((check) => /no[- ]behavior[- ]change|remain|preserv/i.test(check.expected))) errors.push(error('invalid-field', args.snapshot.path, '/checks', `preserved obligation '${id}' lacks an explicit no-behavior-change oracle`));
+  }
+  const prose = raw.slice(end + IMPLEMENTATION_METADATA_CLOSE.length);
+  for (const id of preservationIds) if (!new RegExp(`(?:^|\\n)(?:###\\s+${id}\\b|\\|\\s*${id}\\s*\\|)`, 'm').test(prose)) errors.push(error('heading-mismatch', args.snapshot.path, 'Markdown', `preservation obligation '${id}' has no prose declaration`));
+  if (!workItemOk || !baselineOk || errors.length > 0) return { ok: false, errors };
+  return { ok: true, value: { formatVersion: 1, kind: 'implementation-allocation', workItemId: value.workItemId as string, baselinePath: value.baselinePath as string, parentRequirementIds: parents, implements: implementsIds, preserves, preservationObligationIds: preservationIds, changes, acceptanceBoundary: value.acceptanceBoundary as string, candidatePaths, postReviewRecordPaths: postPaths, candidateExclusions: exclusions, checks }, errors };
+}
+
+function parseEvidenceOutcome(value: unknown, recordPath: string, at: string, errors: AssuranceError[]): EvidenceOutcome | undefined {
+  if (!isObject(value) || typeof value.kind !== 'string') { errors.push(error('invalid-field', recordPath, at, 'expected evidence outcome object')); return undefined; }
+  if (value.kind === 'passed' || value.kind === 'failed') {
+    isObjectAndCollectClosedFieldErrors(value, ['kind', 'actual', 'supportingEvidence'], recordPath, at, errors);
+    const actualOk = validString(value.actual);
+    if (!actualOk) errors.push(error('invalid-field', recordPath, `${at}/actual`, 'actual must be non-empty'));
+    const evidence = parseNonEmptyStrings(value.supportingEvidence, recordPath, `${at}/supportingEvidence`, errors, false);
+    return actualOk && evidence.length > 0 ? { kind: value.kind, actual: value.actual as string, supportingEvidence: evidence } : undefined;
+  }
+  if (value.kind === 'not-run' || value.kind === 'execution-failed') {
+    const member = value.kind === 'not-run' ? 'reason' : 'failure';
+    isObjectAndCollectClosedFieldErrors(value, ['kind', member], recordPath, at, errors);
+    if (!validString(value[member])) { errors.push(error('invalid-field', recordPath, `${at}/${member}`, `${member} must be non-empty`)); return undefined; }
+    return value as unknown as EvidenceOutcome;
+  }
+  errors.push(error('invalid-field', recordPath, `${at}/kind`, 'unsupported evidence outcome'));
+  return undefined;
+}
+
+/** Validate one provider evidence result against its pre-approved plan and checkpoint. */
+export function parseImplementationEvidenceResult(args: { snapshot: AssuranceFileSnapshot; allocation: ImplementationAllocation; allocationRef: ContentRef; checkpoint: CandidateCheckpoint }): ParsedRecord<ImplementationEvidenceResult> {
+  const decodedErrors: AssuranceError[] = [];
+  const raw = decodeJsonBearingSnapshot(args.snapshot, decodedErrors);
+  if (raw === undefined) return { ok: false, errors: decodedErrors };
+  const parsed = parseAssuranceJson(raw, args.snapshot.path);
+  if (!parsed.ok) return parsed as ParsedRecord<ImplementationEvidenceResult>;
+  const errors: AssuranceError[] = [];
+  if (!isObjectAndCollectClosedFieldErrors(parsed.value, ['formatVersion', 'kind', 'allocation', 'checks', 'changeJustifications', 'limitations', 'report'], args.snapshot.path, '', errors)) return { ok: false, errors };
+  const value = parsed.value;
+  if (value.formatVersion !== 3) errors.push(error(typeof value.formatVersion === 'number' ? 'unsupported-version' : 'invalid-field', args.snapshot.path, '/formatVersion', 'formatVersion must equal 3'));
+  if (value.kind !== 'implementation-evidence-result') errors.push(error(typeof value.kind === 'string' ? 'unsupported-kind' : 'invalid-field', args.snapshot.path, '/kind', "kind must equal 'implementation-evidence-result'"));
+  const allocation = parseContentRef(value.allocation, args.snapshot.path, '/allocation', errors);
+  if (allocation && (allocation.path !== args.allocationRef.path || allocation.sha256 !== args.allocationRef.sha256)) errors.push(error('subject-mismatch', args.snapshot.path, '/allocation', 'evidence allocation does not match loaded slice'));
+  const checks: ImplementationEvidenceResult['checks'] = [];
+  if (!Array.isArray(value.checks)) errors.push(error('invalid-field', args.snapshot.path, '/checks', 'checks must be an array'));
+  else {
+    duplicateValues(stringMemberIdentities(value.checks, 'checkId', '/checks'), args.snapshot.path, errors);
+    value.checks.forEach((item, index) => {
+      const at = `/checks/${index}`;
+      if (!isObjectAndCollectClosedFieldErrors(item, ['checkId', 'outcome'], args.snapshot.path, at, errors)) return;
+      const planned = args.allocation.checks.find((check) => check.checkId === item.checkId);
+      if (!planned) errors.push(error('review-coverage-unknown', args.snapshot.path, `${at}/checkId`, `unplanned check '${String(item.checkId)}'`));
+      const outcome = parseEvidenceOutcome(item.outcome, args.snapshot.path, `${at}/outcome`, errors);
+      if (planned && outcome) checks.push({ checkId: planned.checkId, outcome });
+    });
+  }
+  for (const planned of args.allocation.checks) if (!checks.some((check) => check.checkId === planned.checkId)) errors.push(error('review-coverage-missing', args.snapshot.path, '/checks', `planned check '${planned.checkId}' has no result`));
+  const actualPaths = args.checkpoint.entries.map((entry) => entry.path);
+  const justifications: ImplementationEvidenceResult['changeJustifications'] = [];
+  if (!Array.isArray(value.changeJustifications)) errors.push(error('invalid-field', args.snapshot.path, '/changeJustifications', 'changeJustifications must be an array'));
+  else {
+    duplicateValues(stringMemberIdentities(value.changeJustifications, 'path', '/changeJustifications'), args.snapshot.path, errors);
+    value.changeJustifications.forEach((item, index) => {
+      const at = `/changeJustifications/${index}`;
+      if (!isObjectAndCollectClosedFieldErrors(item, ['path', 'obligationIds', 'summary'], args.snapshot.path, at, errors)) return;
+      const pathOk = checkPath(item.path, args.snapshot.path, `${at}/path`, errors);
+      if (pathOk && !actualPaths.includes(item.path as string)) errors.push(error('review-coverage-unknown', args.snapshot.path, `${at}/path`, `path '${item.path}' is not in the candidate checkpoint`));
+      const ids = parseStringArray(item.obligationIds, args.snapshot.path, `${at}/obligationIds`, errors, /^(?:[A-Z][A-Z0-9-]*-REQ-[0-9]{3}(?:-L[0-9]{2})?|P-[A-Z0-9-]+)$/, false);
+      const authorized = new Set([...args.allocation.implements, ...args.allocation.preserves, ...args.allocation.changes, ...args.allocation.preservationObligationIds]);
+      for (const id of ids) if (!authorized.has(id)) errors.push(error('review-coverage-unknown', args.snapshot.path, `${at}/obligationIds`, `unallocated justification obligation '${id}'`));
+      const summaryOk = validString(item.summary);
+      if (!summaryOk) errors.push(error('invalid-field', args.snapshot.path, `${at}/summary`, 'summary must be non-empty'));
+      if (pathOk && ids.length > 0 && summaryOk) justifications.push({ path: item.path as string, obligationIds: ids, summary: item.summary as string });
+    });
+  }
+  for (const path of actualPaths) if (!justifications.some((item) => item.path === path)) errors.push(error('review-coverage-missing', args.snapshot.path, '/changeJustifications', `candidate path '${path}' has no justification`));
+  const limitations = parseNonEmptyStrings(value.limitations, args.snapshot.path, '/limitations', errors, true);
+  if (!validString(value.report)) errors.push(error('invalid-field', args.snapshot.path, '/report', 'report must be non-empty'));
+  if (errors.length > 0 || !allocation) return { ok: false, errors };
+  return { ok: true, value: { formatVersion: 3, kind: 'implementation-evidence-result', allocation, checks, changeJustifications: justifications, limitations, report: value.report as string }, errors };
+}
+
+/** Validate and canonicalize one Git/index/working-tree checkpoint. */
+export function makeCandidateCheckpoint(args: { observation: CandidateTreeObservation; allocation: ImplementationAllocation; computeDigest: (content: string) => string }): ParsedRecord<CandidateCheckpoint> {
+  const errors: AssuranceError[] = [];
+  const recordPath = 'candidate-observation';
+  if (!GIT_HEAD.test(args.observation.baseRevision)) errors.push(error('invalid-field', recordPath, '/baseRevision', 'expected a 40-character lowercase Git object id'));
+  const allowed = new Set(args.allocation.candidatePaths);
+  if (!Array.isArray(args.observation.entries)) return { ok: false, errors: [...errors, error('invalid-field', recordPath, '/entries', 'entries must be an array')] };
+  const encoder = new TextEncoder();
+  const entries = [...args.observation.entries].sort((a, b) => {
+    const left = encoder.encode(String(a.path));
+    const right = encoder.encode(String(b.path));
+    for (let index = 0; index < Math.min(left.length, right.length); index += 1) {
+      if (left[index] !== right[index]) return (left[index] as number) - (right[index] as number);
+    }
+    return left.length - right.length;
+  });
+  duplicateValues(entries.map((entry, index) => ({ value: entry.path, location: `/entries/${index}/path` })), recordPath, errors);
+  const underExclusion = (path: string) => args.allocation.candidateExclusions.some((item) => path === item.pathPrefix.slice(0, -1) || path.startsWith(item.pathPrefix));
+  for (const [index, entry] of entries.entries()) {
+    if (!isObject(entry) || Object.keys(entry).sort().join(',') !== 'index,path,porcelainStatus,workingTree') {
+      errors.push(error('unknown-field', recordPath, `/entries/${index}`, 'candidate entry must contain exactly path, porcelainStatus, index and workingTree'));
+      continue;
+    }
+    if (!checkPath(entry.path, recordPath, `/entries/${index}/path`, errors)) continue;
+    if (underExclusion(entry.path)) continue;
+    if (!allowed.has(entry.path)) errors.push(error('subject-mismatch', recordPath, `/entries/${index}/path`, `changed path '${entry.path}' is outside candidatePaths`));
+    const statusOk = entry.porcelainStatus === '??' || (/^[ MADRC][ MD]$/.test(entry.porcelainStatus) && entry.porcelainStatus !== '  ');
+    if (!statusOk) errors.push(error('invalid-field', recordPath, `/entries/${index}/porcelainStatus`, 'expected a supported, non-conflicted two-character porcelain status'));
+    for (const [name, state] of [['index', entry.index], ['workingTree', entry.workingTree]] as const) {
+      if (!isObject(state) || (state.kind !== 'absent' && state.kind !== 'present')) {
+        errors.push(error('invalid-field', recordPath, `/entries/${index}/${name}`, 'expected a closed present/absent file state'));
+        continue;
+      }
+      const expectedFields = state.kind === 'absent'
+        ? ['kind']
+        : name === 'index'
+          ? ['kind', 'gitMode', 'stage', 'sha256', 'byteLength']
+          : ['kind', 'gitMode', 'sha256', 'byteLength'];
+      isObjectAndCollectClosedFieldErrors(state, expectedFields, recordPath, `/entries/${index}/${name}`, errors);
+      if (state.kind === 'present') {
+        if ((state.gitMode !== '100644' && state.gitMode !== '100755') || !SHA256.test(state.sha256) || !Number.isInteger(state.byteLength) || state.byteLength < 0) errors.push(error('invalid-field', recordPath, `/entries/${index}/${name}`, 'invalid regular-file identity'));
+        if (name === 'index' && (!('stage' in state) || state.stage !== 0)) errors.push(error('invalid-field', recordPath, `/entries/${index}/index/stage`, 'only stage-0 index entries are supported'));
+      }
+    }
+    if (statusOk) {
+      const indexPresent = entry.index.kind === 'present';
+      const workingPresent = entry.workingTree.kind === 'present';
+      const [indexStatus, workingStatus] = entry.porcelainStatus;
+      const expectedIndexPresent = entry.porcelainStatus === '??' ? false : indexStatus !== 'D';
+      const expectedWorkingPresent = entry.porcelainStatus === '??' ? true : workingStatus !== 'D' && indexStatus !== 'D';
+      if (indexPresent !== expectedIndexPresent || workingPresent !== expectedWorkingPresent) {
+        errors.push(error('invalid-field', recordPath, `/entries/${index}`, `porcelain status '${entry.porcelainStatus}' is inconsistent with index/working-tree presence`));
+      }
+    }
+  }
+  const retained = entries.filter((entry) => !underExclusion(entry.path)).map((entry) => ({
+    path: entry.path,
+    porcelainStatus: entry.porcelainStatus,
+    index: entry.index.kind === 'absent'
+      ? { kind: 'absent' as const }
+      : { kind: 'present' as const, gitMode: entry.index.gitMode, stage: 0 as const, sha256: entry.index.sha256, byteLength: entry.index.byteLength },
+    workingTree: entry.workingTree.kind === 'absent'
+      ? { kind: 'absent' as const }
+      : { kind: 'present' as const, gitMode: entry.workingTree.gitMode, sha256: entry.workingTree.sha256, byteLength: entry.workingTree.byteLength },
+  }));
+  if (errors.length > 0) return { ok: false, errors };
+  const body = { contract: 'requirements-assurance/v3-candidate-checkpoint' as const, baseRevision: args.observation.baseRevision, entries: retained };
+  return { ok: true, value: { ...body, sha256: args.computeDigest(JSON.stringify(body)) }, errors };
+}
+
+function parseReviewVerification(value: unknown, recordPath: string, at: string, errors: AssuranceError[]): ReviewVerification | undefined {
+  if (!isObject(value) || typeof value.kind !== 'string') { errors.push(error('invalid-field', recordPath, at, 'expected verification object')); return undefined; }
+  if (value.kind === 'reproduced') {
+    isObjectAndCollectClosedFieldErrors(value, ['kind', 'outcome'], recordPath, at, errors);
+    const outcome = parseEvidenceOutcome(value.outcome, recordPath, `${at}/outcome`, errors);
+    return outcome ? { kind: 'reproduced', outcome } : undefined;
+  }
+  if (value.kind === 'relied-on-builder-evidence') {
+    isObjectAndCollectClosedFieldErrors(value, ['kind', 'limitation'], recordPath, at, errors);
+    if (!validString(value.limitation)) { errors.push(error('invalid-field', recordPath, `${at}/limitation`, 'limitation must be non-empty')); return undefined; }
+    return { kind: value.kind, limitation: value.limitation as string };
+  }
+  errors.push(error('invalid-field', recordPath, `${at}/kind`, 'unsupported verification disposition'));
+  return undefined;
+}
+
+/** Validate a structured implementation review and exact obligation/check/path coverage. */
+export function parseImplementationReviewResult(args: { snapshot: AssuranceFileSnapshot; allocation: ImplementationAllocation; checkpoint: CandidateCheckpoint; verificationSha256: string; evidence: ImplementationEvidenceResult }): ParsedRecord<ImplementationReviewResult> {
+  const decodeErrors: AssuranceError[] = [];
+  const raw = decodeJsonBearingSnapshot(args.snapshot, decodeErrors);
+  if (raw === undefined) return { ok: false, errors: decodeErrors };
+  const parsed = parseAssuranceJson(raw, args.snapshot.path);
+  if (!parsed.ok) return parsed as ParsedRecord<ImplementationReviewResult>;
+  const errors: AssuranceError[] = [];
+  if (!isObjectAndCollectClosedFieldErrors(parsed.value, ['formatVersion', 'kind', 'subject', 'result', 'obligationAssessments', 'checkAssessments', 'changedPathAssessments', 'findings', 'decisions', 'report'], args.snapshot.path, '', errors)) return { ok: false, errors };
+  const value = parsed.value;
+  if (value.formatVersion !== 3) errors.push(error(typeof value.formatVersion === 'number' ? 'unsupported-version' : 'invalid-field', args.snapshot.path, '/formatVersion', 'formatVersion must equal 3'));
+  if (value.kind !== 'implementation-review-result') errors.push(error(typeof value.kind === 'string' ? 'unsupported-kind' : 'invalid-field', args.snapshot.path, '/kind', "kind must equal 'implementation-review-result'"));
+  if (!isObjectAndCollectClosedFieldErrors(value.subject, ['candidateSha256', 'verificationSha256'], args.snapshot.path, '/subject', errors)) return { ok: false, errors };
+  const subject = value.subject;
+  if (subject.candidateSha256 !== args.checkpoint.sha256 || subject.verificationSha256 !== args.verificationSha256) errors.push(error('subject-mismatch', args.snapshot.path, '/subject', 'review subject does not match candidate/verification identities'));
+  const expectedObligations = [...args.allocation.implements, ...args.allocation.preserves, ...args.allocation.changes, ...args.allocation.preservationObligationIds];
+  const expectedChecks = args.allocation.checks.map((check) => check.checkId);
+  const expectedPaths = args.checkpoint.entries.map((entry) => entry.path);
+  const parseSimpleAssessments = (rawValue: unknown, at: string, key: 'obligationId' | 'path', expected: readonly string[]) => {
+    const results: { identity: string; result: ReviewOutcome; findingIds: string[]; decisionIds: string[] }[] = [];
+    if (!Array.isArray(rawValue) || (key === 'obligationId' && rawValue.length === 0)) { errors.push(error('invalid-field', args.snapshot.path, at, 'expected assessment array')); return results; }
+    duplicateValues(stringMemberIdentities(rawValue, key, at), args.snapshot.path, errors);
+    rawValue.forEach((item, index) => {
+      const here = `${at}/${index}`;
+      if (!isObjectAndCollectClosedFieldErrors(item, [key, 'result', 'findingIds', 'decisionIds'], args.snapshot.path, here, errors)) return;
+      const identity = item[key];
+      if (typeof identity !== 'string' || !expected.includes(identity)) errors.push(error('review-coverage-unknown', args.snapshot.path, `${here}/${key}`, `unexpected ${key} '${String(identity)}'`));
+      const outcomeOk = typeof item.result === 'string' && REVIEW_OUTCOMES.has(item.result as ReviewOutcome);
+      if (!outcomeOk) errors.push(error('invalid-field', args.snapshot.path, `${here}/result`, 'unsupported review outcome'));
+      const findingIds = parseIdArray(item.findingIds, args.snapshot.path, `${here}/findingIds`, errors, true);
+      const decisionIds = parseIdArray(item.decisionIds, args.snapshot.path, `${here}/decisionIds`, errors, true);
+      if (outcomeOk && item.result === 'accepted' && (findingIds.length || decisionIds.length)) errors.push(error('review-result-mismatch', args.snapshot.path, here, 'accepted assessment cannot reference findings/decisions'));
+      if (typeof identity === 'string' && expected.includes(identity) && outcomeOk) results.push({ identity, result: item.result as ReviewOutcome, findingIds, decisionIds });
+    });
+    for (const identity of expected) if (!results.some((item) => item.identity === identity)) errors.push(error('review-coverage-missing', args.snapshot.path, at, `missing assessment for '${identity}'`));
+    return results;
+  };
+  const obligationRaw = parseSimpleAssessments(value.obligationAssessments, '/obligationAssessments', 'obligationId', expectedObligations);
+  const pathRaw = parseSimpleAssessments(value.changedPathAssessments, '/changedPathAssessments', 'path', expectedPaths);
+  const checkAssessments: ImplementationReviewResult['checkAssessments'] = [];
+  if (!Array.isArray(value.checkAssessments) || value.checkAssessments.length === 0) errors.push(error('invalid-field', args.snapshot.path, '/checkAssessments', 'checkAssessments must be non-empty'));
+  else {
+    duplicateValues(stringMemberIdentities(value.checkAssessments, 'checkId', '/checkAssessments'), args.snapshot.path, errors);
+    value.checkAssessments.forEach((item, index) => {
+      const at = `/checkAssessments/${index}`;
+      if (!isObjectAndCollectClosedFieldErrors(item, ['checkId', 'result', 'findingIds', 'verification'], args.snapshot.path, at, errors)) return;
+      const idOk = typeof item.checkId === 'string' && expectedChecks.includes(item.checkId);
+      if (!idOk) errors.push(error('review-coverage-unknown', args.snapshot.path, `${at}/checkId`, `unexpected check '${String(item.checkId)}'`));
+      const resultOk = typeof item.result === 'string' && REVIEW_OUTCOMES.has(item.result as ReviewOutcome);
+      if (!resultOk) errors.push(error('invalid-field', args.snapshot.path, `${at}/result`, 'unsupported review outcome'));
+      const findingIds = parseIdArray(item.findingIds, args.snapshot.path, `${at}/findingIds`, errors, true);
+      const verification = parseReviewVerification(item.verification, args.snapshot.path, `${at}/verification`, errors);
+      const evidence = args.evidence.checks.find((check) => check.checkId === item.checkId);
+      if (item.result === 'accepted' && evidence?.outcome.kind !== 'passed') errors.push(error('review-result-mismatch', args.snapshot.path, at, 'accepted check requires passed builder evidence'));
+      if (item.result === 'accepted' && verification?.kind === 'reproduced' && verification.outcome.kind !== 'passed') errors.push(error('review-result-mismatch', args.snapshot.path, at, 'accepted reproduced check requires a passed outcome'));
+      if (idOk && resultOk && verification) checkAssessments.push({ checkId: item.checkId as string, result: item.result as ReviewOutcome, findingIds, verification });
+    });
+  }
+  for (const id of expectedChecks) if (!checkAssessments.some((item) => item.checkId === id)) errors.push(error('review-coverage-missing', args.snapshot.path, '/checkAssessments', `missing assessment for check '${id}'`));
+  const findings: ImplementationReviewFinding[] = [];
+  const findingCategories = new Set<ImplementationReviewFinding['category']>(['correctness', 'preservation', 'evidence', 'integration', 'scope', 'naming', 'architecture', 'traceability']);
+  if (!Array.isArray(value.findings)) errors.push(error('invalid-field', args.snapshot.path, '/findings', 'findings must be an array'));
+  else {
+    duplicateValues(stringMemberIdentities(value.findings, 'findingId', '/findings'), args.snapshot.path, errors);
+    value.findings.forEach((item, index) => {
+      const at = `/findings/${index}`;
+      if (!isObjectAndCollectClosedFieldErrors(item, ['findingId', 'obligationIds', 'locations', 'category', 'evidence', 'consequence', 'requiredAction'], args.snapshot.path, at, errors)) return;
+      const idOk = checkId(item.findingId, args.snapshot.path, `${at}/findingId`, errors);
+      const ids = parseStringArray(item.obligationIds, args.snapshot.path, `${at}/obligationIds`, errors, /^(?:[A-Z][A-Z0-9-]*-REQ-[0-9]{3}(?:-L[0-9]{2})?|P-[A-Z0-9-]+)$/, false);
+      for (const id of ids) if (!expectedObligations.includes(id)) errors.push(error('review-coverage-unknown', args.snapshot.path, `${at}/obligationIds`, `finding references unallocated obligation '${id}'`));
+      const locations = parseNonEmptyStrings(item.locations, args.snapshot.path, `${at}/locations`, errors, false);
+      const categoryOk = typeof item.category === 'string' && findingCategories.has(item.category as ImplementationReviewFinding['category']);
+      if (!categoryOk) errors.push(error('invalid-field', args.snapshot.path, `${at}/category`, 'unsupported implementation finding category'));
+      const proseOk = ['evidence', 'consequence', 'requiredAction'].every((field) => validString(item[field]));
+      if (!proseOk) errors.push(error('invalid-field', args.snapshot.path, at, 'finding prose fields must be non-empty'));
+      if (idOk && ids.length && locations.length && categoryOk && proseOk) findings.push(item as unknown as ImplementationReviewFinding);
+    });
+  }
+  const decisions: ReviewDecision[] = [];
+  if (!Array.isArray(value.decisions)) errors.push(error('invalid-field', args.snapshot.path, '/decisions', 'decisions must be an array'));
+  else {
+    duplicateValues(stringMemberIdentities(value.decisions, 'decisionId', '/decisions'), args.snapshot.path, errors);
+    value.decisions.forEach((item, index) => {
+      const at = `/decisions/${index}`;
+      if (!isObjectAndCollectClosedFieldErrors(item, ['decisionId', 'obligationIds', 'question', 'options', 'recommendation', 'blockingReason'], args.snapshot.path, at, errors)) return;
+      const idOk = checkId(item.decisionId, args.snapshot.path, `${at}/decisionId`, errors);
+      const obligationIds = parseStringArray(item.obligationIds, args.snapshot.path, `${at}/obligationIds`, errors, OBLIGATION_ID, false);
+      for (const id of obligationIds) if (!expectedObligations.includes(id)) errors.push(error('review-coverage-unknown', args.snapshot.path, `${at}/obligationIds`, `decision references unallocated obligation '${id}'`));
+      const options: ReviewDecision['options'] = [];
+      if (!Array.isArray(item.options) || item.options.length === 0) errors.push(error('invalid-field', args.snapshot.path, `${at}/options`, 'options must be non-empty'));
+      else {
+        duplicateValues(stringMemberIdentities(item.options, 'option', `${at}/options`), args.snapshot.path, errors);
+        item.options.forEach((option, optionIndex) => {
+          const oat = `${at}/options/${optionIndex}`;
+          if (!isObjectAndCollectClosedFieldErrors(option, ['option', 'reward', 'risk'], args.snapshot.path, oat, errors)) return;
+          if (validString(option.option) && validString(option.reward) && validString(option.risk)) options.push(option as unknown as ReviewDecision['options'][number]);
+          else errors.push(error('invalid-field', args.snapshot.path, oat, 'option, reward and risk must be non-empty strings'));
+        });
+      }
+      const proseOk = validString(item.question) && validString(item.recommendation) && validString(item.blockingReason);
+      if (!proseOk) errors.push(error('invalid-field', args.snapshot.path, at, 'question, recommendation and blockingReason must be non-empty'));
+      if (typeof item.recommendation === 'string' && !options.some((option) => option.option === item.recommendation)) errors.push(error('review-result-mismatch', args.snapshot.path, `${at}/recommendation`, 'recommendation must name one option'));
+      if (idOk && obligationIds.length && options.length && proseOk) decisions.push({ ...(item as unknown as ReviewDecision), obligationIds, options });
+    });
+  }
+  const assessmentValues = [...obligationRaw, ...pathRaw];
+  const findingIds = new Set(findings.map((finding) => finding.findingId));
+  const decisionIds = new Set(decisions.map((decision) => decision.decisionId));
+  const referencedFindings = new Set([...assessmentValues.flatMap((item) => item.findingIds), ...checkAssessments.flatMap((item) => item.findingIds)]);
+  const referencedDecisions = new Set(assessmentValues.flatMap((item) => item.decisionIds));
+  for (const assessment of assessmentValues) {
+    if (assessment.result === 'accepted' && (assessment.findingIds.length || assessment.decisionIds.length)) errors.push(error('review-result-mismatch', args.snapshot.path, '/', 'accepted assessment cannot reference findings or decisions'));
+    if (assessment.result === 'refinement-required' && (assessment.findingIds.length === 0 || assessment.decisionIds.length > 0)) errors.push(error('review-result-mismatch', args.snapshot.path, '/', 'refinement-required assessment needs findings and no decisions'));
+    if (assessment.result === 'decision-required' && assessment.decisionIds.length === 0) errors.push(error('review-result-mismatch', args.snapshot.path, '/', 'decision-required assessment needs a decision'));
+  }
+  for (const item of checkAssessments) {
+    if (item.result === 'accepted' && item.findingIds.length) errors.push(error('review-result-mismatch', args.snapshot.path, '/checkAssessments', 'accepted check cannot reference findings'));
+    if (item.result === 'refinement-required' && item.findingIds.length === 0) errors.push(error('review-result-mismatch', args.snapshot.path, '/checkAssessments', 'refinement-required check needs a finding'));
+  }
+  for (const id of referencedFindings) if (!findingIds.has(id)) errors.push(error('review-result-mismatch', args.snapshot.path, '/', `referenced finding '${id}' does not exist`));
+  for (const id of findingIds) if (!referencedFindings.has(id)) errors.push(error('review-result-mismatch', args.snapshot.path, '/findings', `finding '${id}' is not referenced`));
+  for (const id of referencedDecisions) if (!decisionIds.has(id)) errors.push(error('review-result-mismatch', args.snapshot.path, '/', `referenced decision '${id}' does not exist`));
+  for (const id of decisionIds) if (!referencedDecisions.has(id)) errors.push(error('review-result-mismatch', args.snapshot.path, '/decisions', `decision '${id}' is not referenced`));
+  if (!validString(value.report)) errors.push(error('invalid-field', args.snapshot.path, '/report', 'report must be non-empty'));
+  const resultOk = typeof value.result === 'string' && REVIEW_OUTCOMES.has(value.result as ReviewOutcome);
+  if (!resultOk) errors.push(error('invalid-field', args.snapshot.path, '/result', 'unsupported review result'));
+  const allResults = [...obligationRaw, ...pathRaw, ...checkAssessments].map((item) => item.result);
+  const expectedAggregate: ReviewOutcome = allResults.includes('decision-required') ? 'decision-required' : allResults.includes('refinement-required') ? 'refinement-required' : 'accepted';
+  if (allResults.includes('decision-required') && decisions.length === 0) errors.push(error('review-result-mismatch', args.snapshot.path, '/decisions', 'a decision-required assessment requires a referenced decision record'));
+  if (resultOk && value.result !== expectedAggregate) errors.push(error('review-result-mismatch', args.snapshot.path, '/result', `aggregate must equal '${expectedAggregate}'`));
+  if (errors.length > 0 || !resultOk) return { ok: false, errors };
+  return { ok: true, value: { formatVersion: 3, kind: 'implementation-review-result', subject: subject as unknown as ImplementationReviewResult['subject'], result: value.result as ReviewOutcome, obligationAssessments: obligationRaw.map((item) => ({ obligationId: item.identity, result: item.result, findingIds: item.findingIds, decisionIds: item.decisionIds })), checkAssessments, changedPathAssessments: pathRaw.map((item) => ({ path: item.identity, result: item.result, findingIds: item.findingIds, decisionIds: item.decisionIds })), findings, decisions, report: value.report as string }, errors };
 }
 
 function parseRootedRef(value: unknown, recordPath: string, at: string, errors: AssuranceError[]): RootedContentRef | undefined {

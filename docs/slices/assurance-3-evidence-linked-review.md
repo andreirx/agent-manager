@@ -67,21 +67,21 @@
     },
     {
       "checkId": "A3-C02",
-      "obligationIds": ["AM-REQ-004", "AM-REQ-003-L01", "AM-REQ-004-L04", "AM-REQ-004-L05", "AM-REQ-005-L05", "P-A3-01"],
+      "obligationIds": ["AM-REQ-003-L01", "AM-REQ-004-L04", "AM-REQ-004-L05", "AM-REQ-005-L05", "P-A3-01"],
       "owner": "builder",
       "method": { "kind": "command", "command": "npm test -- --runInBand -t 'ASSURANCE-3 candidate identity and scope'", "cwd": ".", "environment": "disposable Git fixture", "inputs": "clean initial tree; persisted implementation base; tracked, staged, unstaged, deleted and in-scope/out-of-scope untracked files; same-porcelain/same-working-bytes/different-index and mode-only mutations" },
       "expected": "exit 0; a clean initial tree records its exact HEAD before builder dispatch; a pre-existing non-excluded change or later HEAD change is refused; canonical identity separately binds index state and working-tree state, changes when an index blob changes while porcelain status and working bytes stay fixed, changes for Git-relevant mode or in-scope byte/status changes, includes in-scope untracked files, rejects unsupported/conflicted or out-of-scope states, and ignores only declared operational exclusions"
     },
     {
       "checkId": "A3-C03",
-      "obligationIds": ["AM-REQ-005", "AM-REQ-005-L01", "AM-REQ-005-L02", "AM-REQ-005-L05", "AM-REQ-005-L07"],
+      "obligationIds": ["AM-REQ-005-L01", "AM-REQ-005-L02", "AM-REQ-005-L05", "AM-REQ-005-L07"],
       "owner": "builder",
       "method": { "kind": "command", "command": "npm test -- --runInBand -t 'ASSURANCE-3 evidence outcomes and completion readiness'", "cwd": ".", "environment": "headless in-memory policy fixtures", "inputs": "passed, failed, not-run, execution-failed and unrelated-check records; empty and non-empty candidate checkpoints" },
       "expected": "exit 0; only a passed, planned, candidate-bound check covers its declared obligations; every other outcome remains distinct and prevents readiness; actual candidate entries and change justifications match exactly, including the valid empty/empty case, without treating an empty diff as proof of either success or failure"
     },
     {
       "checkId": "A3-C04",
-      "obligationIds": ["AM-REQ-003", "AM-REQ-003-L05", "AM-REQ-003-L06", "AM-REQ-005-L03", "AM-REQ-005-L05", "P-A3-02", "P-A3-03"],
+      "obligationIds": ["AM-REQ-003-L05", "AM-REQ-003-L06", "AM-REQ-005-L03", "AM-REQ-005-L05", "P-A3-02", "P-A3-03"],
       "owner": "builder",
       "method": { "kind": "command", "command": "npm test -- --runInBand -t 'ASSURANCE-3 target relay evidence gate'", "cwd": ".", "environment": "stub providers and disposable target", "inputs": "clean first dispatch, pre-existing dirty refusal, persisted-base building resume, evidence-bound index-only drift on resume, two revise cycles, structured builder evidence and structured reviewer results; no-change preservation-only and no-change current-slice cases" },
       "expected": "exit 0; a clean target reaches the builder while a seeded non-excluded predecessor change yields zero provider calls; building resume preserves an in-scope partial candidate against the same base without reusing evidence, while evidence-bound resume rejects a changed staged blob even when porcelain status and working bytes are unchanged; the public relay rejects an unrelated pass and failed preservation check, retains original obligations/findings across revision, and records a fully covered stable candidate; a preservation-only no-change item can pass its explicit no-behavior-change checks, while this slice's no-change case returns for refinement when review observes that the required target-relay behavior is absent"
@@ -116,7 +116,7 @@
     },
     {
       "checkId": "A3-C09",
-      "obligationIds": ["AM-REQ-007", "AM-REQ-007-L03", "P-A3-08"],
+      "obligationIds": ["AM-REQ-007-L03", "P-A3-08"],
       "owner": "builder",
       "method": { "kind": "inspection", "subject": "complete candidate diff and import graph", "criterion": "every changed path/hunk serves an allocated H/L or P obligation; core imports no adapter/CLI/filesystem/Git mechanism; no new package, module, dependency, registry or dormant support exists", "inputs": "git diff --check, git status --short, source imports and test consumers" },
       "expected": "inspection finds no unallocated hunk, cycle, dependency inversion violation, misleading new name or abstraction lacking a current consumer"
