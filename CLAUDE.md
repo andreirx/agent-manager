@@ -309,6 +309,12 @@ code at start, so mid-run edits do not affect it.
 - **Packets and notes quote FULL digests, never 12-character suffixes (bitten 2026-09-14, one document cycle):** a reviewer
   compared "…194389761580" with the full HEAD digest, treated them as two conflicting baseline identities and raised a
   provenance decision. A suffix is a rendering convenience for the terminal, not an identity a reviewer can verify.
+- **Allocate checks for the malformed/absent-evidence paths UP FRONT (lesson 2026-09-14, CALL-BINDING-RECEIVER-1):** 19
+  happy-path oracles were green on real data while the reviewer found, one cycle at a time, five real defects in the
+  defensive paths (a mocked test; a malformed carrier re-enabling a fabricated binding; a reverse suffix match; a type read
+  decoupled from its receiver; a malformed type folded into "absent"). For every evidence field a slice introduces, the
+  packet lists absent / present-valid / present-malformed and binds a test to each — an evidence taxonomy table in §2 —
+  so the review converges in one cycle instead of five.
 - **Bootstrapping a packet under the overhauled relay: copy a VALID CURRENT record, never an old one (bitten 2026-09-13,
   two refused launches; human: "I told you agent-manager was overhauled maybe you should check its docs"):** MANAGER.md §2
   says it — read the current contract and a valid record (`.agent-manager/slices/ASSURANCE-3/status.json`) before
