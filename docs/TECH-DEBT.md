@@ -689,6 +689,9 @@ while another live run holds it.
   baseline, allocation, reviewer, independence, completedAt, acceptanceStatus) — the shape the RUNTIME writes — instead of
   the provider-result shape. Dropped; the resume re-runs the builder too, so ~20 min per repeat. Tally for this slice:
   four correct provider results dropped for shape (one refine with two real findings, one accept, one evidence, one accept).
+  EMPTY-ARRAY CASE (2026-09-14, fifth admission cycle 1): 19/19 evidence carrying the F-CBR-005 fix rejected because every
+  `supportingEvidence` was `[]` — the content (actuals, the seven named tests, 0 self-loops / 9413 conserved) was all there.
+  Running tally on this slice: FIVE correct provider results dropped for shape; ~15–20 min each.
   IMPLEMENTATION-REVIEW CASE (2026-09-14, CALL-BINDING-RECEIVER-1 third admission cycle 1): the reviewer returned
   refinement-required with two REAL code findings (a mocked test where an indexed fixture was required; a malformed-metadata
   path re-enabling the forbidden self-binding). The object had `subject` as a sha pair that did not match, assessed parent
