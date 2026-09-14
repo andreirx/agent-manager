@@ -291,6 +291,12 @@ code at start, so mid-run edits do not affect it.
   <baselinePath> <manifest.json> <impl selection.md>` prints ALLOCATION VALID or the exact refusal lines (every preserved
   L needs a check whose `expected` says no-behavior-change / remain / preserve — American spelling; every P-obligation must
   be listed in a check's obligationIds). Seconds, not a review cycle.
+- **Three oracle-authoring lessons from CALL-BINDING-RECEIVER-1 PREP-3 (2026-09-14, one cycle each):** (1) a JSON oracle
+  asserts over the ANSWER list (`d['callees']`, `d['callers']`) — a whole-document `qualified_name` scan also collects the
+  focus symbol echoed in `target`, so "self not present" can never pass; (2) never splice a new ledger bullet into the middle
+  of an existing sentence — rebuild the section whole (OC-1's tail ended up inside OC-2); (3) when a decision record names
+  the proof ("compare the member SET"), the corrected check must perform exactly that proof (`cycles --json` nodes), not a
+  weaker proxy (edge count + size).
 - **Bootstrapping a packet under the overhauled relay: copy a VALID CURRENT record, never an old one (bitten 2026-09-13,
   two refused launches; human: "I told you agent-manager was overhauled maybe you should check its docs"):** MANAGER.md §2
   says it — read the current contract and a valid record (`.agent-manager/slices/ASSURANCE-3/status.json`) before
