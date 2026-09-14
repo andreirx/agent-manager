@@ -730,8 +730,9 @@ while another live run holds it.
   text-only changes to a check or its prose — no re-baseline, no re-admission — with every correction logged. "Text-only"
   must be defined hard before implementation: changes no allocation set (implements/preserves/changes), no check-ID set, no
   requirement text, no candidate paths; only a check's command literal/expected/prose or the slice's explanatory prose.
-  Implement as an agent-manager work item through the assured path.
-- Status: OPEN — direction ratified, not implemented.
+  Procedure written into docs/MANAGER.md (§ Oracle corrections). The RUNTIME part (admit a corrected allocation digest chained
+  through the record) is taken by the human in a separate session — no agent-manager work item (human 2026-09-14).
+- Status: OPEN — procedure in place; runtime support pending (human).
 
 ## TD-023 — A bound oracle can lock a false name into the candidate (2026-09-13)
 

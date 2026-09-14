@@ -167,6 +167,23 @@ isolated resources owned by this run, preserving evidence needed for acceptance.
 Advance the roadmap only to the state actually achieved. A slice implementation,
 a parent requirement's satisfaction, final human acceptance, and release are distinct.
 
+### Oracle corrections (human decision 2026-09-14)
+
+A correction that changes only the TEXT of a validation oracle or the slice's explanatory prose — a check's command literal,
+its `expected`, a stale name or cross-reference — is not a new baseline. It is recorded, not re-reviewed:
+
+1. Definition (hard): the change alters no allocation set (implements / preserves / changes), no check-ID set, no requirement
+   text, and no candidate path; only a check's command literal / `expected` / prose, or the slice's explanatory prose.
+2. Record: append an entry to `docs/assurance/<work-item>/oracle-corrections.md` — id (OC-<n>), date, check id, the exact old
+   and new text, the evidence that made it necessary (the reviewer finding or builder observation, with its location), the
+   approver (operator id; the human when the operator is unsure), and the digests of the slice document before and after.
+3. Apply the text change to the slice document in place; tell the builder in the packet which correction ids apply.
+4. Closeout: the implementation review's acceptance covers the corrected text; the operator's closeout report lists every
+   correction id. A correction that turns out to change behaviour is a defect of the record — revert to a re-baseline.
+5. Runtime support: until the runtime accepts a corrected allocation digest chained through this record, an admitted work
+   item still needs a re-baseline to carry the corrected bytes — log the correction regardless. The runtime change is taken
+   by the human in a separate session (no agent-manager work item; TD-022).
+
 ## 7. Leave a restartable handoff
 
 Keep an operational handoff in the existing slice directory, not a new global state

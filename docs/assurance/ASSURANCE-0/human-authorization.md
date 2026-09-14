@@ -21,7 +21,7 @@ The nine H files / 56 L entries, process, manager operating method, and ordered 
 ## Ratifications 2026-09-14
 
 - ef3e1c9 (provider-result framing: the first balanced JSON object of a builder/reviewer final message is extracted before the unchanged strict parse) — made by the manager outside the assured self-build path after the human's 2026-09-13 ruling; RATIFIED AS MADE by the human (option A of the manager's question).
-- Assurance corrections: the human chose a recorded, operator-approved, closeout-reviewed "oracle correction" for text-only changes to a check or its prose (no re-baseline, no re-admission), with every correction logged. To be specified and implemented as an agent-manager work item through the assured path.
+- Assurance corrections: the human chose a recorded, operator-approved, closeout-reviewed "oracle correction" for text-only changes to a check or its prose (no re-baseline, no re-admission), with every correction logged. Procedure recorded in docs/MANAGER.md; the runtime part is taken by the human in a separate session (no work item).
 
 ## Execution and limits
 

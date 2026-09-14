@@ -24,7 +24,7 @@ handling; it is not yet implemented.
 Human decisions 2026-09-14 after the first assured repo-graph slice (TRUST-MODULE-EDGES-1, 4 admissions / 5 baselines /
 14 document cycles / 7 implementation cycles for a fix that never failed a check): (1) ef3e1c9 provider-result framing
 RATIFIED as made. (2) Corrections: option B — recorded oracle correction, text-only, operator-approved, closeout-reviewed,
-logged, no re-baseline/re-admission; specify and implement through the assured path (TD-022). (3) Questions to the human
+logged, no re-baseline/re-admission; procedure in docs/MANAGER.md; the runtime part is the human's, in a separate session (TD-022). (3) Questions to the human
 are self-contained (manager instruction updated). These are the Stage-4 proportionality inputs; Stage 4/5 remain held
 until the human opens that discussion.
 Agents assess human decisions; software checks record integrity. Architecture
