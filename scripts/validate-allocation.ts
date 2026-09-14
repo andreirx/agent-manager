@@ -1,5 +1,8 @@
 // Maturity: PROTOTYPE. Manager pre-check: run agent-manager's own stage-3 allocation parser over a slice document BEFORE its
 // document review, so a refusal the document reviewer cannot see (TD-019) is caught in seconds instead of a review cycle.
+// LIMIT: this is the runtime's structural parse only. Its preserved-obligation rule is a regex (no-behavior-change|remain|preserv)
+// and a substring satisfies it — the reviewer caught CBR-C07 passing via 'remain' inside 'remainder' (2026-09-14). VALID means
+// admissible, not semantically honest: write each preserved behaviour out explicitly in the check's `expected`.
 // Usage (from agent-manager): npx tsx scripts/validate-allocation.ts <slice.md> <workItemId> <baselinePath-as-in-block> <manifest.json> <impl selection.md>
 // Validate a slice document's stage-3 allocation block with the runtime's own parser (no relay, no baseline needed).
 import { readFileSync } from 'node:fs';
