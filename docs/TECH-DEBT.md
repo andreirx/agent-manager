@@ -679,6 +679,12 @@ while another live run holds it.
   allocation / reviewer; the runtime published only unknown-field/missing-field errors and blocked the cycle. The content was
   complete and unambiguous — a lenient reader mapping verdict→result and synthesizing per-obligation assessments from an
   ACCEPT with no findings would have published it. Cost: one document cycle (~10 min).
+  IMPLEMENTATION-REVIEW CASE (2026-09-14, CALL-BINDING-RECEIVER-1 third admission cycle 1): the reviewer returned
+  refinement-required with two REAL code findings (a mocked test where an indexed fixture was required; a malformed-metadata
+  path re-enabling the forbidden self-binding). The object had `subject` as a sha pair that did not match, assessed parent
+  H ids, and findings without obligationIds[]/locations[]; the runtime published only errors and the builder would never
+  have seen the findings. The manager copied them verbatim into the packet. A lenient reader that ignores unknown
+  assessments and maps single obligationId→obligationIds would have published a review whose substance was entirely right.
 - Proper solution: (a) inline the §5 skeleton (field names, enum values, "subject = REVIEW_BASELINE path + sha256")
   in the generated requirements-reviewer task directive; (b) on a shape-invalid provider result, return the exact
   structural errors to the SAME reviewer for one bounded in-run correction before blocking the item (the author's
