@@ -3941,6 +3941,11 @@ describe('provider-result framing is not an error (human ruling 2026-09-13, TD-0
     const extracted = extractProviderResultJson(`note ${object} tail`);
     expect(JSON.parse(extracted)).toMatchObject({ formatVersion: 3, kind: 'implementation-evidence-result' });
   });
+  it('skips an earlier balanced brace group that is not JSON (a Rust set literal in prose) and returns the real object', () => {
+    const prose = `I replaced the boolean with a three-state ReceiverDisposition {Receiverless, ExplicitThis, Indirect, Unreadable} mirroring the pattern.\n\n${object}\n`;
+    expect(extractProviderResultJson(prose)).toBe(object);
+    expect(extractProviderResultJson('see {a: 1} then {"x": {"y": 2}} end')).toBe('{"x": {"y": 2}}');
+  });
   it('returns the text unchanged when no balanced object exists, so the strict error surfaces', () => {
     const unbalanced = 'STATUS: approved {"formatVersion": 3, "kind": "x"';
     expect(extractProviderResultJson(unbalanced)).toBe(unbalanced);

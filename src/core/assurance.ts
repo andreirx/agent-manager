@@ -607,8 +607,21 @@ function duplicateJsonFields(raw: string, recordPath: string): AssuranceError[] 
 export function extractProviderResultJson(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed.startsWith('{')) return raw;
-  const start = raw.indexOf('{');
-  if (start < 0) return raw;
+  // Try each `{` in turn: a balanced object that also PARSES wins. The first balanced
+  // brace group in a message may be prose (a Rust set literal, a template placeholder);
+  // stopping there returned non-JSON and blocked a cycle (2026-09-14).
+  let start = raw.indexOf('{');
+  while (start >= 0) {
+    const candidate = balancedObjectAt(raw, start);
+    if (candidate !== undefined) {
+      try { JSON.parse(candidate); return candidate; } catch { /* not JSON: keep looking */ }
+    }
+    start = raw.indexOf('{', start + 1);
+  }
+  return raw;
+}
+
+function balancedObjectAt(raw: string, start: number): string | undefined {
   let depth = 0;
   let inString = false;
   for (let i = start; i < raw.length; i += 1) {
@@ -625,7 +638,7 @@ export function extractProviderResultJson(raw: string): string {
       if (depth === 0) return raw.slice(start, i + 1);
     }
   }
-  return raw;
+  return undefined;
 }
 
 /** Parse JSON under the v1 no-BOM/no-duplicate-member rules. */
