@@ -276,6 +276,16 @@ code at start, so mid-run edits do not affect it.
   inverted its assertions; the builder kept the false name "so the assurance check selects it" and the reviewer
   correctly blocked — a third re-baseline for a rename. When a packet rewrites a test's behaviour, rename it IN THE
   PACKET and bind the new name; every literal identity in a check command is a latent re-baseline (see TD-022/TD-023).
+- **A catalog edit invalidates the admission baseline AND every per-slice manifest generated before it (bitten 2026-09-14,
+  two refused dry-runs):** the bootstrap baseline (RG-BOOTSTRAP-INPUT-n) pins every requirement file's digest, and a
+  slice manifest pins its parents' digests. After ANY requirement-file change: revise the bootstrap baseline (standalone
+  Terra pass over the diff + operator-authored v1 approval — the relay's approval verb serves v2 only) in the SAME commit,
+  and regenerate every not-yet-approved slice manifest. Read the digest-mismatch's file list before diagnosing: it names
+  which manifest is stale.
+- **Check commands resolve the candidate binary by ABSOLUTE path, never `$PWD` after a `cd` (bitten 2026-09-14,
+  CALL-BINDING-RECEIVER-1 PREP, seven checks):** `( cd '<corpus>' && … $PWD/rust/target/release/rmap )` evaluates `$PWD`
+  inside the corpus. Quote the absolute repo path (it contains spaces). And a packet that lets the builder "optionally" add
+  a category/variant whose home is outside candidatePaths is self-contradictory — decide it in the packet.
 - **Bootstrapping a packet under the overhauled relay: copy a VALID CURRENT record, never an old one (bitten 2026-09-13,
   two refused launches; human: "I told you agent-manager was overhauled maybe you should check its docs"):** MANAGER.md §2
   says it — read the current contract and a valid record (`.agent-manager/slices/ASSURANCE-3/status.json`) before
