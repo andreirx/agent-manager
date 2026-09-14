@@ -302,6 +302,10 @@ code at start, so mid-run edits do not affect it.
   its message — in `claude --print` there is no later turn, so the relay took that sentence as the final evidence and a cycle
   with 17 green checks was lost. Rule now in `prompts/roles/builder-target.md` (additive) and in every packet's ordered round:
   run every check to completion in the foreground; a long index is what the 120-minute budget is for.
+- **Never edit a tracked prompt while a work item is admitted (bitten 2026-09-14):** admission pins every role prompt's
+  digest in the item's status.json; I committed the foreground-only rule into `prompts/roles/builder-target.md` mid-item and
+  the review phase refused with `digest-mismatch: persisted reviewed-input instruction identities changed` — a cycle with
+  18 green checks never reached its reviewer. Queue prompt edits for the next fresh admission (which pins the new digest).
 - **Bootstrapping a packet under the overhauled relay: copy a VALID CURRENT record, never an old one (bitten 2026-09-13,
   two refused launches; human: "I told you agent-manager was overhauled maybe you should check its docs"):** MANAGER.md §2
   says it — read the current contract and a valid record (`.agent-manager/slices/ASSURANCE-3/status.json`) before
