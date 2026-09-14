@@ -674,6 +674,11 @@ while another live run holds it.
   bypass is visible. Still open: the broader lenient reading (tolerating field-shape drift such as a non-ContentRef
   `subject`) and in-run clarification — those are Stage-4 discussion items, not patched.
   RATIFIED AS MADE by the human 2026-09-14 — the framing part of this item is RESOLVED; the field-shape leniency part stays OPEN.
+  FIELD-SHAPE CASE (2026-09-14, CALL-BINDING-RECEIVER-1-PREP-2 cycle 1): the reviewer ACCEPTED (digests MATCH, markers and
+  P-obligations verified, findings []) in an object with formatVersion 1 / verdict / digestCheck / grammarCheck / reviewId /
+  allocation / reviewer; the runtime published only unknown-field/missing-field errors and blocked the cycle. The content was
+  complete and unambiguous — a lenient reader mapping verdict→result and synthesizing per-obligation assessments from an
+  ACCEPT with no findings would have published it. Cost: one document cycle (~10 min).
 - Proper solution: (a) inline the §5 skeleton (field names, enum values, "subject = REVIEW_BASELINE path + sha256")
   in the generated requirements-reviewer task directive; (b) on a shape-invalid provider result, return the exact
   structural errors to the SAME reviewer for one bounded in-run correction before blocking the item (the author's
