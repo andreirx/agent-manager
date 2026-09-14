@@ -297,6 +297,11 @@ code at start, so mid-run edits do not affect it.
   of an existing sentence — rebuild the section whole (OC-1's tail ended up inside OC-2); (3) when a decision record names
   the proof ("compare the member SET"), the corrected check must perform exactly that proof (`cycles --json` nodes), not a
   weaker proxy (edge count + size).
+- **A builder must never background a check and end its turn (bitten 2026-09-14, CALL-BINDING-RECEIVER-1 second admission
+  cycle 1):** the builder backgrounded a corpus index for one check, wrote "I'll pause here and resume when notified", and ended
+  its message — in `claude --print` there is no later turn, so the relay took that sentence as the final evidence and a cycle
+  with 17 green checks was lost. Rule now in `prompts/roles/builder-target.md` (additive) and in every packet's ordered round:
+  run every check to completion in the foreground; a long index is what the 120-minute budget is for.
 - **Bootstrapping a packet under the overhauled relay: copy a VALID CURRENT record, never an old one (bitten 2026-09-13,
   two refused launches; human: "I told you agent-manager was overhauled maybe you should check its docs"):** MANAGER.md §2
   says it — read the current contract and a valid record (`.agent-manager/slices/ASSURANCE-3/status.json`) before

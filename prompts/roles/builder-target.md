@@ -151,3 +151,7 @@ End your response with a concise change summary:
   commands + pass/fail, key end-to-end output, coverage gaps, anything NOT RUN)
 - Anything left incomplete or any stop condition hit
 - Any `DECISION_REQUIRED` block, if work could not continue safely
+
+## Foreground only (2026-09-14)
+
+Run every check and every proof to completion in the foreground before your final message. Never background a long command (an index, a build, a test run) and end your turn to "resume when notified": there is no later turn — the end of your message is your final evidence, and a cycle ended that way is lost. The provider timeout is the budget for long work; use it.
