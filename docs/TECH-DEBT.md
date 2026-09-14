@@ -693,6 +693,9 @@ while another live run holds it.
   `supportingEvidence` was `[]` — the content (actuals, the seven named tests, 0 self-loops / 9413 conserved) was all there.
   Running tally on this slice: SIX correct provider results dropped for shape (fifth admission cycle 3: a refinement-required
   review with two real findings used `id`/`severity`/`location` on findings and skipped one check assessment); ~15–20 min each.
+  SEVENTH (fifth admission cycle 4): a full accept in the CORRECT shape rejected on `subject.verificationSha256` — the
+  reviewer retyped the 64-hex digest and got one nibble run wrong (candidate digest exact). Strictness is right to refuse a
+  wrong identity; the cost is that the accept, whose content was unambiguous, must be re-emitted by re-running the builder too.
   IMPLEMENTATION-REVIEW CASE (2026-09-14, CALL-BINDING-RECEIVER-1 third admission cycle 1): the reviewer returned
   refinement-required with two REAL code findings (a mocked test where an indexed fixture was required; a malformed-metadata
   path re-enabling the forbidden self-binding). The object had `subject` as a sha pair that did not match, assessed parent
