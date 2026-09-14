@@ -315,6 +315,10 @@ code at start, so mid-run edits do not affect it.
   decoupled from its receiver; a malformed type folded into "absent"). For every evidence field a slice introduces, the
   packet lists absent / present-valid / present-malformed and binds a test to each — an evidence taxonomy table in §2 —
   so the review converges in one cycle instead of five.
+- **Never quote a per-cycle identity in a packet note (bitten 2026-09-14):** the verification digest a reviewer must echo
+  in `subject` is regenerated every cycle and lives only in that cycle's task directive; I quoted one in a manager note to
+  explain a mismatch, and the next reviewer copied it — a second accept of the same candidate refused for the same field.
+  Point at the directive; never restate its values.
 - **Bootstrapping a packet under the overhauled relay: copy a VALID CURRENT record, never an old one (bitten 2026-09-13,
   two refused launches; human: "I told you agent-manager was overhauled maybe you should check its docs"):** MANAGER.md §2
   says it — read the current contract and a valid record (`.agent-manager/slices/ASSURANCE-3/status.json`) before
