@@ -144,6 +144,10 @@ Steering belongs in the existing local packet/operator note and references the
 unchanged authoritative obligations. New obligations or altered acceptance require
 controlled specification change, not an informal note that overrides the baseline.
 
+### Presenting decisions to the human (human directive 2026-09-14)
+
+When you put a question or decision to the human, make it self-contained: first say what the problem is in plain language (what is broken or at stake and how we got here), then give each option with its reward and its risk. Never let an internal label (a requirement ID, a queue number, a debt number, a slice name) carry the meaning — a reader with none of your context must be able to decide from the text alone; labels may follow as references.
+
 ## 6. Close out under explicit authority
 
 Check the final candidate against scope, requirements, preservation, required

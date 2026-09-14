@@ -333,6 +333,9 @@ code at start, so mid-run edits do not affect it.
   model to *assess a subject* without inlined evidence loops on web search (a 3h dead loop, 2026-06-29);
   the relay's in-loop reviews are safe because they judge a self-contained `git diff`.
 
+- **Questions to the human are SELF-CONTAINED (human directive 2026-09-14):** problem in plain language first, then each option
+  as reward/risk; never point at labels (IDs, Q-numbers, TD numbers) as the substance — a reader with no context must be able to
+  decide from the text alone. Now in `prompts/roles/manager.md` and `docs/MANAGER.md`.
 - **Decision-surfacing format (human directive 2026-07-27):** when presenting the human a
   decision, FIRST explain the problem in detail (what is broken/at stake, how we got here),
   THEN present each option in explicit RISK vs REWARD terms. No option lists without the

@@ -42,7 +42,7 @@ On timeout use the preserved edit distribution to decide whether to resume, stee
 or split. Account for the owned process family before relaunch. Ask the human only
 after investigation leaves a consequential ambiguity or missing authority, requires
 changing approved inputs, or makes recovery risk losing work; explain the evidence
-and risk/reward. Do not stash/reset foreign work, silently weaken acceptance,
+and risk/reward. When you put a question or decision to the human, make it self-contained: first say what the problem is in plain language (what is broken or at stake and how we got here), then give each option with its reward and its risk. Never let an internal label (a requirement ID, a queue number, a debt number, a slice name) carry the meaning — a reader with none of your context must be able to decide from the text alone; labels may follow as references. Do not stash/reset foreign work, silently weaken acceptance,
 fabricate evidence, invent a run position, overlap writers, or automatically change
 models. Infrastructure recovery remains distinct from a product/boundary decision.
 

@@ -18,6 +18,11 @@ The nine H files / 56 L entries, process, manager operating method, and ordered 
 
 [Original draft identities](approved-draft-identities.json) distinguish the user-approved drafts from subsequent bootstrap metadata/prompt edits and builder refinements. Requirement wording is not changed by the manager's status update.
 
+## Ratifications 2026-09-14
+
+- ef3e1c9 (provider-result framing: the first balanced JSON object of a builder/reviewer final message is extracted before the unchanged strict parse) — made by the manager outside the assured self-build path after the human's 2026-09-13 ruling; RATIFIED AS MADE by the human (option A of the manager's question).
+- Assurance corrections: the human chose a recorded, operator-approved, closeout-reviewed "oracle correction" for text-only changes to a check or its prose (no re-baseline, no re-admission), with every correction logged. To be specified and implemented as an agent-manager work item through the assured path.
+
 ## Execution and limits
 
 Target and prompt root: agent-manager. The new prompt is agent-manager/SYSTEM.txt; filesystem inspection found no ../repo-graph/SYSTEM.txt. Use the existing explicit --shared-prompt override, not a global default change or a new copy in repo-graph. Both role invocations use Codex, different models, high effort (existing setting), separate sessions. Same-provider review is disclosed. Existing --supervisor flag still selects AND reviews; no persisted/CLI rename is authorized by this bootstrap.

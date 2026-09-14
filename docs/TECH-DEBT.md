@@ -673,6 +673,7 @@ while another live run holds it.
   implementation cycles (~1 h) were lost to the wrapper alone with correct evidence inside each — recorded here so the
   bypass is visible. Still open: the broader lenient reading (tolerating field-shape drift such as a non-ContentRef
   `subject`) and in-run clarification — those are Stage-4 discussion items, not patched.
+  RATIFIED AS MADE by the human 2026-09-14 — the framing part of this item is RESOLVED; the field-shape leniency part stays OPEN.
 - Proper solution: (a) inline the §5 skeleton (field names, enum values, "subject = REVIEW_BASELINE path + sha256")
   in the generated requirements-reviewer task directive; (b) on a shape-invalid provider result, return the exact
   structural errors to the SAME reviewer for one bounded in-run correction before blocking the item (the author's
@@ -703,7 +704,8 @@ while another live run holds it.
   "one manifest per item" invariant auditable instead of forcing the manager around it.
 - When to address: with the Stage-4 proportionality discussion — this is the second case (with TD-020) where the
   runtime's rigidity on a correct correction cost manager time without adding assurance.
-- Status: OPEN.
+- Status: OPEN, NARROWED 2026-09-14 — with the ratified oracle-correction path (TD-022) text-only corrections no longer
+  need supersession; a supersession verb remains the proper solution for non-text baseline changes.
 
 ## TD-022 — A stale oracle token costs a full re-baseline because document review cannot execute (2026-09-13)
 
@@ -724,7 +726,12 @@ while another live run holds it.
   every literal in a check command is a latent re-baseline.
 - When to address: Stage-4 proportionality discussion, with TD-020/TD-021 — three cases in one slice where the
   runtime's rigidity on a correct correction cost manager time without adding assurance.
-- Status: OPEN.
+- DIRECTION RATIFIED 2026-09-14 (human, option B): a recorded, operator-approved, closeout-reviewed oracle correction for
+  text-only changes to a check or its prose — no re-baseline, no re-admission — with every correction logged. "Text-only"
+  must be defined hard before implementation: changes no allocation set (implements/preserves/changes), no check-ID set, no
+  requirement text, no candidate paths; only a check's command literal/expected/prose or the slice's explanatory prose.
+  Implement as an agent-manager work item through the assured path.
+- Status: OPEN — direction ratified, not implemented.
 
 ## TD-023 — A bound oracle can lock a false name into the candidate (2026-09-13)
 
