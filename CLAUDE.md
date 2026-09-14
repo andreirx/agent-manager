@@ -286,6 +286,11 @@ code at start, so mid-run edits do not affect it.
   CALL-BINDING-RECEIVER-1 PREP, seven checks):** `( cd '<corpus>' && … $PWD/rust/target/release/rmap )` evaluates `$PWD`
   inside the corpus. Quote the absolute repo path (it contains spaces). And a packet that lets the builder "optionally" add
   a category/variant whose home is outside candidatePaths is self-contradictory — decide it in the packet.
+- **Run the runtime's allocation parser over a stage-3 block BEFORE its document review (bitten 2026-09-14, two refusals
+  the document reviewer cannot see — TD-019):** `npx tsx scripts/validate-allocation.ts <slice.md> <workItemId>
+  <baselinePath> <manifest.json> <impl selection.md>` prints ALLOCATION VALID or the exact refusal lines (every preserved
+  L needs a check whose `expected` says no-behavior-change / remain / preserve — American spelling; every P-obligation must
+  be listed in a check's obligationIds). Seconds, not a review cycle.
 - **Bootstrapping a packet under the overhauled relay: copy a VALID CURRENT record, never an old one (bitten 2026-09-13,
   two refused launches; human: "I told you agent-manager was overhauled maybe you should check its docs"):** MANAGER.md §2
   says it — read the current contract and a valid record (`.agent-manager/slices/ASSURANCE-3/status.json`) before
