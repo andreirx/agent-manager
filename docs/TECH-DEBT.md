@@ -681,6 +681,9 @@ while another live run holds it.
   ACCEPT with no findings would have published it. Cost: one document cycle (~10 min).
   EXTRACTOR FIX (2026-09-14, b234835): the first balanced brace group in a builder's prose was a Rust set literal
   (`{Receiverless, ExplicitThis, Indirect, Unreadable}`); the extractor now tries each `{` in turn until one parses as JSON.
+  EVIDENCE FIELD-NAME CASE (2026-09-14, CALL-BINDING-RECEIVER-1 fourth admission cycle 1): a complete 19/19 evidence object
+  was rejected because every changeJustifications entry said `note` instead of `summary`. Same content, one key name;
+  one builder cycle (~15 min) to re-emit.
   IMPLEMENTATION-REVIEW CASE (2026-09-14, CALL-BINDING-RECEIVER-1 third admission cycle 1): the reviewer returned
   refinement-required with two REAL code findings (a mocked test where an indexed fixture was required; a malformed-metadata
   path re-enabling the forbidden self-binding). The object had `subject` as a sha pair that did not match, assessed parent
