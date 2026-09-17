@@ -705,6 +705,11 @@ while another live run holds it.
   H ids, and findings without obligationIds[]/locations[]; the runtime published only errors and the builder would never
   have seen the findings. The manager copied them verbatim into the packet. A lenient reader that ignores unknown
   assessments and maps single obligationId→obligationIds would have published a review whose substance was entirely right.
+  NINTH (fifth admission cycle 10, 2026-09-17): a refinement-required review with ONE real finding (F-CBR-013: the
+  fallback-forbidden scan stops at `lambda_expression` while its own comment and the packet rule say lambda captures count)
+  emitted a top-level `verdict` instead of `result` and omitted the `decisionIds` array on all 26 obligation assessments.
+  Content correct and actionable; dropped; the finding was carried into the next cycle by a manager note quoting the reviewer
+  log, and the resume re-ran the builder (~27 min) as well as the review. Nine correct provider results dropped on one slice.
 - Proper solution: (a) inline the §5 skeleton (field names, enum values, "subject = REVIEW_BASELINE path + sha256")
   in the generated requirements-reviewer task directive; (b) on a shape-invalid provider result, return the exact
   structural errors to the SAME reviewer for one bounded in-run correction before blocking the item (the author's
