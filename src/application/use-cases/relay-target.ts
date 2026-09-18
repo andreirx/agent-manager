@@ -55,6 +55,7 @@ import {
   type ContentRef,
   type PersistedAssuranceV2,
   type RequirementsReviewRecord,
+  type RequirementsReviewResult,
   type ApprovalRecordV2,
   type AnyPersistedAssurance,
   type ImplementationAllocation,
@@ -84,11 +85,52 @@ export type TargetPhase =
   | 'review-impl'
   | 'decision-review'
   | 'awaiting-ratification'
+  | 'awaiting-manager-interpretation'
   | 'blocked'
   | 'done';
 
 /** Actor identity (provider playing a role, or a human). */
 export type TargetActor = 'claude' | 'codex' | 'copilot' | 'human';
+
+interface ProviderSessionBinding {
+  provider: TargetActor;
+  sessionId: string;
+}
+
+interface SliceRoleSessions {
+  builder?: ProviderSessionBinding;
+  reviewer?: ProviderSessionBinding;
+}
+
+type InterpretableOutputContract = Exclude<RoleOutputContract, 'legacy-implementation-report'>;
+
+interface PendingClarificationRef {
+  path: string;
+  sha256: string;
+  runId: string;
+  managerId: string;
+}
+
+interface PendingInterpretation {
+  contract: InterpretableOutputContract;
+  role: SessionRole;
+  iteration: number;
+  runId: string;
+  runRecordPath: string;
+  rawOutputPath: string;
+  rawOutputSha256: string;
+  diagnostics: string[];
+  subject:
+    | { kind: 'implementation-evidence'; allocation: ContentRef; checkpoint: CandidateCheckpoint }
+    | { kind: 'implementation-review'; candidateSha256: string; verificationSha256: string }
+    | { kind: 'requirements-review'; manifest: ContentRef }
+    | { kind: 'legacy-verdict' };
+  clarifications: PendingClarificationRef[];
+}
+
+export type ManagerOperation =
+  | { kind: 'apply-interpretation'; commandPath: string }
+  | { kind: 'clarify-pending'; questionPath: string; managerId: string };
 
 /** Status persisted to <target>/.agent-manager/slices/<id>/status.json. */
 export interface TargetRelayStatus {
@@ -105,6 +147,10 @@ export interface TargetRelayStatus {
   assurance?: AnyPersistedAssurance;
   /** Present only while a stage-3 implementation candidate is being built/reviewed. */
   candidateTracking?: CandidateTracking;
+  /** Native conversations retained independently for the implementation roles. */
+  providerSessions?: SliceRoleSessions;
+  /** Present only while a retained provider message awaits manager judgment. */
+  pendingInterpretation?: PendingInterpretation;
 }
 
 /** Pointer to the active slice, so a later invocation resumes (not reselects). */
@@ -134,6 +180,9 @@ interface TargetRunRecord {
   workingDir: string;
   error?: string;
   inputProvenance?: RunInputProvenance;
+  providerSession?:
+    | { request: 'fresh'; returnedSessionId?: string }
+    | { request: 'resume'; requestedSessionId: string; returnedSessionId?: string };
 }
 
 /** Input for a full target relay run. */
@@ -190,6 +239,8 @@ export interface TargetRelayInput {
   sharedInstruction?: { root: 'target' | 'prompt'; path: string };
   /** Prompt instructions intentionally common to every target role. */
   commonPromptPaths?: readonly string[];
+  /** Explicit manager operation; never inferred from an ordinary resume. */
+  managerOperation?: ManagerOperation;
 }
 
 /** Dependencies for the target relay. */
@@ -217,6 +268,10 @@ export interface TargetRelayDeps {
   candidateDiff?: (targetDir: string, checkpoint: CandidateCheckpoint) => Promise<string>;
   /** Create-only durable publication mechanism; required only for stage 3. */
   createTrackedFileExclusively?: (targetDir: string, path: string, bytes: Uint8Array) => Promise<void>;
+  /** Test seam for retry waiting; production omits it and uses wall-clock delay. */
+  retryDelay?: (milliseconds: number) => Promise<void>;
+  /** Composition-root lookup used only to clarify with the recorded provider. */
+  clarificationRunner?: (provider: Exclude<TargetActor, 'human'>) => ProviderRunnerPort;
 }
 
 /** Result of a full target relay run. */
@@ -371,7 +426,8 @@ function makeVerificationDraft(args: {
   stage3: Stage3Context;
   checkpoint: CandidateCheckpoint;
   evidence: ImplementationEvidenceResult;
-  result: RunResult;
+  result: Pick<RunResult, 'runId' | 'completedAt'>;
+  performer?: Pick<TargetRunRecord, 'provider' | 'model' | 'effort'>;
 }): Record<string, unknown> {
   return {
     formatVersion: 3,
@@ -381,7 +437,7 @@ function makeVerificationDraft(args: {
     baseline: args.status.assurance?.manifest,
     allocation: args.stage3.allocationRef,
     candidateCheckpoint: args.checkpoint,
-    performer: { role: 'builder', provider: args.input.builderProvider, model: args.input.builderModel, effort: args.input.builderEffort, runId: args.result.runId },
+    performer: { role: 'builder', provider: args.performer?.provider ?? args.input.builderProvider, model: args.performer?.model ?? args.input.builderModel, effort: args.performer?.effort ?? args.input.builderEffort, runId: args.result.runId },
     checks: args.stage3.allocation.checks.map((plan) => {
       const result = args.evidence.checks.find((item) => item.checkId === plan.checkId);
       return { ...plan, candidateSha256: args.checkpoint.sha256, basis: 'provider-run-report', outcome: result?.outcome };
@@ -1000,7 +1056,13 @@ function buildBuilderContext(
     '# Runtime-selected output contract',
     '',
     'Agent Manager selected this final value after admission. Do not infer or override it from selection-packet or SLICE_DOC content.',
-    `ROLE_OUTPUT_CONTRACT: ${outputContract}`
+    `ROLE_OUTPUT_CONTRACT: ${outputContract}`,
+    '',
+    '# Provider-message compatibility override',
+    '',
+    'Your semantic duties remain mandatory: report every required check, justification, limitation, finding, assessment, decision, and uncertainty that applies.',
+    'Historical prompt wording that demands an exact provider JSON envelope, runtime-owned identity, digest, or field spelling is superseded for this dispatch. Clear prose or alternate structured shapes are acceptable provider messages.',
+    'Agent Manager retains your original message; when it cannot safely construct the required record automatically, the manager interprets it and the runtime validates and constructs the record. Do not invent missing evidence or hide uncertainty to imitate a schema.'
   );
   return parts.join('\n');
 }
@@ -1050,7 +1112,13 @@ function buildReviewerContext(
     '# Runtime-selected output contract',
     '',
     'Agent Manager selected this final value after admission. Do not infer or override it from selection-packet or SLICE_DOC content.',
-    `ROLE_OUTPUT_CONTRACT: ${outputContract}`
+    `ROLE_OUTPUT_CONTRACT: ${outputContract}`,
+    '',
+    '# Provider-message compatibility override',
+    '',
+    'Your semantic duties remain mandatory: return every required assessment, finding, decision, verification basis, consequence, and uncertainty that applies.',
+    'Historical prompt wording that demands an exact provider JSON envelope, runtime-owned identity, digest, or field spelling is superseded for this dispatch. Clear prose or alternate structured shapes are acceptable provider messages.',
+    'Agent Manager retains your original message; when it cannot safely construct the required record automatically, the manager interprets it and the runtime validates and constructs the record. Do not turn missing evidence or uncertainty into an optimistic verdict.'
   );
   return sections.join('\n');
 }
@@ -1081,7 +1149,9 @@ async function ensureScaffold(amDir: string): Promise<void> {
       'This repository is the system of record. The builder edits files (left',
       'uncommitted); the reviewer inspects the resulting `git diff`.',
       '',
-      'Phase graph: select-slice -> (implement -> review-impl)* -> done | blocked.',
+      'Phase graph: select-slice -> (implement -> review-impl)* -> done | blocked,',
+      'with awaiting-manager-interpretation when a meaning-bearing provider',
+      'message cannot yet be converted into the required runtime record.',
       'When an approved slice surfaces an operator-ratification DECISION_REQUIRED',
       'matrix in its OWN build output (build-<n>.md, or a SLICE_DOC this build',
       'created/modified — not a pre-ratified spec it only references), an additive',
@@ -1142,6 +1212,7 @@ const TARGET_PHASE_VALUES: Readonly<Record<TargetPhase, true>> = {
   'review-impl': true,
   'decision-review': true,
   'awaiting-ratification': true,
+  'awaiting-manager-interpretation': true,
   blocked: true,
   done: true,
 };
@@ -1153,10 +1224,29 @@ const TARGET_ACTOR_VALUES: Readonly<Record<TargetActor, true>> = {
   human: true,
 };
 
-function isTargetRelayStatusShape(value: unknown): value is TargetRelayStatus {
+export function isTargetRelayStatusShape(value: unknown): value is TargetRelayStatus {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   const tracking = record.candidateTracking;
+  const sessions = record.providerSessions;
+  const pending = record.pendingInterpretation;
+  const sessionBindingOk = (binding: unknown): boolean => {
+    if (!binding || typeof binding !== 'object' || Array.isArray(binding)) return false;
+    const item = binding as Record<string, unknown>;
+    return Object.keys(item).sort().join(',') === 'provider,sessionId' &&
+      typeof item.provider === 'string' &&
+      Object.prototype.hasOwnProperty.call(TARGET_ACTOR_VALUES, item.provider) &&
+      item.provider !== 'human' &&
+      typeof item.sessionId === 'string' &&
+      item.sessionId.trim().length > 0;
+  };
+  const sessionsOk = sessions === undefined || (
+    sessions !== null && typeof sessions === 'object' && !Array.isArray(sessions) &&
+    Object.keys(sessions as Record<string, unknown>).every((key) => key === 'builder' || key === 'reviewer') &&
+    Object.keys(sessions as Record<string, unknown>).length > 0 &&
+    ((sessions as Record<string, unknown>).builder === undefined || sessionBindingOk((sessions as Record<string, unknown>).builder)) &&
+    ((sessions as Record<string, unknown>).reviewer === undefined || sessionBindingOk((sessions as Record<string, unknown>).reviewer))
+  );
   const trackingOk = tracking === undefined || (
     tracking !== null && typeof tracking === 'object' && !Array.isArray(tracking) &&
     (tracking as Record<string, unknown>).contract === 'requirements-assurance/v3-candidate-tracking' &&
@@ -1167,6 +1257,58 @@ function isTargetRelayStatusShape(value: unknown): value is TargetRelayStatus {
       ? Object.keys(tracking as Record<string, unknown>).sort().join(',') === 'baseRevision,contract,state'
       : typeof (tracking as Record<string, unknown>).candidateSha256 === 'string' && /^sha256:[0-9a-f]{64}$/.test((tracking as Record<string, unknown>).candidateSha256 as string) && Object.keys(tracking as Record<string, unknown>).sort().join(',') === 'baseRevision,candidateSha256,contract,state')
   );
+  const refOk = (value: unknown): boolean => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const item = value as Record<string, unknown>;
+    return Object.keys(item).sort().join(',') === 'path,sha256' &&
+      typeof item.path === 'string' && item.path.length > 0 &&
+      typeof item.sha256 === 'string' && /^sha256:[0-9a-f]{64}$/.test(item.sha256);
+  };
+  const checkpointOk = (value: unknown): boolean => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const item = value as Record<string, unknown>;
+    return item.contract === 'requirements-assurance/v3-candidate-checkpoint' &&
+      typeof item.sha256 === 'string' && /^sha256:[0-9a-f]{64}$/.test(item.sha256) &&
+      typeof item.baseRevision === 'string' && /^[0-9a-f]{40}$/.test(item.baseRevision) &&
+      Array.isArray(item.entries);
+  };
+  const pendingOk = pending === undefined || (() => {
+    if (!pending || typeof pending !== 'object' || Array.isArray(pending)) return false;
+    const item = pending as Record<string, unknown>;
+    const contracts = new Set<InterpretableOutputContract>([
+      'legacy-status-verdict',
+      'requirements-assurance/v2-requirements-review',
+      'requirements-assurance/v3-implementation-evidence',
+      'requirements-assurance/v3-implementation-review',
+    ]);
+    const subject = item.subject;
+    if (!subject || typeof subject !== 'object' || Array.isArray(subject)) return false;
+    const sub = subject as Record<string, unknown>;
+    const subjectOk =
+      (item.contract === 'legacy-status-verdict' && Object.keys(sub).sort().join(',') === 'kind' && sub.kind === 'legacy-verdict') ||
+      (item.contract === 'requirements-assurance/v2-requirements-review' && Object.keys(sub).sort().join(',') === 'kind,manifest' && sub.kind === 'requirements-review' && refOk(sub.manifest)) ||
+      (item.contract === 'requirements-assurance/v3-implementation-evidence' && Object.keys(sub).sort().join(',') === 'allocation,checkpoint,kind' && sub.kind === 'implementation-evidence' && refOk(sub.allocation) && checkpointOk(sub.checkpoint)) ||
+      (item.contract === 'requirements-assurance/v3-implementation-review' && Object.keys(sub).sort().join(',') === 'candidateSha256,kind,verificationSha256' && sub.kind === 'implementation-review' && typeof sub.candidateSha256 === 'string' && /^sha256:[0-9a-f]{64}$/.test(sub.candidateSha256) && typeof sub.verificationSha256 === 'string' && /^sha256:[0-9a-f]{64}$/.test(sub.verificationSha256));
+    const clarificationsOk = Array.isArray(item.clarifications) && item.clarifications.every((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+      const clarification = entry as Record<string, unknown>;
+      return Object.keys(clarification).sort().join(',') === 'managerId,path,runId,sha256' &&
+        typeof clarification.path === 'string' && clarification.path.length > 0 &&
+        typeof clarification.runId === 'string' && clarification.runId.length > 0 &&
+        typeof clarification.managerId === 'string' && clarification.managerId.trim().length > 0 &&
+        typeof clarification.sha256 === 'string' && /^sha256:[0-9a-f]{64}$/.test(clarification.sha256);
+    });
+    return Object.keys(item).sort().join(',') === 'clarifications,contract,diagnostics,iteration,rawOutputPath,rawOutputSha256,role,runId,runRecordPath,subject' &&
+      typeof item.contract === 'string' && contracts.has(item.contract as InterpretableOutputContract) &&
+      (item.role === 'builder' || item.role === 'reviewer') &&
+      Number.isInteger(item.iteration) && (item.iteration as number) >= 0 &&
+      typeof item.runId === 'string' && item.runId.length > 0 &&
+      typeof item.runRecordPath === 'string' && item.runRecordPath.length > 0 &&
+      typeof item.rawOutputPath === 'string' && item.rawOutputPath.length > 0 &&
+      typeof item.rawOutputSha256 === 'string' && /^sha256:[0-9a-f]{64}$/.test(item.rawOutputSha256) &&
+      Array.isArray(item.diagnostics) && item.diagnostics.length > 0 && item.diagnostics.every((entry) => typeof entry === 'string' && entry.length > 0) &&
+      subjectOk && clarificationsOk;
+  })();
   return (
     typeof record.phase === 'string' &&
     Object.prototype.hasOwnProperty.call(TARGET_PHASE_VALUES, record.phase) &&
@@ -1182,7 +1324,10 @@ function isTargetRelayStatusShape(value: unknown): value is TargetRelayStatus {
     Object.prototype.hasOwnProperty.call(TARGET_ACTOR_VALUES, record.builderProvider) &&
     typeof record.supervisorProvider === 'string' &&
     Object.prototype.hasOwnProperty.call(TARGET_ACTOR_VALUES, record.supervisorProvider) &&
-    trackingOk
+    trackingOk &&
+    sessionsOk &&
+    pendingOk &&
+    ((record.phase === 'awaiting-manager-interpretation') === (pending !== undefined))
   );
 }
 
@@ -1264,6 +1409,24 @@ function makeRunRecord(
     workingDir: targetDir,
   };
   let record = result.error !== undefined ? { ...base, error: result.error } : base;
+  if (request.providerSession?.kind === 'fresh') {
+    record = {
+      ...record,
+      providerSession: {
+        request: 'fresh',
+        ...(result.providerSessionId !== undefined ? { returnedSessionId: result.providerSessionId } : {}),
+      },
+    };
+  } else if (request.providerSession?.kind === 'resume') {
+    record = {
+      ...record,
+      providerSession: {
+        request: 'resume',
+        requestedSessionId: request.providerSession.sessionId,
+        ...(result.providerSessionId !== undefined ? { returnedSessionId: result.providerSessionId } : {}),
+      },
+    };
+  }
   if (request.delivery.kind === 'reviewed-input-snapshots') {
     if (result.deliveryReceipt.kind !== 'reviewed-input-snapshots' || !promptRoot || !baseline) throw new Error('role-context-mismatch: reviewed request completed without identified roots/baseline');
     const project = (item: RunTextInput): RunInputProvenance['commonInputs'][number] => item.origin === 'file'
@@ -1295,6 +1458,64 @@ async function writeRunRecord(
     JSON.stringify(record, null, 2),
     'utf-8'
   );
+}
+
+async function awaitManagerInterpretation(
+  sliceDir: string,
+  status: TargetRelayStatus,
+  clock: ClockPort,
+  pending: PendingInterpretation
+): Promise<TargetRelayStatus> {
+  const waiting: TargetRelayStatus = {
+    ...status,
+    phase: 'awaiting-manager-interpretation',
+    pendingInterpretation: pending,
+    updatedAt: clock.now(),
+  };
+  await writeStatus(sliceDir, waiting);
+  return waiting;
+}
+
+function interpretationAttribution(
+  pending: PendingInterpretation,
+  managerId: string,
+  rationale: string
+): string {
+  const clarification = pending.clarifications.length === 0
+    ? ''
+    : ` Clarification records: ${pending.clarifications.map((item) => `${item.runId} (${item.path} ${item.sha256})`).join(', ')}.`;
+  return `Manager interpretation by ${managerId}: ${rationale} Source provider run ${pending.runId}; retained output ${pending.rawOutputPath} ${pending.rawOutputSha256}.${clarification} The provider remains the performer; this interpretation is not independent execution evidence.`;
+}
+
+function withoutPending(status: TargetRelayStatus): Omit<TargetRelayStatus, 'pendingInterpretation'> {
+  const { pendingInterpretation: _pending, ...rest } = status;
+  return rest;
+}
+
+type CompletedProviderOutput =
+  | { kind: 'single-text'; raw: string }
+  | { kind: 'artifact-set'; raw: string; diagnostic: string };
+
+/**
+ * Preserve every normalized artifact from a completed provider result.
+ *
+ * The historical consumer accepts exactly one text artifact. Selecting the
+ * first artifact or coercing an object would destroy evidence before the
+ * manager can interpret it, so off-shape sets are retained as explicit JSON.
+ */
+function captureCompletedProviderOutput(result: RunResult): CompletedProviderOutput {
+  if (result.outputArtifacts.length === 1 && typeof result.outputArtifacts[0]?.content === 'string') {
+    return { kind: 'single-text', raw: result.outputArtifacts[0].content };
+  }
+  const raw = `${JSON.stringify({
+    kind: 'retained-provider-output-artifacts',
+    artifacts: result.outputArtifacts,
+  }, null, 2)}\n`;
+  return {
+    kind: 'artifact-set',
+    raw,
+    diagnostic: `Provider completed with ${result.outputArtifacts.length} output artifact(s); this result path requires exactly one artifact whose content is text. The complete normalized artifact set was retained without selecting or coercing an artifact.`,
+  };
 }
 
 async function blockSlice(
@@ -1353,21 +1574,78 @@ function isTransientFailure(status: RunStatus): boolean {
  */
 async function runWithRetry(
   runner: ProviderRunnerPort,
-  request: RunRequest,
-  label: string
-): Promise<RunResult> {
-  let result = await runner.run(request);
+  initialRequest: RunRequest,
+  label: string,
+  onAttempt?: (attempt: { request: RunRequest; result: RunResult; number: number }) => Promise<void>,
+  retryDelay: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+): Promise<{ request: RunRequest; result: RunResult }> {
+  let request = initialRequest;
   let attempt = 1;
-  while (attempt < TRANSIENT_RETRY_ATTEMPTS && isTransientFailure(result.status)) {
+  while (true) {
+    const result = await runner.run(request);
+    await onAttempt?.({ request, result, number: attempt });
+    if (attempt >= TRANSIENT_RETRY_ATTEMPTS || !isTransientFailure(result.status)) {
+      return { request, result };
+    }
     const delayMs = RETRY_BACKOFF_MS[attempt - 1] ?? 60_000;
     console.log(
       `  [retry] ${label}: transient provider failure (status=${result.status}); backing off ${Math.round(delayMs / 1000)}s, then re-running (attempt ${attempt + 1}/${TRANSIENT_RETRY_ATTEMPTS})`
     );
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-    result = await runner.run(request);
+    await retryDelay(delayMs);
+    if (request.providerSession !== undefined && result.providerSessionId !== undefined) {
+      request = { ...request, providerSession: { kind: 'resume', sessionId: result.providerSessionId } };
+    }
     attempt += 1;
   }
-  return result;
+}
+
+type SessionRole = 'builder' | 'reviewer';
+
+function sessionRequestFor(
+  status: TargetRelayStatus,
+  role: SessionRole,
+  provider: TargetActor,
+  runner: ProviderRunnerPort
+): RunRequest['providerSession'] {
+  if (runner.sessionSupport !== 'explicit-id') return undefined;
+  const binding = status.providerSessions?.[role];
+  return binding?.provider === provider
+    ? { kind: 'resume', sessionId: binding.sessionId }
+    : { kind: 'fresh' };
+}
+
+function statusWithReturnedSession(
+  status: TargetRelayStatus,
+  role: SessionRole,
+  provider: TargetActor,
+  request: RunRequest,
+  result: RunResult
+): TargetRelayStatus {
+  if (!request.providerSession || result.providerSessionId === undefined) return status;
+  if (result.providerSessionId.trim().length === 0) {
+    throw new Error(`provider-session-invalid: ${role} provider returned an empty native session id`);
+  }
+  if (
+    request.providerSession.kind === 'resume' &&
+    result.providerSessionId !== request.providerSession.sessionId
+  ) {
+    throw new Error(
+      `provider-session-mismatch: ${role} requested '${request.providerSession.sessionId}' but provider returned '${result.providerSessionId}'; refusing a silent new conversation`
+    );
+  }
+  return {
+    ...status,
+    providerSessions: {
+      ...status.providerSessions,
+      [role]: { provider, sessionId: result.providerSessionId },
+    },
+  };
+}
+
+function assertCompletedManagedSession(request: RunRequest, result: RunResult, role: SessionRole): void {
+  if (request.providerSession && result.status === RunStatus.COMPLETED && result.providerSessionId === undefined) {
+    throw new Error(`provider-session-missing: completed ${role} call did not return its native session id`);
+  }
 }
 
 /** Run the READ-ONLY select-slice step. */
@@ -1419,7 +1697,7 @@ async function runSelectSlice(
     delivery,
     inputArtifacts: [],
   };
-  const result = await runWithRetry(deps.supervisor, request, 'select-slice');
+  const { result } = await runWithRetry(deps.supervisor, request, 'select-slice', undefined, deps.retryDelay);
   assertRunDeliveryConsistency(request, result);
 
   if (result.status !== RunStatus.COMPLETED) {
@@ -1535,6 +1813,7 @@ async function runImplement(
       contextText: buildBuilderContext(input.targetDir, packetRaw, status.iteration, 'legacy-implementation-report'),
     };
   }
+  const providerSession = sessionRequestFor(status, 'builder', input.builderProvider, deps.builder);
   const request: RunRequest = {
     runId: `build-${status.sliceId}-${status.iteration}`,
     sliceId: status.sliceId,
@@ -1546,17 +1825,34 @@ async function runImplement(
     effort: input.builderEffort,
     delivery,
     inputArtifacts: [],
+    ...(providerSession !== undefined ? { providerSession } : {}),
   };
-  const result = await runWithRetry(
+  const recordAttempt = providerSession === undefined ? undefined : async (attempt: { request: RunRequest; result: RunResult; number: number }) => {
+    await writeRunRecord(
+      sliceDir,
+      `build-${status.iteration}-attempt-${attempt.number}`,
+      makeRunRecord('implement', input.builderProvider, attempt.request, attempt.result, input.targetDir, input.promptRoot, status.assurance?.manifest)
+    );
+    const withSession = statusWithReturnedSession(status, 'builder', input.builderProvider, attempt.request, attempt.result);
+    if (withSession !== status) {
+      status = { ...withSession, updatedAt: deps.clock.now(), lastActor: input.builderProvider };
+      await writeStatus(sliceDir, status);
+    }
+  };
+  const terminal = await runWithRetry(
     deps.builder,
     request,
-    `build ${status.sliceId} iter ${status.iteration}`
+    `build ${status.sliceId} iter ${status.iteration}`,
+    recordAttempt,
+    deps.retryDelay
   );
+  const { request: terminalRequest, result } = terminal;
+  assertCompletedManagedSession(terminalRequest, result, 'builder');
 
   await writeRunRecord(
     sliceDir,
     `build-${status.iteration}`,
-    makeRunRecord('implement', input.builderProvider, request, result, input.targetDir, input.promptRoot, status.assurance?.manifest)
+    makeRunRecord('implement', input.builderProvider, terminalRequest, result, input.targetDir, input.promptRoot, status.assurance?.manifest)
   );
 
   if (result.status !== RunStatus.COMPLETED) {
@@ -1569,20 +1865,43 @@ async function runImplement(
     );
   }
 
-  await writeFile(
-    join(sliceDir, `build-${status.iteration}.md`),
-    String(result.outputArtifacts[0]?.content ?? ''),
-    'utf-8'
-  );
+  const completedOutput = captureCompletedProviderOutput(result);
+  await writeFile(join(sliceDir, `build-${status.iteration}.md`), completedOutput.raw, 'utf-8');
 
   if (stage3) {
-    if (result.outputArtifacts.length !== 1 || typeof result.outputArtifacts[0]?.content !== 'string') throw new Error('invalid-field: stage-3 builder must return exactly one text artifact');
     const checkpoint = await observeStage3Checkpoint(input, deps, stage3);
     if (checkpoint.baseRevision !== status.candidateTracking?.baseRevision) throw new Error('subject-mismatch: candidate HEAD changed during builder execution');
+    if (completedOutput.kind === 'artifact-set') {
+      return awaitManagerInterpretation(sliceDir, status, deps.clock, {
+        contract: 'requirements-assurance/v3-implementation-evidence',
+        role: 'builder',
+        iteration: status.iteration,
+        runId: terminalRequest.runId,
+        runRecordPath: `.agent-manager/slices/${status.sliceId}/runs/build-${status.iteration}.json`,
+        rawOutputPath: `.agent-manager/slices/${status.sliceId}/build-${status.iteration}.md`,
+        rawOutputSha256: deps.computeDigest(completedOutput.raw),
+        diagnostics: [completedOutput.diagnostic],
+        subject: { kind: 'implementation-evidence', allocation: stage3.allocationRef, checkpoint },
+        clarifications: [],
+      });
+    }
     // Framing around the object is not an error (TD-020); the extracted object meets the identical strict parse.
-    const raw = extractProviderResultJson(result.outputArtifacts[0].content);
+    const raw = extractProviderResultJson(completedOutput.raw);
     const parsed = parseImplementationEvidenceResult({ snapshot: { status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(raw), sha256: deps.computeDigest(raw) }, allocation: stage3.allocation, allocationRef: stage3.allocationRef, checkpoint });
-    if (!parsed.ok) throw new Error(`Invalid structured implementation evidence:\n${parsed.errors.map(renderAssuranceError).join('\n')}`);
+    if (!parsed.ok) {
+      return awaitManagerInterpretation(sliceDir, status, deps.clock, {
+        contract: 'requirements-assurance/v3-implementation-evidence',
+        role: 'builder',
+        iteration: status.iteration,
+        runId: terminalRequest.runId,
+        runRecordPath: `.agent-manager/slices/${status.sliceId}/runs/build-${status.iteration}.json`,
+        rawOutputPath: `.agent-manager/slices/${status.sliceId}/build-${status.iteration}.md`,
+        rawOutputSha256: deps.computeDigest(completedOutput.raw),
+        diagnostics: parsed.errors.map(renderAssuranceError),
+        subject: { kind: 'implementation-evidence', allocation: stage3.allocationRef, checkpoint },
+        clarifications: [],
+      });
+    }
     const verification = makeVerificationDraft({ input, status, stage3, checkpoint, evidence: parsed.value, result });
     const verificationBytes = new TextEncoder().encode(`${JSON.stringify(verification, null, 2)}\n`);
     const verificationSha256 = deps.computeDigest(new TextDecoder().decode(verificationBytes));
@@ -1598,6 +1917,148 @@ async function runImplement(
   };
   await writeStatus(sliceDir, next);
   return next;
+}
+
+async function routeStage3Review(args: {
+  input: TargetRelayInput;
+  deps: TargetRelayDeps;
+  sliceDir: string;
+  status: TargetRelayStatus;
+  stage3: Stage3Context;
+  evidence: Stage3EvidenceState;
+  reviewRunRecord: TargetRunRecord;
+  review: ImplementationReviewResult;
+  completedAt: string;
+  reviewRunId: string;
+}): Promise<TargetRelayStatus> {
+  const status = withoutPending(args.status);
+  if (args.review.result === 'refinement-required') {
+    const revise: TargetRelayStatus = { ...status, phase: 'implement', iteration: status.iteration + 1, updatedAt: args.deps.clock.now(), lastActor: args.input.supervisorProvider, candidateTracking: { contract: 'requirements-assurance/v3-candidate-tracking', state: 'building', baseRevision: args.evidence.checkpoint.baseRevision } };
+    await writeStatus(args.sliceDir, revise);
+    return revise;
+  }
+  if (args.review.result === 'decision-required') return blockSlice(args.sliceDir, status, args.deps.clock, args.input.supervisorProvider, `DECISION_REQUIRED:\n${renderDecisionMatrix(args.review.decisions)}`);
+  const builderState = await readJsonState(join(args.sliceDir, 'runs', `build-${status.iteration}.json`));
+  const builderRecord = builderState.status === 'ok' && builderState.value && typeof builderState.value === 'object' && !Array.isArray(builderState.value) ? builderState.value as Partial<TargetRunRecord> : undefined;
+  if (!builderRecord?.inputProvenance || !args.reviewRunRecord.inputProvenance || !sameInputProvenanceContext(builderRecord.inputProvenance, args.reviewRunRecord.inputProvenance)) return blockSlice(args.sliceDir, status, args.deps.clock, args.input.supervisorProvider, 'role-context-mismatch: builder and implementation reviewer common input identities differ');
+  const beforePublication = await observeStage3Checkpoint(args.input, args.deps, args.stage3);
+  if (!sameCheckpoint(beforePublication, args.evidence.checkpoint)) return blockSlice(args.sliceDir, status, args.deps.clock, args.input.supervisorProvider, 'subject-mismatch: candidate changed before evidence publication');
+  const [verificationPath, reviewPath] = args.stage3.allocation.postReviewRecordPaths;
+  if (!verificationPath || !reviewPath) throw new Error('invalid-field: stage-3 allocation requires verification and implementation-review paths');
+  for (const path of [verificationPath, reviewPath]) {
+    const existing = await args.deps.artifactStore.readContainedFile(args.input.targetDir, path);
+    if (existing.status !== 'error' || existing.code !== 'missing') return blockSlice(args.sliceDir, status, args.deps.clock, args.input.supervisorProvider, `approval-already-exists: post-review path '${path}' is not provably absent`);
+  }
+  if (!args.deps.createTrackedFileExclusively) throw new Error('invalid-field: stage-3 exclusive publication mechanism is unavailable');
+  const verificationRef = { path: verificationPath, sha256: args.evidence.verificationSha256 };
+  const durableReview = {
+    formatVersion: 3,
+    kind: 'implementation-review',
+    reviewId: args.reviewRunId,
+    workItemId: args.stage3.allocation.workItemId,
+    baseline: status.assurance?.manifest,
+    allocation: args.stage3.allocationRef,
+    subject: { candidateSha256: args.evidence.checkpoint.sha256, verification: verificationRef },
+    reviewer: { role: 'reviewer', provider: args.input.supervisorProvider, model: args.reviewRunRecord.model, effort: args.reviewRunRecord.effort, runId: args.reviewRunId },
+    independence: { invocations: 'separate', providerDiversity: builderRecord.provider === args.input.supervisorProvider ? 'same-provider' : 'different-provider' },
+    reviewerInputProvenance: args.reviewRunRecord.inputProvenance,
+    result: 'accepted',
+    obligationAssessments: args.review.obligationAssessments,
+    checkAssessments: args.review.checkAssessments,
+    changedPathAssessments: args.review.changedPathAssessments,
+    findings: args.review.findings,
+    decisions: args.review.decisions,
+    completedAt: args.completedAt,
+    acceptanceStatus: 'not-recorded',
+    report: `Implementation review passed; operator acceptance remains separate.\n\n${args.review.report}`,
+  };
+  const reviewText = `${JSON.stringify(durableReview, null, 2)}\n`;
+  const reviewBytes = new TextEncoder().encode(reviewText);
+  const reviewSha256 = args.deps.computeDigest(reviewText);
+  const created: string[] = [];
+  try {
+    await args.deps.createTrackedFileExclusively(args.input.targetDir, verificationPath, args.evidence.verificationBytes);
+    created.push(verificationPath);
+    await args.deps.createTrackedFileExclusively(args.input.targetDir, reviewPath, reviewBytes);
+    created.push(reviewPath);
+  } catch (cause) {
+    return blockSlice(args.sliceDir, status, args.deps.clock, args.input.supervisorProvider, `publication failure: review activity completion withheld; unaccepted partial publication: ${created.length ? created.join(', ') : 'none'}; ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+  console.log(`  [evidence] verification record: ${verificationPath} ${verificationRef.sha256}`);
+  console.log(`  [evidence] implementation review record: ${reviewPath} ${reviewSha256}`);
+  const done: TargetRelayStatus = { ...status, phase: 'done', updatedAt: args.deps.clock.now(), lastActor: args.input.supervisorProvider };
+  await writeStatus(args.sliceDir, done);
+  return done;
+}
+
+async function routeRequirementsReview(args: {
+  input: TargetRelayInput;
+  deps: TargetRelayDeps;
+  sliceDir: string;
+  status: TargetRelayStatus;
+  candidate: Awaited<ReturnType<typeof loadCandidateClosure>>;
+  reviewRunRecord: TargetRunRecord;
+  review: RequirementsReviewResult;
+  completedAt: string;
+  reviewRunId: string;
+}): Promise<TargetRelayStatus> {
+  const status = withoutPending(args.status);
+  if (args.review.result === 'refinement-required') {
+    const revise: TargetRelayStatus = { ...status, phase: 'implement', iteration: status.iteration + 1, updatedAt: args.deps.clock.now(), lastActor: args.input.supervisorProvider };
+    await writeStatus(args.sliceDir, revise);
+    return revise;
+  }
+  if (args.review.result === 'decision-required') return blockSlice(args.sliceDir, status, args.deps.clock, args.input.supervisorProvider, `DECISION_REQUIRED:\n${renderDecisionMatrix(args.review.decisions)}`);
+  const authorState = await readJsonState(join(args.sliceDir, 'runs', `build-${status.iteration}.json`));
+  if (authorState.status !== 'ok' || !authorState.value || typeof authorState.value !== 'object' || Array.isArray(authorState.value)) return blockSlice(args.sliceDir, status, args.deps.clock, args.input.supervisorProvider, 'role-context-mismatch: completed requirements author run record is unavailable');
+  const authorRecord = authorState.value as Partial<TargetRunRecord>;
+  if (!authorRecord.inputProvenance || !args.reviewRunRecord.inputProvenance || !sameInputProvenanceContext(authorRecord.inputProvenance, args.reviewRunRecord.inputProvenance)) return blockSlice(args.sliceDir, status, args.deps.clock, args.input.supervisorProvider, 'role-context-mismatch: requirements author and reviewer common input identities differ');
+  const durable: RequirementsReviewRecord = {
+    formatVersion: 2,
+    kind: 'requirements-review',
+    reviewId: args.reviewRunId,
+    subject: args.candidate.manifestRef,
+    author: { role: 'requirements-author', provider: authorRecord.provider ?? '', model: authorRecord.model ?? '', effort: authorRecord.effort ?? '', runId: authorRecord.runId ?? '' },
+    reviewer: { role: 'requirements-reviewer', provider: args.input.supervisorProvider, model: args.reviewRunRecord.model, effort: args.reviewRunRecord.effort, runId: args.reviewRunId },
+    independence: { invocations: 'separate', providerDiversity: authorRecord.provider === args.input.supervisorProvider ? 'same-provider' : 'different-provider' },
+    authorInputProvenance: authorRecord.inputProvenance,
+    reviewerInputProvenance: args.reviewRunRecord.inputProvenance,
+    result: 'accepted', assessments: args.review.assessments, findings: args.review.findings, decisions: args.review.decisions,
+    completedAt: args.completedAt,
+    report: args.review.report,
+  };
+  const durablePath = join(args.input.targetDir, 'docs', 'assurance', args.candidate.manifest.baselineId, 'requirements-review.json');
+  await mkdir(join(args.input.targetDir, 'docs', 'assurance', args.candidate.manifest.baselineId), { recursive: true });
+  try { await writeFile(durablePath, `${JSON.stringify(durable, null, 2)}\n`, { encoding: 'utf-8', flag: 'wx' }); }
+  catch (cause) { return blockSlice(args.sliceDir, status, args.deps.clock, args.input.supervisorProvider, `approval-already-exists: requirements review output is create-only: ${cause instanceof Error ? cause.message : String(cause)}`); }
+  const done: TargetRelayStatus = { ...status, phase: 'done', updatedAt: args.deps.clock.now(), lastActor: args.input.supervisorProvider };
+  await writeStatus(args.sliceDir, done);
+  return done;
+}
+
+async function routeLegacyVerdict(args: {
+  input: TargetRelayInput;
+  deps: TargetRelayDeps;
+  sliceDir: string;
+  status: TargetRelayStatus;
+  verdict: 'approved' | 'revise' | 'escalate';
+  raw: string;
+}): Promise<TargetRelayStatus> {
+  const status = withoutPending(args.status);
+  if (args.verdict === 'approved') {
+    const { buildArtifact, specArtifact } = await readDecisionSources(args.sliceDir, status.iteration, args.input.targetDir, status.sliceDoc);
+    const changedPaths = await args.deps.changedPaths(args.input.targetDir);
+    const phase: TargetPhase = shouldEnterDecisionReview({ buildArtifact, specArtifact, sliceDoc: status.sliceDoc, changedPaths }) ? 'decision-review' : 'done';
+    const advanced: TargetRelayStatus = { ...status, phase, updatedAt: args.deps.clock.now(), lastActor: args.input.supervisorProvider };
+    await writeStatus(args.sliceDir, advanced);
+    return advanced;
+  }
+  if (args.verdict === 'revise') {
+    const revise: TargetRelayStatus = { ...status, phase: 'implement', iteration: status.iteration + 1, updatedAt: args.deps.clock.now(), lastActor: args.input.supervisorProvider };
+    await writeStatus(args.sliceDir, revise);
+    return revise;
+  }
+  return blockSlice(args.sliceDir, status, args.deps.clock, args.input.supervisorProvider, `Reviewer verdict 'escalate' at iteration ${status.iteration}.\n\n${args.raw}`);
 }
 
 /** Run one review step. Returns updated status. */
@@ -1689,6 +2150,7 @@ async function runReview(
       contextText: buildReviewerContext(input.targetDir, packetRaw, buildReport, 'legacy-status-verdict'),
     };
   }
+  const providerSession = sessionRequestFor(status, 'reviewer', input.supervisorProvider, deps.supervisor);
   const request: RunRequest = {
     runId: `review-${status.sliceId}-${status.iteration}`,
     sliceId: status.sliceId,
@@ -1700,14 +2162,31 @@ async function runReview(
     effort: input.supervisorEffort,
     delivery,
     inputArtifacts: [],
+    ...(providerSession !== undefined ? { providerSession } : {}),
   };
-  const result = await runWithRetry(
+  const recordAttempt = providerSession === undefined ? undefined : async (attempt: { request: RunRequest; result: RunResult; number: number }) => {
+    await writeRunRecord(
+      sliceDir,
+      `review-${status.iteration}-attempt-${attempt.number}`,
+      makeRunRecord('review-impl', input.supervisorProvider, attempt.request, attempt.result, input.targetDir, input.promptRoot, status.assurance?.manifest)
+    );
+    const withSession = statusWithReturnedSession(status, 'reviewer', input.supervisorProvider, attempt.request, attempt.result);
+    if (withSession !== status) {
+      status = { ...withSession, updatedAt: deps.clock.now(), lastActor: input.supervisorProvider };
+      await writeStatus(sliceDir, status);
+    }
+  };
+  const terminal = await runWithRetry(
     deps.supervisor,
     request,
-    `review ${status.sliceId} iter ${status.iteration}`
+    `review ${status.sliceId} iter ${status.iteration}`,
+    recordAttempt,
+    deps.retryDelay
   );
+  const { request: terminalRequest, result } = terminal;
+  assertCompletedManagedSession(terminalRequest, result, 'reviewer');
 
-  const reviewRunRecord = makeRunRecord('review-impl', input.supervisorProvider, request, result, input.targetDir, input.promptRoot, status.assurance?.manifest);
+  const reviewRunRecord = makeRunRecord('review-impl', input.supervisorProvider, terminalRequest, result, input.targetDir, input.promptRoot, status.assurance?.manifest);
   await writeRunRecord(
     sliceDir,
     `review-${status.iteration}`,
@@ -1727,77 +2206,46 @@ async function runReview(
     );
   }
 
-  if (posture.kind === 'requirements-document' && (result.outputArtifacts.length !== 1 || typeof result.outputArtifacts[0]?.content !== 'string')) {
-    return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'invalid-field: provider-result /: requirements reviewer must return exactly one text artifact');
-  }
-  const raw = String(result.outputArtifacts[0]?.content ?? '');
-  // Framing around the object is not an error (TD-020); `raw` stays in the trail, the extracted object is what is parsed.
-  const resultJson = extractProviderResultJson(raw);
+  const completedOutput = captureCompletedProviderOutput(result);
+  const raw = completedOutput.raw;
   if (stage3) {
     if (!stage3Evidence) throw new Error('invalid-field: implementation review has no evidence-bound candidate');
-    if (result.outputArtifacts.length !== 1 || typeof result.outputArtifacts[0]?.content !== 'string') return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'invalid-field: stage-3 reviewer must return exactly one text artifact');
     const afterReview = await observeStage3Checkpoint(input, deps, stage3);
     if (!sameCheckpoint(afterReview, stage3Evidence.checkpoint)) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'subject-mismatch: candidate changed during implementation review');
+    if (completedOutput.kind === 'artifact-set') {
+      await writeFile(join(sliceDir, `review-${status.iteration}.json`), JSON.stringify({ iteration: status.iteration, raw, parsed: { errors: [completedOutput.diagnostic] } }, null, 2), 'utf-8');
+      return awaitManagerInterpretation(sliceDir, status, deps.clock, {
+        contract: 'requirements-assurance/v3-implementation-review',
+        role: 'reviewer',
+        iteration: status.iteration,
+        runId: terminalRequest.runId,
+        runRecordPath: `.agent-manager/slices/${status.sliceId}/runs/review-${status.iteration}.json`,
+        rawOutputPath: `.agent-manager/slices/${status.sliceId}/review-${status.iteration}.json`,
+        rawOutputSha256: deps.computeDigest(raw),
+        diagnostics: [completedOutput.diagnostic],
+        subject: { kind: 'implementation-review', candidateSha256: stage3Evidence.checkpoint.sha256, verificationSha256: stage3Evidence.verificationSha256 },
+        clarifications: [],
+      });
+    }
+    // Framing around the object is not an error (TD-020); `raw` stays in the trail, the extracted object is what is parsed.
+    const resultJson = extractProviderResultJson(raw);
     const parsed = parseImplementationReviewResult({ snapshot: { status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(resultJson), sha256: deps.computeDigest(resultJson) }, allocation: stage3.allocation, checkpoint: stage3Evidence.checkpoint, verificationSha256: stage3Evidence.verificationSha256, evidence: stage3Evidence.evidence });
     await writeFile(join(sliceDir, `review-${status.iteration}.json`), JSON.stringify({ iteration: status.iteration, raw, parsed: parsed.ok ? parsed.value : { errors: parsed.errors } }, null, 2), 'utf-8');
-    if (!parsed.ok) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `Invalid structured implementation review:\n${parsed.errors.map(renderAssuranceError).join('\n')}`);
-    if (parsed.value.result === 'refinement-required') {
-      const revise: TargetRelayStatus = { ...status, phase: 'implement', iteration: status.iteration + 1, updatedAt: deps.clock.now(), lastActor: input.supervisorProvider, candidateTracking: { contract: 'requirements-assurance/v3-candidate-tracking', state: 'building', baseRevision: stage3Evidence.checkpoint.baseRevision } };
-      await writeStatus(sliceDir, revise);
-      return revise;
+    if (!parsed.ok) {
+      return awaitManagerInterpretation(sliceDir, status, deps.clock, {
+        contract: 'requirements-assurance/v3-implementation-review',
+        role: 'reviewer',
+        iteration: status.iteration,
+        runId: terminalRequest.runId,
+        runRecordPath: `.agent-manager/slices/${status.sliceId}/runs/review-${status.iteration}.json`,
+        rawOutputPath: `.agent-manager/slices/${status.sliceId}/review-${status.iteration}.json`,
+        rawOutputSha256: deps.computeDigest(raw),
+        diagnostics: parsed.errors.map(renderAssuranceError),
+        subject: { kind: 'implementation-review', candidateSha256: stage3Evidence.checkpoint.sha256, verificationSha256: stage3Evidence.verificationSha256 },
+        clarifications: [],
+      });
     }
-    if (parsed.value.result === 'decision-required') return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `DECISION_REQUIRED:\n${renderDecisionMatrix(parsed.value.decisions)}`);
-    const builderState = await readJsonState(join(sliceDir, 'runs', `build-${status.iteration}.json`));
-    const builderRecord = builderState.status === 'ok' && builderState.value && typeof builderState.value === 'object' && !Array.isArray(builderState.value) ? builderState.value as Partial<TargetRunRecord> : undefined;
-    if (!builderRecord?.inputProvenance || !reviewRunRecord.inputProvenance || !sameInputProvenanceContext(builderRecord.inputProvenance, reviewRunRecord.inputProvenance)) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'role-context-mismatch: builder and implementation reviewer common input identities differ');
-    const beforePublication = await observeStage3Checkpoint(input, deps, stage3);
-    if (!sameCheckpoint(beforePublication, stage3Evidence.checkpoint)) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'subject-mismatch: candidate changed before evidence publication');
-    const [verificationPath, reviewPath] = stage3.allocation.postReviewRecordPaths;
-    if (!verificationPath || !reviewPath) throw new Error('invalid-field: stage-3 allocation requires verification and implementation-review paths');
-    for (const path of [verificationPath, reviewPath]) {
-      const existing = await deps.artifactStore.readContainedFile(input.targetDir, path);
-      if (existing.status !== 'error' || existing.code !== 'missing') return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `approval-already-exists: post-review path '${path}' is not provably absent`);
-    }
-    if (!deps.createTrackedFileExclusively) throw new Error('invalid-field: stage-3 exclusive publication mechanism is unavailable');
-    const verificationRef = { path: verificationPath, sha256: stage3Evidence.verificationSha256 };
-    const durableReview = {
-      formatVersion: 3,
-      kind: 'implementation-review',
-      reviewId: request.runId,
-      workItemId: stage3.allocation.workItemId,
-      baseline: status.assurance?.manifest,
-      allocation: stage3.allocationRef,
-      subject: { candidateSha256: stage3Evidence.checkpoint.sha256, verification: verificationRef },
-      reviewer: { role: 'reviewer', provider: input.supervisorProvider, model: input.supervisorModel, effort: input.supervisorEffort, runId: request.runId },
-      independence: { invocations: 'separate', providerDiversity: builderRecord.provider === input.supervisorProvider ? 'same-provider' : 'different-provider' },
-      reviewerInputProvenance: reviewRunRecord.inputProvenance,
-      result: 'accepted',
-      obligationAssessments: parsed.value.obligationAssessments,
-      checkAssessments: parsed.value.checkAssessments,
-      changedPathAssessments: parsed.value.changedPathAssessments,
-      findings: parsed.value.findings,
-      decisions: parsed.value.decisions,
-      completedAt: result.completedAt,
-      acceptanceStatus: 'not-recorded',
-      report: 'Implementation review passed; operator acceptance remains separate.',
-    };
-    const reviewText = `${JSON.stringify(durableReview, null, 2)}\n`;
-    const reviewBytes = new TextEncoder().encode(reviewText);
-    const reviewSha256 = deps.computeDigest(reviewText);
-    const created: string[] = [];
-    try {
-      await deps.createTrackedFileExclusively(input.targetDir, verificationPath, stage3Evidence.verificationBytes);
-      created.push(verificationPath);
-      await deps.createTrackedFileExclusively(input.targetDir, reviewPath, reviewBytes);
-      created.push(reviewPath);
-    } catch (cause) {
-      return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `publication failure: review activity completion withheld; unaccepted partial publication: ${created.length ? created.join(', ') : 'none'}; ${cause instanceof Error ? cause.message : String(cause)}`);
-    }
-    console.log(`  [evidence] verification record: ${verificationPath} ${verificationRef.sha256}`);
-    console.log(`  [evidence] implementation review record: ${reviewPath} ${reviewSha256}`);
-    const done: TargetRelayStatus = { ...status, phase: 'done', updatedAt: deps.clock.now(), lastActor: input.supervisorProvider };
-    await writeStatus(sliceDir, done);
-    return done;
+    return routeStage3Review({ input, deps, sliceDir, status, stage3, evidence: stage3Evidence, reviewRunRecord, review: parsed.value, completedAt: result.completedAt, reviewRunId: request.runId });
   }
   if (posture.kind === 'requirements-document') {
     if (!candidate) throw new Error('invalid-field: requirements review has no candidate snapshot');
@@ -1808,52 +2256,41 @@ async function runReview(
     if (currentCandidate.manifestRef.path !== candidate.manifestRef.path || currentCandidate.manifestRef.sha256 !== candidate.manifestRef.sha256) {
       return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'subject-mismatch: requirements candidate changed during review');
     }
+    if (completedOutput.kind === 'artifact-set') {
+      await writeFile(join(sliceDir, `review-${status.iteration}.json`), JSON.stringify({ iteration: status.iteration, raw, parsed: { errors: [completedOutput.diagnostic] } }, null, 2), 'utf-8');
+      return awaitManagerInterpretation(sliceDir, status, deps.clock, {
+        contract: 'requirements-assurance/v2-requirements-review',
+        role: 'reviewer',
+        iteration: status.iteration,
+        runId: terminalRequest.runId,
+        runRecordPath: `.agent-manager/slices/${status.sliceId}/runs/review-${status.iteration}.json`,
+        rawOutputPath: `.agent-manager/slices/${status.sliceId}/review-${status.iteration}.json`,
+        rawOutputSha256: deps.computeDigest(raw),
+        diagnostics: [completedOutput.diagnostic],
+        subject: { kind: 'requirements-review', manifest: candidate.manifestRef },
+        clarifications: [],
+      });
+    }
+    const resultJson = extractProviderResultJson(raw);
     const parsed = parseRequirementsReviewResult({ status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(resultJson), sha256: deps.computeDigest(resultJson) }, candidate.manifestRef, posture.reviewObligationIds);
     await writeFile(join(sliceDir, `review-${status.iteration}.json`), JSON.stringify({ iteration: status.iteration, raw, parsed: parsed.ok ? parsed.value : { errors: parsed.errors } }, null, 2), 'utf-8');
-    if (!parsed.ok) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `Invalid structured requirements review:\n${parsed.errors.map(renderAssuranceError).join('\n')}`);
-    if (parsed.value.result === 'refinement-required') {
-      const revise: TargetRelayStatus = { ...status, phase: 'implement', iteration: status.iteration + 1, updatedAt: deps.clock.now(), lastActor: input.supervisorProvider };
-      await writeStatus(sliceDir, revise);
-      return revise;
+    if (!parsed.ok) {
+      return awaitManagerInterpretation(sliceDir, status, deps.clock, {
+        contract: 'requirements-assurance/v2-requirements-review',
+        role: 'reviewer',
+        iteration: status.iteration,
+        runId: terminalRequest.runId,
+        runRecordPath: `.agent-manager/slices/${status.sliceId}/runs/review-${status.iteration}.json`,
+        rawOutputPath: `.agent-manager/slices/${status.sliceId}/review-${status.iteration}.json`,
+        rawOutputSha256: deps.computeDigest(raw),
+        diagnostics: parsed.errors.map(renderAssuranceError),
+        subject: { kind: 'requirements-review', manifest: candidate.manifestRef },
+        clarifications: [],
+      });
     }
-    if (parsed.value.result === 'decision-required') {
-      const matrix = parsed.value.decisions.map((decision) => [
-        `- ID: ${decision.decisionId}`,
-        `  QUESTION: ${decision.question}`,
-        '  OPTIONS:',
-        ...decision.options.map((option) => `  - ${option.option}: REWARD ${option.reward}; RISK ${option.risk}`),
-        `  RECOMMENDED: ${decision.recommendation}`,
-        `  BLOCKING_REASON: ${decision.blockingReason}`,
-      ].join('\n')).join('\n');
-      return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `DECISION_REQUIRED:\n${matrix}`);
-    }
-    const authorState = await readJsonState(join(sliceDir, 'runs', `build-${status.iteration}.json`));
-    if (authorState.status !== 'ok' || !authorState.value || typeof authorState.value !== 'object' || Array.isArray(authorState.value)) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'role-context-mismatch: completed requirements author run record is unavailable');
-    const authorRecord = authorState.value as Partial<TargetRunRecord>;
-    if (!authorRecord.inputProvenance || !reviewRunRecord.inputProvenance || !sameInputProvenanceContext(authorRecord.inputProvenance, reviewRunRecord.inputProvenance)) return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, 'role-context-mismatch: requirements author and reviewer common input identities differ');
-    const durable: RequirementsReviewRecord = {
-      formatVersion: 2,
-      kind: 'requirements-review',
-      reviewId: request.runId,
-      subject: candidate.manifestRef,
-      author: { role: 'requirements-author', provider: authorRecord.provider ?? '', model: authorRecord.model ?? '', effort: authorRecord.effort ?? '', runId: authorRecord.runId ?? '' },
-      reviewer: { role: 'requirements-reviewer', provider: input.supervisorProvider, model: input.supervisorModel, effort: input.supervisorEffort, runId: request.runId },
-      independence: { invocations: 'separate', providerDiversity: authorRecord.provider === input.supervisorProvider ? 'same-provider' : 'different-provider' },
-      authorInputProvenance: authorRecord.inputProvenance,
-      reviewerInputProvenance: reviewRunRecord.inputProvenance,
-      result: 'accepted', assessments: parsed.value.assessments, findings: parsed.value.findings, decisions: parsed.value.decisions,
-      completedAt: result.completedAt,
-      report: parsed.value.report,
-    };
-    const durablePath = join(input.targetDir, 'docs', 'assurance', candidate.manifest.baselineId, 'requirements-review.json');
-    await mkdir(join(input.targetDir, 'docs', 'assurance', candidate.manifest.baselineId), { recursive: true });
-    try { await writeFile(durablePath, `${JSON.stringify(durable, null, 2)}\n`, { encoding: 'utf-8', flag: 'wx' }); }
-    catch (cause) { return blockSlice(sliceDir, status, deps.clock, input.supervisorProvider, `approval-already-exists: requirements review output is create-only: ${cause instanceof Error ? cause.message : String(cause)}`); }
-    const done: TargetRelayStatus = { ...status, phase: 'done', updatedAt: deps.clock.now(), lastActor: input.supervisorProvider };
-    await writeStatus(sliceDir, done);
-    return done;
+    return routeRequirementsReview({ input, deps, sliceDir, status, candidate, reviewRunRecord, review: parsed.value, completedAt: result.completedAt, reviewRunId: request.runId });
   }
-  const verdict = parseVerdict(raw);
+  const verdict = completedOutput.kind === 'single-text' ? parseVerdict(raw) : 'unknown';
 
   await writeFile(
     join(sliceDir, `review-${status.iteration}.json`),
@@ -1861,66 +2298,457 @@ async function runReview(
     'utf-8'
   );
 
-  if (verdict === 'approved') {
-    // ADDITIVE (DECISION-REVIEW-MODE-1; trigger fixed by
-    // DECISION-REVIEW-TRIGGER-FIX-1): route an approved slice to the adversarial
-    // `decision-review` phase ONLY when THIS slice's BUILD surfaced operator-
-    // ratification-class decisions — the `DECISION_REQUIRED:` marker is in the
-    // builder's approved run summary (build-<n>.md), OR in the SLICE_DOC spec that
-    // this build itself created/modified (a SPEC slice writing its matrix). A
-    // pre-ratified SLICE_DOC the build did NOT touch (an IMPL slice referencing a
-    // frozen spec whose §8 matrices are legitimately present) does NOT fire — that
-    // systematic false-fire on every impl slice was the bug. "Build touched the
-    // SLICE_DOC" is read from the target's uncommitted changed-file set
-    // (deps.changedPaths); the builder leaves changes uncommitted, so a SLICE_DOC
-    // it wrote appears there. See shouldEnterDecisionReview for the predicate.
-    //
-    // Additive parity holds: a slice WITHOUT the marker in EITHER source is a
-    // non-decision by definition, so nextPhase === 'done' — the byte-for-byte
-    // original transition, same status shape, same run records.
-    const { buildArtifact, specArtifact } = await readDecisionSources(
-      sliceDir,
-      status.iteration,
-      input.targetDir,
-      status.sliceDoc
-    );
-    const changedPaths = await deps.changedPaths(input.targetDir);
-    const nextPhase: TargetPhase = shouldEnterDecisionReview({
-      buildArtifact,
-      specArtifact,
-      sliceDoc: status.sliceDoc,
-      changedPaths,
-    })
-      ? 'decision-review'
-      : 'done';
-    const advanced: TargetRelayStatus = {
-      ...status,
-      phase: nextPhase,
-      updatedAt: deps.clock.now(),
-      lastActor: input.supervisorProvider,
-    };
-    await writeStatus(sliceDir, advanced);
-    return advanced;
+  if (verdict === 'unknown') {
+    return awaitManagerInterpretation(sliceDir, status, deps.clock, {
+      contract: 'legacy-status-verdict',
+      role: 'reviewer',
+      iteration: status.iteration,
+      runId: terminalRequest.runId,
+      runRecordPath: `.agent-manager/slices/${status.sliceId}/runs/review-${status.iteration}.json`,
+      rawOutputPath: `.agent-manager/slices/${status.sliceId}/review-${status.iteration}.json`,
+      rawOutputSha256: deps.computeDigest(raw),
+      diagnostics: completedOutput.kind === 'artifact-set'
+        ? [completedOutput.diagnostic]
+        : ['Reviewer message did not contain a recognized STATUS: approved|revise|escalate verdict.'],
+      subject: { kind: 'legacy-verdict' },
+      clarifications: [],
+    });
   }
-  if (verdict === 'revise') {
-    const revise: TargetRelayStatus = {
-      ...status,
-      phase: 'implement',
-      iteration: status.iteration + 1,
-      updatedAt: deps.clock.now(),
-      lastActor: input.supervisorProvider,
-    };
-    await writeStatus(sliceDir, revise);
-    return revise;
+  return routeLegacyVerdict({ input, deps, sliceDir, status, verdict, raw });
+}
+
+interface RetainedPendingSource {
+  raw: string;
+  run: TargetRunRecord;
+}
+
+async function readRetainedPendingSource(
+  input: TargetRelayInput,
+  status: TargetRelayStatus,
+  deps: Pick<TargetRelayDeps, 'computeDigest'>
+): Promise<RetainedPendingSource> {
+  const pending = status.pendingInterpretation;
+  if (!pending) throw new Error('invalid-field: awaiting-manager-interpretation status has no pending message');
+  const stem = pending.role === 'builder' ? 'build' : 'review';
+  const expectedRunPath = `.agent-manager/slices/${status.sliceId}/runs/${stem}-${pending.iteration}.json`;
+  const expectedRawPath = `.agent-manager/slices/${status.sliceId}/${stem}-${pending.iteration}.${pending.role === 'builder' ? 'md' : 'json'}`;
+  if (pending.iteration !== status.iteration || pending.runRecordPath !== expectedRunPath || pending.rawOutputPath !== expectedRawPath || pending.runId !== `${stem}-${status.sliceId}-${status.iteration}`) {
+    throw new Error('subject-mismatch: pending interpretation does not identify the active run/iteration');
   }
-  // escalate | unknown: do not self-resolve.
-  return blockSlice(
-    sliceDir,
-    status,
-    deps.clock,
-    input.supervisorProvider,
-    `Reviewer verdict '${verdict}' at iteration ${status.iteration}.\n\n${raw}`
-  );
+  const runState = await readJsonState(join(input.targetDir, pending.runRecordPath));
+  if (runState.status !== 'ok' || !runState.value || typeof runState.value !== 'object' || Array.isArray(runState.value)) throw new Error('subject-mismatch: pending provider run record is unavailable or malformed');
+  const run = runState.value as TargetRunRecord;
+  if (run.runId !== pending.runId || run.role !== pending.role || run.status !== RunStatus.COMPLETED || run.phase !== (pending.role === 'builder' ? 'implement' : 'review-impl') || run.provider === 'human') {
+    throw new Error('subject-mismatch: pending provider run identity no longer matches its retained run record');
+  }
+  const retained = await readFile(join(input.targetDir, pending.rawOutputPath), 'utf-8');
+  let raw = retained;
+  if (pending.role === 'reviewer') {
+    const envelope = parseAssuranceJson(retained, pending.rawOutputPath);
+    if (!envelope.ok || !envelope.value || typeof envelope.value !== 'object' || Array.isArray(envelope.value) || typeof (envelope.value as Record<string, unknown>).raw !== 'string') {
+      throw new Error('subject-mismatch: retained reviewer output envelope is unavailable or malformed');
+    }
+    raw = (envelope.value as Record<string, unknown>).raw as string;
+  }
+  if (deps.computeDigest(raw) !== pending.rawOutputSha256) throw new Error('digest-mismatch: retained provider output changed after it became pending');
+  return { raw, run };
+}
+
+function parseManagerInterpretationCommand(raw: string, path: string): { managerId: string; rationale: string; content: Record<string, unknown> } {
+  const parsed = parseAssuranceJson(raw, path);
+  if (!parsed.ok) throw new Error(parsed.errors.map(renderAssuranceError).join('\n'));
+  if (!parsed.value || typeof parsed.value !== 'object' || Array.isArray(parsed.value)) throw new Error('invalid-field: manager interpretation command must be an object');
+  const value = parsed.value as Record<string, unknown>;
+  if (Object.keys(value).sort().join(',') !== 'content,managerId,rationale') throw new Error('invalid-field: manager interpretation command must contain exactly managerId, rationale and content');
+  if (typeof value.managerId !== 'string' || value.managerId.trim().length === 0) throw new Error('invalid-field: managerId must be non-empty');
+  if (typeof value.rationale !== 'string' || value.rationale.trim().length === 0) throw new Error('invalid-field: rationale must be non-empty');
+  if (!value.content || typeof value.content !== 'object' || Array.isArray(value.content)) throw new Error('invalid-field: content must be an object');
+  return { managerId: value.managerId, rationale: value.rationale, content: value.content as Record<string, unknown> };
+}
+
+function requireSemanticFields(content: Record<string, unknown>, fields: readonly string[]): void {
+  const actual = Object.keys(content).sort().join(',');
+  const expected = [...fields].sort().join(',');
+  if (actual !== expected) throw new Error(`invalid-field: interpretation content must contain exactly ${fields.join(', ')}`);
+}
+
+async function ensureInterpretationAudit(args: {
+  input: TargetRelayInput;
+  status: TargetRelayStatus;
+  pending: PendingInterpretation;
+  managerId: string;
+  rationale: string;
+  commandRaw: string;
+  resultingRoute: string;
+  deps: Pick<TargetRelayDeps, 'clock' | 'computeDigest'>;
+}): Promise<void> {
+  const path = join(args.input.targetDir, '.agent-manager', 'slices', args.status.sliceId, `manager-interpretation-${args.pending.role}-${args.pending.iteration}.json`);
+  const identity = {
+    kind: 'manager-interpretation-audit',
+    managerId: args.managerId,
+    rationale: args.rationale,
+    source: { runId: args.pending.runId, runRecordPath: args.pending.runRecordPath, rawOutputPath: args.pending.rawOutputPath, rawOutputSha256: args.pending.rawOutputSha256 },
+    semanticCommandSha256: args.deps.computeDigest(args.commandRaw),
+    clarificationRefs: args.pending.clarifications,
+    resultingRoute: args.resultingRoute,
+  };
+  const audit = { ...identity, interpretedAt: args.deps.clock.now() };
+  try {
+    await writeFile(path, `${JSON.stringify(audit, null, 2)}\n`, { encoding: 'utf-8', flag: 'wx' });
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== 'EEXIST') throw cause;
+    const existing = await readJsonState(path);
+    if (existing.status !== 'ok' || !existing.value || typeof existing.value !== 'object' || Array.isArray(existing.value)) {
+      throw new Error(`manager-interpretation-audit-conflict: existing audit '${path}' is unreadable or malformed`);
+    }
+    const { interpretedAt, ...existingIdentity } = existing.value as Record<string, unknown>;
+    if (typeof interpretedAt !== 'string' || JSON.stringify(existingIdentity) !== JSON.stringify(identity)) {
+      throw new Error(`manager-interpretation-audit-conflict: existing audit '${path}' does not identify this pending command and route`);
+    }
+    // The identical command already crossed the audit boundary before a later
+    // consume/publication failure. Reuse that immutable evidence on retry.
+  }
+}
+
+async function applyManagerInterpretation(args: {
+  input: TargetRelayInput;
+  deps: TargetRelayDeps;
+  sliceDir: string;
+  status: TargetRelayStatus;
+  posture: WorkItemPosture;
+  stage3?: Stage3Context;
+  commandPath: string;
+}): Promise<{ status: TargetRelayStatus; reason: string }> {
+  const pending = args.status.pendingInterpretation;
+  if (!pending) return { status: args.status, reason: 'No pending provider message exists for manager interpretation.' };
+  const source = await readRetainedPendingSource(args.input, args.status, args.deps);
+  if (args.status.assurance?.contract === 'requirements-assurance/v2-stage2') {
+    const currentInstructions = await resolveInstructionSet(args.input, args.deps);
+    if (!sameInstructions(currentInstructions, args.status.assurance.instructions)) throw new Error('digest-mismatch: persisted reviewed-input instruction identities changed before interpretation');
+  }
+  const commandRaw = await readFile(args.commandPath, 'utf-8');
+  const command = parseManagerInterpretationCommand(commandRaw, args.commandPath);
+  const attribution = interpretationAttribution(pending, command.managerId, command.rationale);
+
+  if (pending.contract === 'requirements-assurance/v3-implementation-evidence') {
+    if (!args.stage3 || pending.subject.kind !== 'implementation-evidence') throw new Error('subject-mismatch: pending evidence no longer has an admitted stage-3 allocation');
+    const checkpoint = await observeStage3Checkpoint(args.input, args.deps, args.stage3);
+    if (!sameCheckpoint(checkpoint, pending.subject.checkpoint) || checkpoint.baseRevision !== args.status.candidateTracking?.baseRevision) throw new Error('subject-mismatch: candidate changed before manager interpretation');
+    requireSemanticFields(command.content, ['checks', 'changeJustifications', 'limitations', 'report']);
+    const limitations = Array.isArray(command.content.limitations) ? [...command.content.limitations, attribution] : command.content.limitations;
+    const completed = { formatVersion: 3, kind: 'implementation-evidence-result', allocation: args.stage3.allocationRef, ...command.content, limitations };
+    const raw = JSON.stringify(completed);
+    const parsed = parseImplementationEvidenceResult({ snapshot: { status: 'ok', path: 'manager-interpretation', bytes: new TextEncoder().encode(raw), sha256: args.deps.computeDigest(raw) }, allocation: args.stage3.allocation, allocationRef: args.stage3.allocationRef, checkpoint });
+    if (!parsed.ok) return { status: args.status, reason: `Manager interpretation is incomplete or inconsistent; pending state retained:\n${parsed.errors.map(renderAssuranceError).join('\n')}` };
+    await ensureInterpretationAudit({ input: args.input, status: args.status, pending, managerId: command.managerId, rationale: command.rationale, commandRaw, resultingRoute: 'review-impl', deps: args.deps });
+    const verification = makeVerificationDraft({ input: args.input, status: args.status, stage3: args.stage3, checkpoint, evidence: parsed.value, result: { runId: source.run.runId, completedAt: source.run.completedAt }, performer: source.run });
+    const verificationBytes = new TextEncoder().encode(`${JSON.stringify(verification, null, 2)}\n`);
+    const verificationSha256 = args.deps.computeDigest(new TextDecoder().decode(verificationBytes));
+    await writeFile(join(args.sliceDir, `implementation-evidence-${args.status.iteration}.json`), JSON.stringify({ checkpoint, evidence: parsed.value, verification, verificationSha256 }, null, 2), 'utf-8');
+    const next: TargetRelayStatus = { ...withoutPending(args.status), phase: 'review-impl', candidateTracking: { contract: 'requirements-assurance/v3-candidate-tracking', state: 'evidence-bound', baseRevision: checkpoint.baseRevision, candidateSha256: checkpoint.sha256 }, updatedAt: args.deps.clock.now(), lastActor: source.run.provider };
+    await writeStatus(args.sliceDir, next);
+    return { status: next, reason: 'Manager interpretation validated; resumed the pending implementation-evidence consume step without a provider call.' };
+  }
+
+  if (pending.contract === 'requirements-assurance/v3-implementation-review') {
+    if (!args.stage3 || pending.subject.kind !== 'implementation-review') throw new Error('subject-mismatch: pending implementation review no longer has an admitted stage-3 subject');
+    const evidence = await readStage3Evidence(args.sliceDir, args.status.iteration, args.stage3, args.deps);
+    const checkpoint = await observeStage3Checkpoint(args.input, args.deps, args.stage3);
+    if (!sameCheckpoint(checkpoint, evidence.checkpoint) || checkpoint.sha256 !== pending.subject.candidateSha256 || evidence.verificationSha256 !== pending.subject.verificationSha256) throw new Error('subject-mismatch: implementation review candidate/evidence changed before interpretation');
+    requireSemanticFields(command.content, ['result', 'obligationAssessments', 'checkAssessments', 'changedPathAssessments', 'findings', 'decisions', 'report']);
+    const completed = { formatVersion: 3, kind: 'implementation-review-result', subject: { candidateSha256: checkpoint.sha256, verificationSha256: evidence.verificationSha256 }, ...command.content, report: `${String(command.content.report ?? '')}\n\n${attribution}` };
+    const raw = JSON.stringify(completed);
+    const parsed = parseImplementationReviewResult({ snapshot: { status: 'ok', path: 'manager-interpretation', bytes: new TextEncoder().encode(raw), sha256: args.deps.computeDigest(raw) }, allocation: args.stage3.allocation, checkpoint, verificationSha256: evidence.verificationSha256, evidence: evidence.evidence });
+    if (!parsed.ok) return { status: args.status, reason: `Manager interpretation is incomplete or inconsistent; pending state retained:\n${parsed.errors.map(renderAssuranceError).join('\n')}` };
+    const route = parsed.value.result === 'accepted' ? 'accepted-publication' : parsed.value.result === 'refinement-required' ? 'implement' : 'decision-required';
+    await ensureInterpretationAudit({ input: args.input, status: args.status, pending, managerId: command.managerId, rationale: command.rationale, commandRaw, resultingRoute: route, deps: args.deps });
+    const routedInput = { ...args.input, supervisorProvider: source.run.provider, supervisorModel: source.run.model, supervisorEffort: source.run.effort };
+    const next = await routeStage3Review({ input: routedInput, deps: args.deps, sliceDir: args.sliceDir, status: args.status, stage3: args.stage3, evidence, reviewRunRecord: source.run, review: parsed.value, completedAt: source.run.completedAt, reviewRunId: source.run.runId });
+    return { status: next, reason: `Manager interpretation validated; resumed the pending implementation-review ${route} route without a provider call.` };
+  }
+
+  if (pending.contract === 'requirements-assurance/v2-requirements-review') {
+    if (args.posture.kind !== 'requirements-document' || pending.subject.kind !== 'requirements-review' || !args.status.sliceDoc) throw new Error('subject-mismatch: pending requirements review no longer has its reviewed document subject');
+    const candidate = await loadCandidateClosure({ input: args.input, deps: args.deps, posture: args.posture, sliceDoc: args.status.sliceDoc });
+    if (candidate.manifestRef.path !== pending.subject.manifest.path || candidate.manifestRef.sha256 !== pending.subject.manifest.sha256) throw new Error('subject-mismatch: requirements candidate changed before interpretation');
+    requireSemanticFields(command.content, ['result', 'assessments', 'findings', 'decisions', 'report']);
+    const completed = { formatVersion: 2, kind: 'requirements-review-result', subject: candidate.manifestRef, ...command.content, report: `${String(command.content.report ?? '')}\n\n${attribution}` };
+    const raw = JSON.stringify(completed);
+    const parsed = parseRequirementsReviewResult({ status: 'ok', path: 'manager-interpretation', bytes: new TextEncoder().encode(raw), sha256: args.deps.computeDigest(raw) }, candidate.manifestRef, args.posture.reviewObligationIds);
+    if (!parsed.ok) return { status: args.status, reason: `Manager interpretation is incomplete or inconsistent; pending state retained:\n${parsed.errors.map(renderAssuranceError).join('\n')}` };
+    const route = parsed.value.result === 'accepted' ? 'accepted-publication' : parsed.value.result === 'refinement-required' ? 'implement' : 'decision-required';
+    await ensureInterpretationAudit({ input: args.input, status: args.status, pending, managerId: command.managerId, rationale: command.rationale, commandRaw, resultingRoute: route, deps: args.deps });
+    const routedInput = { ...args.input, supervisorProvider: source.run.provider, supervisorModel: source.run.model, supervisorEffort: source.run.effort };
+    const next = await routeRequirementsReview({ input: routedInput, deps: args.deps, sliceDir: args.sliceDir, status: args.status, candidate, reviewRunRecord: source.run, review: parsed.value, completedAt: source.run.completedAt, reviewRunId: source.run.runId });
+    return { status: next, reason: `Manager interpretation validated; resumed the pending requirements-review ${route} route without a provider call.` };
+  }
+
+  if (pending.subject.kind !== 'legacy-verdict') throw new Error('subject-mismatch: legacy pending message has the wrong subject');
+  requireSemanticFields(command.content, ['verdict', 'rationale']);
+  const verdict = command.content.verdict;
+  if (verdict !== 'approved' && verdict !== 'revise' && verdict !== 'escalate') return { status: args.status, reason: 'Manager interpretation verdict must be approved, revise, or escalate; pending state retained.' };
+  if (typeof command.content.rationale !== 'string' || command.content.rationale.trim().length === 0) return { status: args.status, reason: 'Manager interpretation verdict rationale must be non-empty; pending state retained.' };
+  await ensureInterpretationAudit({ input: args.input, status: args.status, pending, managerId: command.managerId, rationale: command.rationale, commandRaw, resultingRoute: verdict, deps: args.deps });
+  const routedInput = { ...args.input, supervisorProvider: source.run.provider, supervisorModel: source.run.model, supervisorEffort: source.run.effort };
+  const interpretedRaw = `${source.raw}\n\nManager interpretation (${command.managerId}): ${command.content.rationale}`;
+  const next = await routeLegacyVerdict({ input: routedInput, deps: args.deps, sliceDir: args.sliceDir, status: args.status, verdict, raw: interpretedRaw });
+  return { status: next, reason: `Manager interpretation validated; resumed the pending legacy ${verdict} route without a provider call.` };
+}
+
+async function clarificationDelivery(args: {
+  input: TargetRelayInput;
+  deps: TargetRelayDeps;
+  sliceDir: string;
+  status: TargetRelayStatus;
+  posture: WorkItemPosture;
+  stage3?: Stage3Context;
+  sourceRaw: string;
+  question: string;
+}): Promise<RunRequest['delivery']> {
+  const pending = args.status.pendingInterpretation as PendingInterpretation;
+  const outputContract = pending.contract;
+  if (args.stage3 && pending.contract === 'requirements-assurance/v3-implementation-evidence' && pending.subject.kind === 'implementation-evidence') {
+    const checkpoint = await observeStage3Checkpoint(args.input, args.deps, args.stage3);
+    if (!sameCheckpoint(checkpoint, pending.subject.checkpoint)) throw new Error('subject-mismatch: candidate changed before builder clarification');
+  }
+  let currentBuildReport: string | undefined;
+  if (pending.role === 'reviewer') {
+    try { currentBuildReport = await readFile(join(args.sliceDir, `build-${args.status.iteration}.md`), 'utf-8'); }
+    catch { /* old retained work may not have a report */ }
+  }
+  const baseDirective = pending.role === 'builder'
+    ? buildBuilderContext(args.input.targetDir, await readFile(join(args.sliceDir, 'selection.md'), 'utf-8'), args.status.iteration, outputContract)
+    : buildReviewerContext(args.input.targetDir, await readFile(join(args.sliceDir, 'selection.md'), 'utf-8'), currentBuildReport, outputContract);
+  const clarificationText = [
+    '# Focused manager clarification',
+    '',
+    'This is read-only clarification of your retained message, not authorization to edit or start another implementation cycle.',
+    '',
+    '## Original retained message',
+    args.sourceRaw,
+    '',
+    '## Manager question',
+    args.question,
+  ].join('\n');
+  if (!args.status.assurance) {
+    return {
+      kind: 'legacy-live-inputs',
+      prompts: await loadPrompts(args.input.promptRoot, pending.role === 'builder' ? args.input.builderPromptPaths : args.input.reviewerPromptPaths, args.deps.computeDigest),
+      contextText: `${baseDirective}\n\n${clarificationText}`,
+    };
+  }
+  const capture = captureReviewedInputs(args.input, args.deps);
+  const allocationPath = args.posture.kind === 'requirements-document' ? args.posture.admissionAllocation : args.status.sliceDoc ?? '';
+  const common = await acceptedCommonInputs(args.input, args.deps, args.status.assurance, allocationPath, capture);
+  const extra: RunTextInput[] = [generatedRunInput(`pending-output-${args.status.iteration}`, 'review-subject', args.sourceRaw, args.deps.computeDigest)];
+  if (pending.role === 'reviewer') {
+    if (currentBuildReport) extra.push(generatedRunInput(`build-report-${args.status.iteration}`, 'build-report', currentBuildReport, args.deps.computeDigest));
+    if (args.posture.kind === 'requirements-document' && args.status.sliceDoc) {
+      const candidate = await loadCandidateClosure({ input: args.input, deps: args.deps, posture: args.posture, sliceDoc: args.status.sliceDoc, capture });
+      extra.push(...candidate.inputs);
+    }
+    if (args.stage3 && pending.contract === 'requirements-assurance/v3-implementation-review') {
+      const evidence = await readStage3Evidence(args.sliceDir, args.status.iteration, args.stage3, args.deps);
+      const checkpoint = await observeStage3Checkpoint(args.input, args.deps, args.stage3);
+      if (!sameCheckpoint(checkpoint, evidence.checkpoint)) throw new Error('subject-mismatch: evidence-bound candidate changed before clarification');
+      if (!args.deps.candidateDiff) throw new Error('invalid-field: stage-3 candidate diff mechanism is unavailable');
+      extra.push(
+        generatedRunInput(`implementation-allocation-${args.status.iteration}`, 'review-subject', JSON.stringify(args.stage3.allocation), args.deps.computeDigest),
+        generatedRunInput(`candidate-checkpoint-${args.status.iteration}`, 'review-subject', JSON.stringify(evidence.checkpoint), args.deps.computeDigest),
+        generatedRunInput(`verification-draft-${args.status.iteration}`, 'review-subject', new TextDecoder().decode(evidence.verificationBytes), args.deps.computeDigest),
+        generatedRunInput(`candidate-diff-${args.status.iteration}`, 'review-subject', await args.deps.candidateDiff(args.input.targetDir, evidence.checkpoint), args.deps.computeDigest),
+      );
+    }
+  }
+  extra.push(generatedRunInput(`manager-clarification-${args.status.iteration}`, 'task-directive', clarificationText, args.deps.computeDigest));
+  const roleSpecific = await roleSpecificInputs({
+    input: args.input,
+    deps: args.deps,
+    sliceDir: args.sliceDir,
+    packetRaw: await readFile(join(args.sliceDir, 'selection.md'), 'utf-8'),
+    promptPaths: pending.role === 'builder' ? args.input.builderPromptPaths : args.input.reviewerPromptPaths,
+    directiveLabel: `clarify-${pending.role}-task`,
+    directive: baseDirective,
+    extra,
+    capture,
+  });
+  return { kind: 'reviewed-input-snapshots', contract: 'requirements-assurance/v2-input-delivery', common, roleSpecific };
+}
+
+async function retainClarificationOutcome(args: {
+  input: TargetRelayInput;
+  deps: Pick<TargetRelayDeps, 'clock' | 'computeDigest'>;
+  sliceDir: string;
+  status: TargetRelayStatus;
+  pending: PendingInterpretation;
+  managerId: string;
+  questionPath: string;
+  question: string;
+  request: {
+    runId: string;
+    provider: TargetActor;
+    model: string;
+    effort: string;
+    role: SessionRole;
+    providerSession: Record<string, unknown>;
+  };
+  result: {
+    status: string;
+    returnedSessionId: string | null;
+    raw: string;
+    error: string | null;
+  };
+  explanation: string;
+  providerActed: boolean;
+}): Promise<{ status: TargetRelayStatus; reason: string }> {
+  const index = args.pending.clarifications.length;
+  const record = {
+    kind: 'manager-clarification',
+    managerId: args.managerId,
+    question: { sourcePath: args.questionPath, sha256: args.deps.computeDigest(args.question), text: args.question },
+    original: { runId: args.pending.runId, rawOutputPath: args.pending.rawOutputPath, rawOutputSha256: args.pending.rawOutputSha256 },
+    request: { ...args.request, mode: 'review', permission: 'read-only' },
+    result: { ...args.result, rawSha256: args.deps.computeDigest(args.result.raw) },
+    recordedAt: args.deps.clock.now(),
+    explanation: args.explanation,
+  };
+  const recordRaw = `${JSON.stringify(record, null, 2)}\n`;
+  const relativePath = `.agent-manager/slices/${args.status.sliceId}/clarification-${args.pending.role}-${args.status.iteration}-${index}.json`;
+  await writeFile(join(args.input.targetDir, relativePath), recordRaw, { encoding: 'utf-8', flag: 'wx' });
+  const clarificationRef = { path: relativePath, sha256: args.deps.computeDigest(recordRaw), runId: args.request.runId, managerId: args.managerId };
+  const next: TargetRelayStatus = {
+    ...args.status,
+    pendingInterpretation: { ...args.pending, clarifications: [...args.pending.clarifications, clarificationRef] },
+    updatedAt: args.deps.clock.now(),
+    ...(args.providerActed ? { lastActor: args.request.provider } : {}),
+  };
+  await writeStatus(args.sliceDir, next);
+  return { status: next, reason: `${args.explanation} Implementation iteration remains ${next.iteration}; apply manager interpretation when meaning is sufficient.` };
+}
+
+async function clarifyPending(args: {
+  input: TargetRelayInput;
+  deps: TargetRelayDeps;
+  sliceDir: string;
+  status: TargetRelayStatus;
+  posture: WorkItemPosture;
+  stage3?: Stage3Context;
+  questionPath: string;
+  managerId: string;
+}): Promise<{ status: TargetRelayStatus; reason: string }> {
+  const pending = args.status.pendingInterpretation;
+  if (!pending) return { status: args.status, reason: 'No pending provider message exists to clarify.' };
+  if (args.managerId.trim().length === 0) return { status: args.status, reason: 'Clarification manager identity must be non-empty.' };
+  const source = await readRetainedPendingSource(args.input, args.status, args.deps);
+  const question = await readFile(args.questionPath, 'utf-8');
+  if (question.trim().length === 0) return { status: args.status, reason: 'Clarification question must be non-empty; pending state retained.' };
+  const provider = source.run.provider;
+  const binding = args.status.providerSessions?.[pending.role];
+  const index = pending.clarifications.length;
+  const runId = `clarify-${args.status.sliceId}-${pending.role}-${args.status.iteration}-${index}`;
+  const requestIdentity = (providerSession: Record<string, unknown>) => ({
+    runId,
+    provider,
+    model: source.run.model,
+    effort: source.run.effort,
+    role: pending.role,
+    providerSession,
+  });
+  const retainNotRun = (explanation: string, providerSession: Record<string, unknown>) => retainClarificationOutcome({
+    input: args.input,
+    deps: args.deps,
+    sliceDir: args.sliceDir,
+    status: args.status,
+    pending,
+    managerId: args.managerId,
+    questionPath: args.questionPath,
+    question,
+    request: requestIdentity(providerSession),
+    result: { status: 'not-run', returnedSessionId: null, raw: '', error: explanation },
+    explanation,
+    providerActed: false,
+  });
+  const intendedSession = binding
+    ? { kind: 'resume', sessionId: binding.sessionId, retainedProvider: binding.provider }
+    : { kind: 'fresh' };
+  if (binding && binding.provider !== provider) {
+    return retainNotRun(`Clarification refused: retained ${pending.role} session belongs to '${binding.provider}', but pending run used '${provider}'. Pending state retained.`, intendedSession);
+  }
+  if (provider === 'human' || !args.deps.clarificationRunner) {
+    return retainNotRun(`Clarification cannot run: no recorded-provider runner is available for '${provider}'. Pending state retained.`, intendedSession);
+  }
+  let runner: ProviderRunnerPort;
+  try {
+    runner = args.deps.clarificationRunner(provider);
+  } catch (cause) {
+    return retainNotRun(`Clarification cannot construct the recorded-provider runner for '${provider}': ${cause instanceof Error ? cause.message : String(cause)}. Pending state retained.`, intendedSession);
+  }
+  if (runner.sessionSupport !== 'explicit-id') {
+    return retainNotRun(`Clarification refused: the recorded '${provider}' runner cannot explicitly ${binding ? `resume native session '${binding.sessionId}'` : 'start and identify a fresh native session'}. Pending state retained without provider invocation.`, intendedSession);
+  }
+  const providerSession = binding ? { kind: 'resume' as const, sessionId: binding.sessionId } : { kind: 'fresh' as const };
+  let delivery: RunRequest['delivery'];
+  try {
+    delivery = await clarificationDelivery({ input: args.input, deps: args.deps, sliceDir: args.sliceDir, status: args.status, posture: args.posture, ...(args.stage3 ? { stage3: args.stage3 } : {}), sourceRaw: source.raw, question });
+  } catch (cause) {
+    return retainNotRun(`Clarification input revalidation failed before provider invocation: ${cause instanceof Error ? cause.message : String(cause)}. Pending state retained.`, providerSession);
+  }
+  const request: RunRequest = {
+    runId,
+    sliceId: args.status.sliceId,
+    role: pending.role,
+    mode: 'review',
+    permission: 'read-only',
+    workingDir: args.input.targetDir,
+    model: source.run.model,
+    effort: source.run.effort,
+    delivery,
+    inputArtifacts: [],
+    ...(providerSession ? { providerSession } : {}),
+  };
+  let result: RunResult | undefined;
+  let executionError: string | undefined;
+  try {
+    result = await runner.run(request);
+    const runRecord = makeRunRecord('awaiting-manager-interpretation', provider, request, result, args.input.targetDir, args.input.promptRoot, args.status.assurance?.manifest);
+    await writeRunRecord(args.sliceDir, `clarify-${pending.role}-${args.status.iteration}-${index}`, runRecord);
+  } catch (cause) {
+    // ProviderRunnerPort reserves throws for failures before a normalized
+    // RunResult exists (for example, invalid adapter configuration). Keep that
+    // distinction explicit rather than fabricating a provider result.
+    executionError = cause instanceof Error ? cause.message : String(cause);
+  }
+  const resultRaw = result ? captureCompletedProviderOutput(result).raw : '';
+  const returnedSessionId = result?.providerSessionId;
+  const mismatch = providerSession?.kind === 'resume' && returnedSessionId !== undefined && returnedSessionId !== providerSession.sessionId;
+  const missing = providerSession !== undefined && result?.status === RunStatus.COMPLETED && returnedSessionId === undefined;
+  const explanation = executionError !== undefined
+    ? `Clarification could not produce a provider result: ${executionError}`
+    : mismatch
+      ? `Provider returned session '${returnedSessionId}' instead of requested '${providerSession?.kind === 'resume' ? providerSession.sessionId : ''}'.`
+      : missing ? 'Completed managed clarification did not return a native session id.'
+        : result?.status === RunStatus.COMPLETED ? 'Clarification retained for manager interpretation.' : `Clarification provider ended with ${result?.status ?? 'unknown'}: ${result?.error ?? 'no provider detail'}`;
+  let next = args.status;
+  if (result && !mismatch && !missing && result.providerSessionId !== undefined) next = statusWithReturnedSession(next, pending.role, provider, request, result);
+  return retainClarificationOutcome({
+    input: args.input,
+    deps: args.deps,
+    sliceDir: args.sliceDir,
+    status: next,
+    pending,
+    managerId: args.managerId,
+    questionPath: args.questionPath,
+    question,
+    request: requestIdentity(providerSession),
+    result: {
+      status: result?.status ?? 'execution-failed',
+      returnedSessionId: returnedSessionId ?? null,
+      raw: resultRaw,
+      error: executionError ?? result?.error ?? null,
+    },
+    explanation,
+    providerActed: result !== undefined,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2637,10 +3465,12 @@ async function runDecisionReview(
     delivery: await reviewedDecisionDelivery(input.challengerPromptPaths, 'decision-challenger-task', challengeContext, challengeCapture),
     inputArtifacts: [],
   };
-  const challengeResult = await runWithRetry(
+  const { result: challengeResult } = await runWithRetry(
     deps.supervisor,
     challengeRequest,
-    `decision-challenge ${status.sliceId}`
+    `decision-challenge ${status.sliceId}`,
+    undefined,
+    deps.retryDelay
   );
   await writeRunRecord(
     sliceDir,
@@ -2684,10 +3514,12 @@ async function runDecisionReview(
     ),
     inputArtifacts: [],
   };
-  const rebutResult = await runWithRetry(
+  const { result: rebutResult } = await runWithRetry(
     deps.builder,
     rebutRequest,
-    `decision-rebuttal ${status.sliceId}`
+    `decision-rebuttal ${status.sliceId}`,
+    undefined,
+    deps.retryDelay
   );
   await writeRunRecord(
     sliceDir,
@@ -3096,6 +3928,28 @@ export async function targetRelayLoop(
     console.log('  [assurance] legacy (requirements assurance not enforced)');
   }
 
+  if (input.managerOperation && status.phase !== 'awaiting-manager-interpretation') {
+    return { phase: 'blocked', sliceId, stopped: true, reason: `Manager operation '${input.managerOperation.kind}' requires phase awaiting-manager-interpretation; current phase is ${status.phase}.` };
+  }
+  if (status.phase === 'awaiting-manager-interpretation') {
+    if (!input.managerOperation) {
+      return {
+        phase: status.phase,
+        sliceId,
+        stopped: true,
+        reason: `Provider output is retained pending manager interpretation. Use --apply-manager-interpretation <file> --slice ${sliceId}, or --clarify-pending <text-file> --slice ${sliceId} --manager-id <id>.`,
+      };
+    }
+    try {
+      const operation = input.managerOperation.kind === 'apply-interpretation'
+        ? await applyManagerInterpretation({ input, deps, sliceDir, status, posture, ...(stage3 ? { stage3 } : {}), commandPath: input.managerOperation.commandPath })
+        : await clarifyPending({ input, deps, sliceDir, status, posture, ...(stage3 ? { stage3 } : {}), questionPath: input.managerOperation.questionPath, managerId: input.managerOperation.managerId });
+      return { phase: operation.status.phase, sliceId, stopped: true, reason: operation.reason };
+    } catch (cause) {
+      return { phase: status.phase, sliceId, stopped: true, reason: `Manager operation refused; pending state retained: ${cause instanceof Error ? cause.message : String(cause)}` };
+    }
+  }
+
   // Explicit --slice on a terminal slice is an operator override.
   if (input.sliceId) {
     if (status.phase === 'done') {
@@ -3208,6 +4062,7 @@ export async function targetRelayLoop(
     status.phase !== 'done' &&
     status.phase !== 'blocked' &&
     status.phase !== 'awaiting-ratification' &&
+    status.phase !== 'awaiting-manager-interpretation' &&
     (status.iteration < maxIterations || status.phase === 'decision-review')
   ) {
     // Decision-review is NOT cycle-bounded: it runs once, post-approval, then
@@ -3242,10 +4097,10 @@ export async function targetRelayLoop(
       );
       try { status = await runImplement(input, deps, sliceDir, status, packetRaw, posture, dispatchCapture, stage3); }
       catch (cause) {
-        // runImplement may already have persisted the stage-3 base before a
-        // later provider/report failure. Preserve that newer state so an
-        // explicit resume can continue the partial candidate without treating
-        // it as a new dirty first dispatch.
+        // runImplement may already have persisted a captured provider session
+        // or the stage-3 base before a later provider/report failure. Preserve
+        // that newer state so resume continues the partial candidate rather
+        // than reverting to the pre-dispatch status.
         const persistedAfterFailure = await readJsonState(join(sliceDir, 'status.json'));
         const blockingStatus = persistedAfterFailure.status === 'ok' && isTargetRelayStatusShape(persistedAfterFailure.value) && persistedAfterFailure.value.sliceId === status.sliceId
           ? persistedAfterFailure.value
@@ -3274,14 +4129,25 @@ export async function targetRelayLoop(
         `  [cycle ${status.iteration + 1}/${maxIterations}] review-impl supervisor=${input.supervisorProvider}`
       );
       try { status = await runReview(input, deps, sliceDir, status, packetRaw, posture, dispatchCapture, stage3); }
-      catch (cause) { status = await blockSlice(sliceDir, status, deps.clock, 'human', cause instanceof Error ? cause.message : String(cause)); }
+      catch (cause) {
+        // The reviewer attempt may already have persisted a newly captured
+        // native session before later result parsing/publication failed. Block
+        // from that newer state rather than overwriting it with the pre-call
+        // value held by this loop.
+        const persistedAfterFailure = await readJsonState(join(sliceDir, 'status.json'));
+        const blockingStatus = persistedAfterFailure.status === 'ok' && isTargetRelayStatusShape(persistedAfterFailure.value) && persistedAfterFailure.value.sliceId === status.sliceId
+          ? persistedAfterFailure.value
+          : status;
+        status = await blockSlice(sliceDir, blockingStatus, deps.clock, 'human', cause instanceof Error ? cause.message : String(cause));
+      }
     }
   }
 
   if (
     status.phase !== 'done' &&
     status.phase !== 'blocked' &&
-    status.phase !== 'awaiting-ratification'
+    status.phase !== 'awaiting-ratification' &&
+    status.phase !== 'awaiting-manager-interpretation'
   ) {
     status = await blockSlice(
       sliceDir,
@@ -3307,6 +4173,9 @@ export async function targetRelayLoop(
       ...result,
       reason: `Decision review complete; human ratification required. See ${join('.agent-manager', 'slices', sliceId, 'ratification-packet.md')}`,
     };
+  }
+  if (status.phase === 'awaiting-manager-interpretation') {
+    return { ...result, reason: `Provider output retained pending manager interpretation for ${status.pendingInterpretation?.contract ?? 'unknown contract'}.` };
   }
   return {
     ...result,

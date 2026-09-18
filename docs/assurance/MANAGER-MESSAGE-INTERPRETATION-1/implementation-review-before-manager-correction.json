@@ -1,0 +1,5 @@
+{
+  "iteration": 1,
+  "verdict": "approved",
+  "raw": "STATUS: approved\n\n**OBSERVED:** Revision fixes both prior findings in `relay-target.ts`: artifact-set retention routes all structured result-path shape failures to pending, and unavailable/mismatched continuation records `not-run` without provider fallback. Tests cover these paths.\n\n**OBSERVED:** Pinned prompt files remain unchanged; accepted predecessor adapter/port hashes match; `git diff --check` passes. Scope is confined to approved files plus pre-existing predecessor/manager artifacts.\n\n**BUILDER-EXECUTED:** typecheck, full Jest suite (206/206), build, and diff check passed. I relied on that execution evidence because this review sandbox is read-only; source inspection confirms the claimed test assertions and built-CLI fixtures exist.\n\nThe change supports the VISION boundary: runtime preserves auditable state and routing while manager interpretation remains explicit. Separate review invocation; provider diversity is not established."
+}

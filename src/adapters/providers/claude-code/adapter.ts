@@ -86,7 +86,8 @@ export class ClaudeAdapterCompositionError extends Error {
 /**
  * Claude Code adapter implementing ProviderRunnerPort.
  *
- * Headless mode only. No interactive/resume support in this version.
+ * Headless mode only. Native conversations use explicit `--resume <id>`;
+ * Agent Manager never relies on Claude's implicit `--continue` discovery.
  * Schema-constrained output is not supported in Phase 3.
  */
 /**
@@ -101,6 +102,8 @@ type ResolvedClaudeConfig = ClaudeAdapterConfig & {
 };
 
 export class ClaudeAdapter implements ProviderRunnerPort {
+  readonly sessionSupport = 'explicit-id' as const;
+
   private readonly config: ResolvedClaudeConfig;
   private readonly store: ArtifactStorePort;
   private readonly clock: ClockPort;
@@ -178,15 +181,16 @@ export class ClaudeAdapter implements ProviderRunnerPort {
 
     const completedAt = this.clock.now();
 
-    // Extract the final assistant text (the run's artifact). In transcript mode
-    // the raw stdout is the JSONL event stream, kept verbatim in the log.
-    const finalText = this.extractFinalText(execResult.stdout);
+    // Managed sessions require stream-json even when the adapter's legacy text
+    // option is selected, because the native session id exists only in events.
+    const transcriptEnabled = this.config.captureTranscript || request.providerSession !== undefined;
+    const response = this.extractResponse(execResult.stdout, transcriptEnabled);
 
     // Write log (adapter-owned operational output, not via artifact port)
-    await this.writeLog(logPath, request, execResult, finalText, startedAt, completedAt);
+    await this.writeLog(logPath, request, execResult, response.finalText, transcriptEnabled, startedAt, completedAt);
 
     // Build result
-    return this.buildResult(request, execResult, finalText, logPath, startedAt, completedAt, prepared.receipt);
+    return this.buildResult(request, execResult, response, logPath, startedAt, completedAt, prepared.receipt);
   }
 
   /** Compose and identify exactly what a live spawn will receive, without spawning. */
@@ -261,7 +265,7 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     // (stored verbatim in the log for human analysis); the final assistant text
     // is extracted for the artifact. stream-json in --print mode REQUIRES
     // --verbose (verified against the installed CLI).
-    if (this.config.captureTranscript) {
+    if (this.config.captureTranscript || request.providerSession !== undefined) {
       args.push('--output-format', 'stream-json', '--verbose');
     } else {
       args.push('--output-format', 'text');
@@ -299,6 +303,10 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     } else if (request.permission === 'read-only') {
       // Plan mode: investigation (incl. `git diff`) allowed, edits blocked.
       args.push('--permission-mode', 'plan');
+    }
+
+    if (request.providerSession?.kind === 'resume') {
+      args.push('--resume', request.providerSession.sessionId);
     }
 
     // Prompt will be passed via stdin
@@ -500,12 +508,14 @@ export class ClaudeAdapter implements ProviderRunnerPort {
    * text blocks of the last `assistant` message (e.g. when the process was
    * killed before a result event). Non-JSON / partial lines are tolerated.
    */
-  private extractFinalText(stdout: string): string {
-    if (!this.config.captureTranscript) {
-      return stdout;
+  private extractResponse(stdout: string, transcriptEnabled: boolean): ClaudeResponse {
+    if (!transcriptEnabled) {
+      return { finalText: stdout };
     }
     let resultText: string | undefined;
     let lastAssistantText = '';
+    let sessionId: string | undefined;
+    let providerError: string | undefined;
     for (const line of stdout.split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
@@ -516,9 +526,16 @@ export class ClaudeAdapter implements ProviderRunnerPort {
         continue;
       }
       if (typeof ev !== 'object' || ev === null) continue;
-      const e = ev as { type?: unknown; result?: unknown; message?: unknown };
+      const e = ev as { type?: unknown; result?: unknown; message?: unknown; session_id?: unknown; is_error?: unknown };
+      if (typeof e.session_id === 'string') {
+        if (sessionId !== undefined && sessionId !== e.session_id) {
+          return { finalText: resultText ?? lastAssistantText, sessionId, protocolError: `Claude session output changed session id from '${sessionId}' to '${e.session_id}'.` };
+        }
+        sessionId = e.session_id;
+      }
       if (e.type === 'result' && typeof e.result === 'string') {
         resultText = e.result;
+        if (e.is_error === true) providerError = e.result || 'Claude reported an error result.';
       } else if (
         e.type === 'assistant' &&
         typeof e.message === 'object' &&
@@ -540,7 +557,11 @@ export class ClaudeAdapter implements ProviderRunnerPort {
         }
       }
     }
-    return resultText ?? lastAssistantText;
+    const finalText = resultText ?? lastAssistantText;
+    if (sessionId === undefined) {
+      return { finalText, ...(providerError ? { providerError } : {}), protocolError: 'Claude session output did not identify a session.' };
+    }
+    return { finalText, sessionId, ...(providerError ? { providerError } : {}) };
   }
 
   private async writeLog(
@@ -548,6 +569,7 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     request: RunRequest,
     result: ExecResult,
     finalText: string,
+    transcriptEnabled: boolean,
     startedAt: string,
     completedAt: string
   ): Promise<void> {
@@ -582,7 +604,7 @@ export class ClaudeAdapter implements ProviderRunnerPort {
       ``
     );
 
-    if (this.config.captureTranscript) {
+    if (transcriptEnabled) {
       // Full event transcript for human analysis, plus the extracted final text.
       lines.push(
         `## Final Text`,
@@ -625,7 +647,7 @@ export class ClaudeAdapter implements ProviderRunnerPort {
   private buildResult(
     request: RunRequest,
     execResult: ExecResult,
-    finalText: string,
+    response: ClaudeResponse,
     logPath: string,
     startedAt: string,
     completedAt: string,
@@ -635,7 +657,7 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     let status: RunStatus;
     if (execResult.timedOut) {
       status = RunStatus.TIMEOUT;
-    } else if (execResult.exitCode !== 0 || execResult.error) {
+    } else if (execResult.exitCode !== 0 || execResult.error || response.protocolError || response.providerError) {
       status = RunStatus.FAILED;
     } else {
       status = RunStatus.COMPLETED;
@@ -646,12 +668,12 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     // so downstream consumers (build-<n>.md, reviewer) see the same final text
     // regardless of log format. Type 'provider-output' marks provisional output.
     const outputArtifacts =
-      status === RunStatus.COMPLETED && finalText.trim()
+      status === RunStatus.COMPLETED && response.finalText.trim()
         ? [
             {
               suggestedPath: `${request.role}-output.md`,
               type: 'provider-output',
-              content: finalText,
+              content: response.finalText,
             },
           ]
         : [];
@@ -664,13 +686,14 @@ export class ClaudeAdapter implements ProviderRunnerPort {
       startedAt,
       completedAt,
       deliveryReceipt,
+      ...(response.sessionId !== undefined ? { providerSessionId: response.sessionId } : {}),
     };
 
     // Add failure details if applicable
     if (status === RunStatus.FAILED || status === RunStatus.TIMEOUT) {
       (result as { exitCode: number }).exitCode = execResult.exitCode;
       (result as { error: string }).error =
-        execResult.error ?? (execResult.stderr || 'Unknown error');
+        execResult.error ?? response.protocolError ?? response.providerError ?? (execResult.stderr || 'Unknown error');
     }
 
     return result;
@@ -705,4 +728,11 @@ interface ExecResult {
   exitCode: number;
   timedOut: boolean;
   error?: string;
+}
+
+interface ClaudeResponse {
+  finalText: string;
+  sessionId?: string;
+  providerError?: string;
+  protocolError?: string;
 }

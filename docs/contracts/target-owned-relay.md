@@ -206,6 +206,7 @@ is doc-grounded, not yet probed against an installed CLI — see TECH-DEBT TD-01
 | `mode` | `plan` \| `edit` \| `review` | workflow intent |
 | `permission` | `read-only` \| `write` | posture |
 | `delivery` | `legacy-live-inputs` \| `reviewed-input-snapshots` | mutually exclusive live prompt references or immutable reviewed bytes |
+| `providerSession` | absent \| `fresh` \| `resume(id)` | one-shot call with no Agent Manager reuse request, new managed conversation, or explicit continuation |
 
 Legacy delivery retains its pinned prompt references and optional generated
 context. Reviewed delivery separates an ordered common closure from intentional
@@ -222,6 +223,7 @@ select-slice (supervisor, plan/read-only)
   STATUS: selected -> implement
   STATUS: blocked  -> blocked
 implement (builder, edit/write)            -> review-impl
+  unusable stage-3 evidence shape -> awaiting-manager-interpretation
 review-impl (supervisor, review/read-only)
   accepted stage-3 structure + stable candidate + both record writes -> done
                                 (review activity only; operator acceptance not recorded)
@@ -230,7 +232,11 @@ review-impl (supervisor, review/read-only)
   approved -> decision-review  (THIS slice surfaced a DECISION_REQUIRED — see trigger rule below)
   revise   -> implement (iteration + 1)
   escalate -> blocked
-  unknown  -> blocked
+  unknown legacy verdict or unusable structured result -> awaiting-manager-interpretation
+awaiting-manager-interpretation
+  apply validated manager semantics -> resume the interrupted consume/route step
+  clarify -> same role/provider/model, review/read-only, same native id when present;
+             remain pending without incrementing the implementation cycle
 decision-review (ADDITIVE, PROTOTYPE — one round)
   supervisor challenge -> builder rebuttal -> ratification-packet.md
   -> awaiting-ratification     (HALT for the human; never auto-proceeds)
@@ -284,8 +290,24 @@ prompt-loading machinery — no new adapter.
 
 ## Provider flag mapping (mechanism)
 
-Common Claude: `--print --output-format stream-json --verbose --prompt-suggestions false [--system-prompt-file <shared>] --model <m> --effort <e>`, spawn `cwd = workingDir`, prompt via stdin `-p -`. (`stream-json --verbose` captures the transcript log — see Logging; `captureTranscript: false` reverts to `--output-format text`.)
-Common Codex: `exec --model <m> --config model_reasoning_effort="<e>" [--config developer_instructions=<json>] -C <workingDir>`, spawn `cwd = workingDir`, prompt via stdin `-`.
+Common Claude: `--print --output-format stream-json --verbose --prompt-suggestions false [--system-prompt-file <shared>] --model <m> --effort <e>`, spawn `cwd = workingDir`, prompt via stdin `-p -`. (`stream-json --verbose` captures the transcript log — see Logging; `captureTranscript: false` uses `--output-format text` only for unmanaged calls.)
+Fresh Codex: `exec --model <m> --config model_reasoning_effort="<e>" [--config developer_instructions=<json>] [--sandbox <policy>] -C <workingDir> [--json] -`. Resumed Codex: `exec --sandbox <policy> -C <workingDir> resume <id> --model <m> --config model_reasoning_effort="<e>" [--config developer_instructions=<json>] --json -`. Both spawn with `cwd = workingDir` and receive the prompt via stdin. Managed builder/reviewer conversations use `--json` so the adapter can capture `thread.started.thread_id`; native events stay in the raw log and only extracted agent-message text reaches workflow artifacts.
+
+The first builder and first reviewer calls in a slice start
+separate native conversations. Their returned ids are persisted as distinct role
+bindings in `status.json`. Later cycles and later relay processes resume the matching
+role/provider id explicitly. A provider change starts fresh; a model change keeps the
+provider conversation while still passing the newly selected model. This includes
+builder/reviewer calls that author and review a requirements document. Selection and
+decision challenge/rebuttal make no Agent Manager conversation-reuse request. DONE
+retains ids for inspection but permits no further dispatch, and a new slice has
+independent state.
+
+Claude managed calls use `stream-json` even when the adapter's legacy
+`captureTranscript: false` text option is configured, because native ids are present
+only in protocol events. Unmanaged text calls retain text output. Claude continuation
+adds `--resume <id>`; Codex continuation places the sandbox and cwd on parent `exec`
+before `resume <id>`, preserving the explicit permission and target posture.
 
 | Phase | mode | permission | Claude adds | Codex adds |
 |-------|------|-----------|-------------|------------|
@@ -325,8 +347,9 @@ the same final text regardless of log format.
 The transcript is operational log output ONLY; it is never fed to another agent.
 The reviewer reads `build-<n>.md` + `git diff`, not the log. Default on for all
 Claude runs (self-host included); set the adapter's `captureTranscript: false`
-to revert to `--output-format text`. Codex runs remain text-only (see TECH-DEBT
-TD-008).
+to retain text output for unmanaged calls; managed role conversations still use
+stream-json to obtain the native id. Managed Codex calls likewise retain JSONL in
+the raw log while exposing only extracted final agent text to the relay.
 
 ## Storage (in the target repo)
 
@@ -336,9 +359,11 @@ TD-008).
   README.md                            created at runtime (any target)
   current.json                         active-slice pointer
   slices/<id>/selection.json|md        the operator's brief / builder packet
-  slices/<id>/status.json              phase, iteration, providers
+  slices/<id>/status.json              phase, iteration, providers, optional role session ids/pending reference
   slices/<id>/build-<n>.md             builder summary per cycle
   slices/<id>/review-<n>.json          verdict per cycle
+  slices/<id>/clarification-<role>-<n>-<i>.json  immutable manager question/provider-result evidence
+  slices/<id>/manager-interpretation-<role>-<n>.json  immutable local interpretation audit
   slices/<id>/runs/*.json              run records (-> log path)
   slices/<id>/decision-challenge.md    decision-review only, when it fires
   slices/<id>/decision-rebuttal.md     decision-review only, when it fires
@@ -355,7 +380,11 @@ DURABLE record of decisions lives in the **target's own committed artifacts** �
 docs (e.g. `docs/slices/*.md` with their ratification sections) + the operator's commits of the
 deliverable + the commit messages. Run records (`runs/*.json` → log path) restore per-call
 traceability **locally** (`runId`, provider, model, effort, mode, permission, status, timestamps,
-the target-relative `logPath`, pinned prompt digests).
+the target-relative `logPath`, pinned prompt digests, and requested/returned native session ids).
+Each managed attempt is recorded before an in-loop retry; an id returned by a failed
+attempt is persisted before the retry and becomes that retry's explicit resume id.
+An explicit resume returning a different id blocks rather than silently starting a
+replacement conversation.
 
 The scaffold (`.gitignore`, `README.md`) is provisioned by the relay on first run for **whatever
 target** is passed; no repository is pre-seeded or hardcoded. A newly generated scaffold ignores
@@ -366,13 +395,25 @@ The relay does **not** commit the target repo (neither code changes nor these ar
 operator commits the **deliverable** after review approval. Committing/branching by the relay is
 out of scope.
 
-## Verdict contract
+## Provider-message and runtime-record contract
 
-Implementation reviewer output MUST begin with `STATUS:
-approved|revise|escalate`. Parsing is shared with the self-host relay
-(`relay-shared.ts`). Requirements-document review instead requires the complete
-closed JSON result from requirements-assurance v2; it never falls back to the
-legacy prose parser.
+Recognized legacy `STATUS: approved|revise|escalate` messages and complete
+requirements-assurance results continue through automatic routing. Provider
+messages are not rejected merely because their prose, envelope, or field names do
+not reproduce a runtime record. The generated task directive requires all semantic
+evidence, assessments, findings, decisions and uncertainty, while explicitly
+superseding historical exact-envelope wording in pinned prompt files.
+
+When the existing strict validator cannot construct a valid record, the relay
+retains the original output/run and enters `awaiting-manager-interpretation`.
+If a completed result contains zero, multiple, or structured output artifacts,
+the retained raw file contains an explicit JSON artifact set so no artifact is
+silently selected or string-coerced. A valid single text artifact retains its
+historical bytes.
+The manager supplies semantic content plus its identity/rationale; the runtime
+derives versions, kinds, allocation/subject/run identities, revalidates admission
+and candidate state, and runs the same strict validator. A bare favorable word,
+missing check or missing per-obligation assessment cannot become acceptance.
 
 ## Non-interactive contract
 
@@ -416,6 +457,37 @@ npm run relay-target -- <target-path> \
   [--slice <id>] [--reselect] [--until select-slice] [--dry-run] \
   [--baseline <target-relative-manifest-path>]
 ```
+
+Pending-message operations are explicit and require the active slice:
+
+```text
+npm run relay-target -- <target-path> \
+  --apply-manager-interpretation <json-file> --slice <id>
+
+npm run relay-target -- <target-path> \
+  --clarify-pending <text-file> --slice <id> --manager-id <id>
+```
+
+The interpretation command is `{ "managerId": "...", "rationale": "...",
+"content": { ...semantic fields... } }`. `content` omits runtime-owned envelopes
+and identities. Applying invokes no provider and returns after the one pending
+consume/route step, even when that route makes a later builder call eligible.
+Clarification revalidates current inputs/candidate, supplies the applicable role
+inputs plus original output and question, and is always `mode=review`,
+`permission=read-only`. It resumes an existing matching native id; an older
+unfinished slice with no id starts explicitly fresh and retains all work. A
+mismatch/failure is retained and stays pending rather than silently falling back.
+If an existing native ID cannot be resumed by the recorded provider runner, no
+provider call occurs and a create-only clarification record captures the manager,
+question, intended request, and `not-run` reason.
+Reviewer clarification includes the current builder report just as normal reviewer
+delivery does, including for legacy unfinished work with no saved native ID.
+
+Interpretation and clarification filenames include the pending role, so builder
+and reviewer recovery in one iteration cannot overwrite or collide. Interpretation
+audits remain create-only: retry accepts only an existing audit with the identical
+pending source, semantic command, manager rationale, clarification references and
+route. A different existing identity is refused.
 
 Approval of an accepted v2 review is a mutually exclusive target-aware operation:
 
@@ -481,3 +553,5 @@ repair lost run state.
 
 So `relay-target -- <t> --until select-slice` then `relay-target -- <t>` builds
 and reviews the slice just selected — it does not reselect a different one.
+An `awaiting-manager-interpretation` slice is different from a retryable block:
+plain resume invokes no provider and prints the two concrete manager commands.

@@ -47,13 +47,15 @@ import { CopilotAdapter } from '../adapters/providers/copilot/index.js';
 import {
   targetRelayLoop,
   admitBaseline,
+  isTargetRelayStatusShape,
   prepareReviewedTargetDryRunDeliveries,
   recordReviewedBaselineApproval,
   type TargetActor,
   type TargetPhase,
   type TargetRelayInput,
+  type TargetRelayStatus,
 } from '../application/use-cases/relay-target.js';
-import type { RunRequest } from '../application/ports/provider-runner.js';
+import type { ProviderSessionRequest, RunRequest } from '../application/ports/provider-runner.js';
 import { parseAssuranceJson, parsePersistedAssurance, renderAssuranceError } from '../core/assurance.js';
 import type { CandidateCheckpoint, CandidateTreeObservation, CandidateIndexState, CandidateFileState } from '../core/assurance.js';
 
@@ -284,6 +286,9 @@ interface Args {
   builderModel?: string;
   supervisorModel?: string;
   baseline?: string;
+  managerOperation?:
+    | { kind: 'apply-interpretation'; commandPath: string }
+    | { kind: 'clarify-pending'; questionPath: string; managerId: string };
   approval?: {
     manifest: string;
     approvalId: string;
@@ -321,6 +326,9 @@ function parseArgs(argv: string[]): Args {
   let builderModel: string | undefined;
   let supervisorModel: string | undefined;
   let baseline: string | undefined;
+  let interpretationPath: string | undefined;
+  let clarificationPath: string | undefined;
+  let managerId: string | undefined;
   const approvalValues: Record<string, string> = {};
   const decisionRecords: { id: string; path: string }[] = [];
   let runtimeFlagExplicit = false;
@@ -372,6 +380,18 @@ function parseArgs(argv: string[]): Args {
       case '--baseline':
         runtimeFlagExplicit = true;
         baseline = value('--baseline');
+        break;
+      case '--apply-manager-interpretation':
+        runtimeFlagExplicit = true;
+        interpretationPath = value('--apply-manager-interpretation');
+        break;
+      case '--clarify-pending':
+        runtimeFlagExplicit = true;
+        clarificationPath = value('--clarify-pending');
+        break;
+      case '--manager-id':
+        runtimeFlagExplicit = true;
+        managerId = value('--manager-id');
         break;
       case '--max-iter':
         runtimeFlagExplicit = true;
@@ -451,6 +471,26 @@ function parseArgs(argv: string[]): Args {
     console.error('--slice and --reselect are mutually exclusive.');
     process.exit(1);
   }
+  if (interpretationPath !== undefined && clarificationPath !== undefined) {
+    console.error('--apply-manager-interpretation and --clarify-pending are mutually exclusive.');
+    process.exit(1);
+  }
+  if ((interpretationPath !== undefined || clarificationPath !== undefined) && slice === undefined) {
+    console.error('Manager interpretation operations require --slice <id>.');
+    process.exit(1);
+  }
+  if (clarificationPath !== undefined && (!managerId || managerId.trim().length === 0)) {
+    console.error('--clarify-pending requires --manager-id <id>.');
+    process.exit(1);
+  }
+  if (managerId !== undefined && clarificationPath === undefined) {
+    console.error('--manager-id is valid only with --clarify-pending.');
+    process.exit(1);
+  }
+  if ((interpretationPath !== undefined || clarificationPath !== undefined) && (reselect || until !== undefined || dryRun)) {
+    console.error('Manager interpretation operations cannot be combined with --reselect, --until, or --dry-run.');
+    process.exit(1);
+  }
 
   // exactOptionalPropertyTypes: include optionals only when present.
   const base: Args = { target, builder, supervisor, sharedPrompt, maxIter, timeoutMs, reviewerWrite, reselect, dryRun };
@@ -458,7 +498,12 @@ function parseArgs(argv: string[]): Args {
   const withUntil = until !== undefined ? { ...withSlice, until } : withSlice;
   const withBM = builderModel !== undefined ? { ...withUntil, builderModel } : withUntil;
   const withSM = supervisorModel !== undefined ? { ...withBM, supervisorModel } : withBM;
-  const ordinary = baseline !== undefined ? { ...withSM, baseline } : withSM;
+  const withBaseline = baseline !== undefined ? { ...withSM, baseline } : withSM;
+  const ordinary: Args = interpretationPath !== undefined
+    ? { ...withBaseline, managerOperation: { kind: 'apply-interpretation', commandPath: resolve(process.cwd(), interpretationPath) } }
+    : clarificationPath !== undefined
+      ? { ...withBaseline, managerOperation: { kind: 'clarify-pending', questionPath: resolve(process.cwd(), clarificationPath), managerId: managerId as string } }
+      : withBaseline;
   const approvalRequested = Object.keys(approvalValues).length > 0 || decisionRecords.length > 0;
   if (!approvalRequested) return ordinary;
   if (runtimeFlagExplicit) { console.error('--record-reviewed-baseline-approval is mutually exclusive with dispatch/dry-run/provider/model/permission/cycle flags.'); process.exit(1); }
@@ -492,6 +537,24 @@ async function printDryRun(
   supervisorRaw: RawAdapter,
   store: FilesystemArtifactStore
 ): Promise<void> {
+  let activeStatus: TargetRelayStatus | undefined;
+  if (args.slice !== undefined) {
+    const statusPath = `.agent-manager/slices/${args.slice}/status.json`;
+    const snapshot = await store.readContainedFile(targetDir, statusPath);
+    if (snapshot.status === 'ok') {
+      const parsed = parseAssuranceJson(new TextDecoder('utf-8', { fatal: true }).decode(snapshot.bytes), statusPath);
+      if (!parsed.ok) throw new Error(parsed.errors.map(renderAssuranceError).join('\n'));
+      if (!isTargetRelayStatusShape(parsed.value)) throw new Error(`invalid-field: ${statusPath} /: malformed target relay status`);
+      activeStatus = parsed.value;
+    }
+  }
+  const plannedSession = (role: 'builder' | 'reviewer', provider: TargetActor, adapter: RawAdapter): ProviderSessionRequest | undefined => {
+    if (!('sessionSupport' in adapter) || adapter.sessionSupport !== 'explicit-id') return undefined;
+    const binding = activeStatus?.providerSessions?.[role];
+    if (binding?.provider === provider) return { kind: 'resume', sessionId: binding.sessionId };
+    return { kind: 'fresh' };
+  };
+
   if (args.baseline !== undefined) {
     if (args.slice === undefined) {
       throw new Error('assured dry-run requires an explicit --slice <id> so its SLICE_DOC allocation can be checked');
@@ -598,7 +661,8 @@ async function printDryRun(
       ];
       console.log('=== DRY RUN: planned reviewed-input provider deliveries (no processes spawned, no snapshot files written) ===\n');
       for (const phase of reviewedPhases) {
-        const request: RunRequest = { runId: `dry-run-${phase.label}`, sliceId: args.slice, role: phase.role, mode: phase.mode, permission: phase.permission, workingDir: targetDir, model: phase.model, effort: phase.effort, delivery: phase.delivery, inputArtifacts: [] };
+        const providerSession = plannedSession(phase.role === 'builder' ? 'builder' : 'reviewer', phase.provider, phase.adapter);
+        const request: RunRequest = { runId: `dry-run-${phase.label}`, sliceId: args.slice, role: phase.role, mode: phase.mode, permission: phase.permission, workingDir: targetDir, model: phase.model, effort: phase.effort, delivery: phase.delivery, inputArtifacts: [], ...(providerSession ? { providerSession } : {}) };
         const prepared = await phase.adapter.prepareRunDelivery(request);
         console.log(`# ${phase.label}  (${phase.provider}, mode=${phase.mode}, permission=${phase.permission})`);
         console.log(`  cwd : ${prepared.invocation.cwd}`);
@@ -674,6 +738,11 @@ async function printDryRun(
   console.log('=== DRY RUN: planned provider invocations (no processes spawned) ===\n');
   for (const p of phases) {
     const def = resolvedDefaults(p.provider, p.role === 'implement' || p.role === 'builder' ? 'builder' : 'supervisor', args);
+    const providerSession = p.role === 'builder'
+      ? plannedSession('builder', p.provider, p.adapter)
+      : p.role === 'reviewer'
+        ? plannedSession('reviewer', p.provider, p.adapter)
+        : undefined;
     const inv = p.adapter.buildInvocation({
       runId: 'dry-run',
       sliceId: '<slice-id>',
@@ -685,6 +754,7 @@ async function printDryRun(
       effort: def.effort,
       delivery: { kind: 'legacy-live-inputs', prompts: [] },
       inputArtifacts: [],
+      ...(providerSession ? { providerSession } : {}),
     });
     console.log(`# ${p.label}  (${p.provider}, mode=${p.mode}, permission=${p.permission})`);
     console.log(`  cwd : ${inv.cwd}`);
@@ -776,6 +846,16 @@ async function main(): Promise<void> {
 
   const builderRaw = makeAdapter(args.builder, adapterConfig, store, clock);
   const supervisorRaw = makeAdapter(args.supervisor, adapterConfig, store, clock);
+  const clarificationRunners = new Map<Exclude<TargetActor, 'human'>, RawAdapter>();
+  clarificationRunners.set(args.builder as Exclude<TargetActor, 'human'>, builderRaw);
+  clarificationRunners.set(args.supervisor as Exclude<TargetActor, 'human'>, supervisorRaw);
+  const clarificationRunner = (provider: Exclude<TargetActor, 'human'>): RawAdapter => {
+    const existing = clarificationRunners.get(provider);
+    if (existing) return existing;
+    const created = makeAdapter(provider, adapterConfig, store, clock);
+    clarificationRunners.set(provider, created);
+    return created;
+  };
 
   if (args.dryRun) {
     try {
@@ -812,6 +892,7 @@ async function main(): Promise<void> {
     reviewerPermission: args.reviewerWrite ? 'write' : 'read-only',
     ...(sharedInstruction ? { sharedInstruction } : {}),
     ...(args.baseline !== undefined ? { baselinePath: args.baseline } : {}),
+    ...(args.managerOperation !== undefined ? { managerOperation: args.managerOperation } : {}),
   };
   const withSlice = args.slice !== undefined ? { ...base, sliceId: args.slice } : base;
   const input: TargetRelayInput =
@@ -828,6 +909,7 @@ async function main(): Promise<void> {
       observeCandidateTree,
       candidateDiff,
       createTrackedFileExclusively,
+      clarificationRunner,
     });
 
     console.log(`\nRelay completed.`);

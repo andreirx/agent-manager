@@ -1,9 +1,24 @@
 # Agent Manager roadmap
 
-Status: ASSURANCE-0–3 ACCEPTED; ASSURANCE-4/5 HELD. Updated: 2026-09-13.
+Status: ASSURANCE-0–3 ACCEPTED; ASSURANCE-4/5 HELD. Updated: 2026-09-18.
 Maturity: PROTOTYPE planning artifact. This is not a historical completion ledger.
 
 ## Current priority
+
+### Human-authorized corrective increments (2026-09-17)
+
+These precede, and do not reopen, the held ASSURANCE-4/5 rollout. Both bounded
+requirements/designs have independent Terra review under the current human request;
+implementation acceptance is recorded separately, not implied by this table.
+
+| Work item | Outcome | Current position |
+|---|---|---|
+| [SLICE-PROVIDER-SESSIONS-1](slices/slice-provider-sessions-1.md) | Separate builder/reviewer native conversations within one slice; unfinished older slices keep their work when IDs are absent | Accepted; 183 tests and actual Codex/Claude continuation; [manager acceptance](assurance/SLICE-PROVIDER-SESSIONS-1/manager-acceptance.md) |
+| [MANAGER-MESSAGE-INTERPRETATION-1](slices/manager-message-interpretation-1.md) | Manager interprets retained output; runtime constructs records and resumes the exact pending step | Accepted; 209 tests, same-session corrective review, and real retained-prose application; [manager acceptance](assurance/MANAGER-MESSAGE-INTERPRETATION-1/manager-acceptance.md) |
+
+No cache measurement infrastructure or interpreter service is part of either item.
+
+### Accepted overhaul position
 
 ASSURANCE-1 [baseline admission](assurance/ASSURANCE-1/manager-acceptance.md),
 ASSURANCE-2 [reviewed input delivery](assurance/ASSURANCE-2/manager-acceptance.md),
@@ -20,7 +35,7 @@ messages are not schema-policed — an off-shape provider result is not an error
 reads it leniently and builds the well-formed durable record itself; integrity checks apply
 to durable records and the input closure, not to the hand-off between two agents. This is
 input to the Stage-4 proportionality discussion and a change to the stage-2/3 result
-handling; it is not yet implemented.
+handling; the bounded manager-interpretation path is now implemented by MANAGER-MESSAGE-INTERPRETATION-1 above. It is not an automatic semantic interpreter or the held Stage-4 acceptance system.
 Human decisions 2026-09-14 after the first assured repo-graph slice (TRUST-MODULE-EDGES-1, 4 admissions / 5 baselines /
 14 document cycles / 7 implementation cycles for a fix that never failed a check): (1) ef3e1c9 provider-result framing
 RATIFIED as made. (2) Corrections: option B — recorded oracle correction, text-only, operator-approved, closeout-reviewed,

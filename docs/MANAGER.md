@@ -92,6 +92,62 @@ dead process. An exit code is not proof that the requirements or mandatory check
 were satisfied. Prefer event/process waiting over repeated unchanged polling.
 Notify the human of meaningful outcomes, failures, and decisions, not unchanged logs.
 
+Within one slice, `status.json` also carries independent native builder and reviewer
+conversation ids when their adapters support explicit resume, including when those
+roles author and review a requirements document. Inspect the matching run records when diagnosing continuation: each attempt
+states fresh/resume and requested/returned ids. Missing ids on an older unfinished
+slice mean the next role call starts a conversation; they do not authorize resetting
+the iteration, evidence, reports, findings, or working tree. An id mismatch or failed
+explicit resume is a recovery condition, never permission to fall back silently to a
+new conversation. Selection and decision challenge/rebuttal remain unmanaged calls.
+
+An off-shape but meaning-bearing builder/reviewer message is retained under the
+`awaiting-manager-interpretation` phase; it is not a code defect or permission to
+start another cycle. Inspect `pendingInterpretation`, its named run record and the
+unchanged raw `build-N.md`/`review-N.json`. Plain resume deliberately makes no
+provider call. The runtime constructs records; the manager owns semantic judgment.
+For zero, multiple, or structured provider artifacts, that raw file holds an
+explicit JSON artifact set rather than a lossy first-artifact selection.
+
+To apply sufficient meaning, write a small command JSON containing only
+`managerId`, non-empty `rationale`, and `content`, then run:
+
+```text
+npm run relay-target -- <target> \
+  --apply-manager-interpretation <command.json> --slice <id>
+```
+
+For evidence content provide checks/changeJustifications/limitations/report. For
+implementation review provide result, obligation/check/path assessments, findings,
+decisions and report. For requirements review provide result, assessments,
+findings, decisions and report. For a legacy message provide verdict and its
+rationale. Do not copy envelope versions, subjects, hashes, allocation or run IDs;
+the runtime derives and validates them. Application makes zero provider calls and
+stops after resuming the interrupted consume/route step. Inspect the create-only
+local `manager-interpretation-<role>-N.json` audit and any resulting tracked record, whose
+report/limitations disclose manager attribution without changing the provider performer.
+The attribution states that interpretation is not independent execution evidence.
+An identical retry may reuse that immutable audit after a later consume failure,
+but conflicting audit content is refused.
+
+If meaning is genuinely incomplete, put one focused question in a text file and run:
+
+```text
+npm run relay-target -- <target> \
+  --clarify-pending <question.txt> --slice <id> --manager-id <id>
+```
+
+This revalidates current admitted inputs/candidate and calls only the pending role,
+with its recorded provider/model, in review/read-only mode. A matching saved native
+ID is resumed. Pre-upgrade unfinished work with no ID starts an explicitly fresh
+same-role conversation while retaining edits, iteration, inputs and original output.
+Reviewer clarification also receives the current builder report, including on the
+legacy fresh-session path;
+an existing unavailable/mismatched ID never silently falls back. The clarification
+record is retained even when the call is refused as `not-run` or fails before a
+provider result exists; iteration is unchanged, and the slice remains
+pending until the manager applies a sufficiently supported interpretation.
+
 Do not let a loop exceed its planned checkpoint because it looks busy. The manager
 reviews product sense and scope at the checkpoint, not only the reviewer's verdict.
 
@@ -101,6 +157,7 @@ reviews product sense and scope at the checkpoint, not only the reviewer's verdi
 |---|---|
 | In-scope revise findings, valid baseline | Amend steering if needed and launch the next bounded cycle |
 | Missing required verification only | Arrange the specific permitted proof and preserve who ran it; do not relabel it as builder execution |
+| Meaning-bearing output has an unusable shape | Inspect raw output and diagnostics; apply supported semantics, or issue one focused read-only same-role clarification. Never invent missing checks/assessments or rerun a role only for serialization. |
 | Provider auth/quota/environment interruption | Record infrastructure failure; resume only after the condition is resolved and inputs remain valid |
 | Malformed/dangling active local state | Refuse implicit dispatch; inspect retained records, progress, worktree, approved inputs, and owned processes; restore only operational state supported by that evidence, then explicitly resume and revalidate admission when existing authority settles the recovery |
 | Timeout with partial edits | Read progress and edit distribution; preserve work; split or narrow if the slice is too large |
@@ -203,3 +260,13 @@ an existing manager session points relay-target at Agent Manager, prepares a rea
 approved increment, runs one bounded build/review checkpoint, inspects the artifacts,
 and leaves a handoff. Record which of AM-REQ-009's criteria were observed versus
 only inspected in this playbook. No extra manager service is necessary.
+
+## Accepted session/message corrections (2026-09-18)
+
+The [bounded acceptance](assurance/MANAGER-MESSAGE-INTERPRETATION-1/manager-acceptance.md)
+includes a [real retained-prose example](assurance/MANAGER-MESSAGE-INTERPRETATION-1/live-retained-output-evidence.json):
+an existing no-ID slice reached pending after one reviewer call, then reached done
+through manager interpretation without another call or changed original reports.
+Legacy work does not acquire Stage-3 assurance by using these commands. Partial
+durable-publication failures retain the existing conscious/manual recovery boundary;
+the held Stage-4 recovery/acceptance system is not implied.

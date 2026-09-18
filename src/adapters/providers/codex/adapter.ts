@@ -80,6 +80,8 @@ type ResolvedCodexConfig = CodexAdapterConfig & {
 };
 
 export class CodexAdapter implements ProviderRunnerPort {
+  readonly sessionSupport = 'explicit-id' as const;
+
   private readonly config: ResolvedCodexConfig;
   private readonly store: ArtifactStorePort;
   private readonly clock: ClockPort;
@@ -131,12 +133,15 @@ export class CodexAdapter implements ProviderRunnerPort {
     await mkdir(dirname(logPath), { recursive: true });
 
     const execResult = await this.execute(prepared.invocation, request.timeout, new TextDecoder().decode(prepared.stdinBytes));
+    const response = request.providerSession
+      ? extractCodexJsonResponse(execResult.stdout)
+      : { finalText: execResult.stdout };
 
     const completedAt = this.clock.now();
 
     await this.writeLog(logPath, request, execResult, startedAt, completedAt);
 
-    return this.buildResult(request, execResult, logPath, startedAt, completedAt, prepared.receipt);
+    return this.buildResult(request, execResult, response, logPath, startedAt, completedAt, prepared.receipt);
   }
 
   /** Compose and identify exactly what a live spawn will receive, without spawning. */
@@ -197,7 +202,21 @@ export class CodexAdapter implements ProviderRunnerPort {
     // exec = non-interactive headless run.
     const args: string[] = ['exec'];
 
-    // Model override
+    const appendParentPosture = () => {
+      if (request.permission === 'write') args.push('--sandbox', 'workspace-write');
+      else if (request.permission === 'read-only') args.push('--sandbox', 'read-only');
+      if (request.workingDir) args.push('-C', request.workingDir);
+    };
+
+    // Resume syntax requires sandbox/cwd on parent `exec`. Fresh calls retain
+    // the predecessor argv order to minimize unrelated routing change.
+    if (request.providerSession?.kind === 'resume') {
+      appendParentPosture();
+      args.push('resume', request.providerSession.sessionId);
+    }
+
+    // Model override. Codex accepts these options on both fresh `exec` and the
+    // `exec ... resume <id>` subcommand selected above.
     if (request.model) {
       args.push('--model', request.model);
     }
@@ -218,17 +237,12 @@ export class CodexAdapter implements ProviderRunnerPort {
       );
     }
 
-    // Permission posture via sandbox policy. Only emitted when explicitly
-    // requested; absent => self-host default (no flag).
-    if (request.permission === 'write') {
-      args.push('--sandbox', 'workspace-write');
-    } else if (request.permission === 'read-only') {
-      args.push('--sandbox', 'read-only');
-    }
+    if (request.providerSession?.kind !== 'resume') appendParentPosture();
 
-    // Working root for the agent (target repo in target-owned relay).
-    if (request.workingDir) {
-      args.push('-C', request.workingDir);
+    // JSON events expose `thread.started.thread_id`; only managed role calls
+    // need the protocol. The adapter extracts agent text before returning it.
+    if (request.providerSession) {
+      args.push('--json');
     }
 
     // Prompt via stdin (positional argument)
@@ -412,6 +426,7 @@ export class CodexAdapter implements ProviderRunnerPort {
   private buildResult(
     request: RunRequest,
     execResult: ExecResult,
+    response: CodexResponse,
     logPath: string,
     startedAt: string,
     completedAt: string,
@@ -420,19 +435,19 @@ export class CodexAdapter implements ProviderRunnerPort {
     let status: RunStatus;
     if (execResult.timedOut) {
       status = RunStatus.TIMEOUT;
-    } else if (execResult.exitCode !== 0 || execResult.error) {
+    } else if (execResult.exitCode !== 0 || execResult.error || response.protocolError) {
       status = RunStatus.FAILED;
     } else {
       status = RunStatus.COMPLETED;
     }
 
     const outputArtifacts =
-      status === RunStatus.COMPLETED && execResult.stdout.trim()
+      status === RunStatus.COMPLETED && response.finalText.trim()
         ? [
             {
               suggestedPath: `${request.role}-output.md`,
               type: 'provider-output',
-              content: execResult.stdout,
+              content: response.finalText,
             },
           ]
         : [];
@@ -445,12 +460,13 @@ export class CodexAdapter implements ProviderRunnerPort {
       startedAt,
       completedAt,
       deliveryReceipt,
+      ...(response.sessionId !== undefined ? { providerSessionId: response.sessionId } : {}),
     };
 
     if (status === RunStatus.FAILED || status === RunStatus.TIMEOUT) {
       (result as { exitCode: number }).exitCode = execResult.exitCode;
       (result as { error: string }).error =
-        execResult.error ?? (execResult.stderr || 'Unknown error');
+        execResult.error ?? response.protocolError ?? (execResult.stderr || 'Unknown error');
     }
 
     return result;
@@ -482,4 +498,42 @@ interface ExecResult {
   exitCode: number;
   timedOut: boolean;
   error?: string;
+}
+
+interface CodexResponse {
+  finalText: string;
+  sessionId?: string;
+  protocolError?: string;
+}
+
+/** Extract only role-facing text and the native thread id from Codex JSONL. */
+function extractCodexJsonResponse(stdout: string): CodexResponse {
+  let sessionId: string | undefined;
+  let finalText = '';
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(trimmed);
+    } catch {
+      return { finalText, ...(sessionId ? { sessionId } : {}), protocolError: 'Codex session output contained a non-JSON event.' };
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const event = value as Record<string, unknown>;
+    if (event.type === 'thread.started' && typeof event.thread_id === 'string') {
+      if (sessionId !== undefined && sessionId !== event.thread_id) {
+        return { finalText, sessionId, protocolError: `Codex session output changed thread id from '${sessionId}' to '${event.thread_id}'.` };
+      }
+      sessionId = event.thread_id;
+    }
+    if (event.type === 'item.completed' && event.item && typeof event.item === 'object' && !Array.isArray(event.item)) {
+      const item = event.item as Record<string, unknown>;
+      if (item.type === 'agent_message' && typeof item.text === 'string') finalText = item.text;
+    }
+  }
+  if (sessionId === undefined) {
+    return { finalText, protocolError: 'Codex session output did not identify a thread.' };
+  }
+  return { finalText, sessionId };
 }

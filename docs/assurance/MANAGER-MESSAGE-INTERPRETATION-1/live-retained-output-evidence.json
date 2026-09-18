@@ -1,0 +1,70 @@
+{
+  "checkedAt": "2026-09-17T22:22:34.936Z",
+  "fixture": "/private/tmp/am-mmi-live-aHBAHW",
+  "scope": "Real read-only Codex/Terra prose review of an existing no-ID legacy slice in an owned temp Git repository; manager semantic interpretation through built CLI. No claim about another product or assured v2/v3 live use.",
+  "reviewer": {
+    "runId": "review-MMI-LIVE-RETAINED-OUTPUT-0",
+    "phase": "review-impl",
+    "role": "reviewer",
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "high",
+    "mode": "review",
+    "permission": "read-only",
+    "status": "completed",
+    "startedAt": "2026-09-17T22:20:56.794Z",
+    "completedAt": "2026-09-17T22:21:08.590Z",
+    "logPath": ".agent-manager/logs/2026-09-17_22-20-56Z__reviewer__codex__slice-MMI-LIVE-RETAINED-OUTPUT.txt",
+    "prompts": [
+      {
+        "path": "prompts/system/base.md",
+        "digest": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+      },
+      {
+        "path": "prompts/roles/reviewer-target.md",
+        "digest": "sha256:89587bc371260ae1e38f45ca3a5b0d942a62e477e6ae190ff93e01ae2379d393"
+      }
+    ],
+    "workingDir": "/private/tmp/am-mmi-live-aHBAHW",
+    "providerSession": {
+      "request": "fresh",
+      "returnedSessionId": "01a0b175-697a-7bd0-9fdc-ff5ff04d8fa9"
+    }
+  },
+  "retainedMessage": "OBSERVED: `git status --short` and `git diff` show no uncommitted changes.\n\nOBSERVED: `README.md` contains exactly `Interrupted work stays on disk.`\n\nOBSERVED: This satisfies the slice’s sole definition of done. No code tests apply; none were run, as directed.\n\nINFERRED: The retained reviewer-output transport probe is ready for manager interpretation. No uncertainty affecting this assessment was identified.",
+  "phaseBefore": "awaiting-manager-interpretation",
+  "phaseAfter": "done",
+  "iterationBefore": 0,
+  "iterationAfter": 0,
+  "originalsUnchanged": true,
+  "originalHashes": [
+    {
+      "path": "review-0.json",
+      "sha256": "49fc27a7f7df476e7880dd7aec8b0689702443a98a08db391b9dcaa0900b1a22"
+    },
+    {
+      "path": "build-0.md",
+      "sha256": "8d7ca5665c4ff9f9c13e282b0dc0b34621b17877712b550fec7894004909e595"
+    },
+    {
+      "path": "runs/review-0.json",
+      "sha256": "86299433900c5b6d63a8eefe9287ef58964c492e1748f068bbf693c29bd7a4c5"
+    }
+  ],
+  "providerSentinelInvoked": false,
+  "audit": {
+    "kind": "manager-interpretation-audit",
+    "managerId": "in-place-codex-manager",
+    "rationale": "I read the retained actual Terra response and independently read README.md. Its explicit exact-match observation, absence of findings and statement that the sole requirement is satisfied mean approval. No code-test result is inferred or invented.",
+    "source": {
+      "runId": "review-MMI-LIVE-RETAINED-OUTPUT-0",
+      "runRecordPath": ".agent-manager/slices/MMI-LIVE-RETAINED-OUTPUT/runs/review-0.json",
+      "rawOutputPath": ".agent-manager/slices/MMI-LIVE-RETAINED-OUTPUT/review-0.json",
+      "rawOutputSha256": "sha256:e06ebf4937baabd722f372733b7e0a7f835b54f873c631753683374216b5c2df"
+    },
+    "semanticCommandSha256": "sha256:7c70a29b4e1bb102dbed27ff6d8128c3d0ead9bc4adc5fc4a919ba1895b2ec8b",
+    "clarificationRefs": [],
+    "resultingRoute": "approved",
+    "interpretedAt": "2026-09-17T22:21:48.832Z"
+  }
+}

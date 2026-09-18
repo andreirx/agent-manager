@@ -85,6 +85,18 @@ export interface PreparedRunDelivery {
   readonly receipt: RunDeliveryReceipt;
 }
 
+/**
+ * Native provider-conversation request.
+ *
+ * Absence means Agent Manager makes no conversation-reuse request for this
+ * one-shot call; the native provider may still retain its own conversation.
+ * `fresh` asks the adapter to start a conversation and return its native id;
+ * `resume` names the only conversation the adapter may continue.
+ */
+export type ProviderSessionRequest =
+  | { readonly kind: 'fresh' }
+  | { readonly kind: 'resume'; readonly sessionId: string };
+
 /** Render the contract's length-delimited frames without normalizing source bytes. */
 export function frameReviewedInputs(inputs: readonly RunTextInput[]): Uint8Array {
   const encoder = new TextEncoder();
@@ -169,6 +181,9 @@ export interface RunRequest {
    */
   readonly permission?: 'read-only' | 'write';
 
+  /** Explicit native conversation lifecycle for session-capable providers. */
+  readonly providerSession?: ProviderSessionRequest;
+
 }
 
 /**
@@ -203,6 +218,9 @@ export interface RunResult {
 
   /** Error description (on failure) */
   readonly error?: string;
+
+  /** Native conversation id observed in the provider protocol, when available. */
+  readonly providerSessionId?: string;
 }
 
 /**
@@ -212,6 +230,9 @@ export interface RunResult {
  * and provider-specific CLI invocations.
  */
 export interface ProviderRunnerPort {
+  /** The adapter can start and explicitly resume a native conversation by id. */
+  readonly sessionSupport?: 'explicit-id';
+
   /**
    * Execute a provider run.
    *

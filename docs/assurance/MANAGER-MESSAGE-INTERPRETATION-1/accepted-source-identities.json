@@ -1,0 +1,72 @@
+{
+  "acceptedAt": "2026-09-17T22:24:06.886Z",
+  "baseRevision": "6a1c8c9d6737406c838861304753086c01eaad7c",
+  "workingTree": "uncommitted combined SPS + MMI candidate; manager status closeout included",
+  "tests": 209,
+  "files": [
+    {
+      "path": "docs/MANAGER.md",
+      "sha256": "sha256:4bd73322e0b961b44d6e8db8ac33309edf88e7d4abead8da0ac0225c7fe9be86"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "sha256": "sha256:01bc0dc1ba452a021b75da696306b04abd66d5c427431fc7a2bd6b0d19c78a23"
+    },
+    {
+      "path": "docs/contracts/target-owned-relay.md",
+      "sha256": "sha256:005c9b8ad38676900c548205c7ada97683a523aedf169db01dbc54eb1bd909d0"
+    },
+    {
+      "path": "src/adapters/providers/claude-code/adapter.ts",
+      "sha256": "sha256:ae638acb58d50158d709698f20bd57d7db0cfa83e19f43df0b580c1e5b26cb7f"
+    },
+    {
+      "path": "src/adapters/providers/codex/adapter.ts",
+      "sha256": "sha256:07b9960abd74b0f10d95e782094f122527791825ad7ffe3a7238ff2ac4c3f902"
+    },
+    {
+      "path": "src/application/ports/provider-runner.ts",
+      "sha256": "sha256:6331f35a2ccfb3edca4d767f1d02459cb3b8d36010e5c5211642309a72fc1f19"
+    },
+    {
+      "path": "src/application/use-cases/relay-target.test.ts",
+      "sha256": "sha256:da6b4fa91fe69c6948dbfc004500caf5638ea7ef74f720d4a9f33e46ed3501ff"
+    },
+    {
+      "path": "src/application/use-cases/relay-target.ts",
+      "sha256": "sha256:04e73e0b3039b266b14d841665b7e2392697cd2eb7b7808f3b524d7b6cd2fbe6"
+    },
+    {
+      "path": "src/cli/relay-target.ts",
+      "sha256": "sha256:dd6551a932a0a32a300ac5810b94d74a3bc03aca72cc33251ae9c91b0058e3a0"
+    }
+  ],
+  "pinnedInstructions": [
+    {
+      "path": "SYSTEM.txt",
+      "sha256": "sha256:fbb99b8cb7349562236bf289e33f9850a8412e1272746ba53d8dc7c9f6894f75"
+    },
+    {
+      "path": "prompts/system/base.md",
+      "sha256": "sha256:be91bea4d29d795c8cf144147134e7ea96f9e7de7d0403405cadadebe5af0877"
+    },
+    {
+      "path": "prompts/roles/builder-target.md",
+      "sha256": "sha256:c49f083bdcd019eb26623c303b8eb45a4e059920188644eb7ff5cd517146a6cc"
+    },
+    {
+      "path": "prompts/roles/reviewer-target.md",
+      "sha256": "sha256:89587bc371260ae1e38f45ca3a5b0d942a62e477e6ae190ff93e01ae2379d393"
+    }
+  ],
+  "reviewedScopes": [
+    {
+      "path": "docs/assurance/SLICE-PROVIDER-SESSIONS-1/reviewed-scope.md",
+      "sha256": "sha256:b33eab060443973e7aa14289d93eb368389be1ac31929163eee91b0e754033a1"
+    },
+    {
+      "path": "docs/assurance/MANAGER-MESSAGE-INTERPRETATION-1/reviewed-scope.md",
+      "sha256": "sha256:c780fe15f73469e994a9bbe8b08c652eef7397dd1d07071e8e1e1044337a92ee"
+    }
+  ]
+}

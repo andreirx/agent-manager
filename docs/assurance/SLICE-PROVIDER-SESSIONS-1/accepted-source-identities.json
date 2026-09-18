@@ -1,0 +1,43 @@
+{
+  "acceptedAt": "2026-09-17T21:28:59.163Z",
+  "baseHead": "6a1c8c9d6737406c838861304753086c01eaad7c",
+  "workingTree": "uncommitted",
+  "files": [
+    {
+      "path": "src/application/ports/provider-runner.ts",
+      "sha256": "sha256:6331f35a2ccfb3edca4d767f1d02459cb3b8d36010e5c5211642309a72fc1f19"
+    },
+    {
+      "path": "src/adapters/providers/codex/adapter.ts",
+      "sha256": "sha256:07b9960abd74b0f10d95e782094f122527791825ad7ffe3a7238ff2ac4c3f902"
+    },
+    {
+      "path": "src/adapters/providers/claude-code/adapter.ts",
+      "sha256": "sha256:ae638acb58d50158d709698f20bd57d7db0cfa83e19f43df0b580c1e5b26cb7f"
+    },
+    {
+      "path": "src/application/use-cases/relay-target.ts",
+      "sha256": "sha256:68c66ac93bba256f83dcf65d1a275a7704509a573a94c97d910c72146016d19d"
+    },
+    {
+      "path": "src/application/use-cases/relay-target.test.ts",
+      "sha256": "sha256:35d7d985f450278fc5c3cbaf64f6e15e250de7d36b1a4b8539d70c3af6cad4d2"
+    },
+    {
+      "path": "src/cli/relay-target.ts",
+      "sha256": "sha256:4b5293ec957c974fd7832f94dc0232f3dfb969c1ab8effc0a8f66530ca9a566b"
+    },
+    {
+      "path": "docs/contracts/target-owned-relay.md",
+      "sha256": "sha256:f3fb1a863e594f9af8e129bd33f17282e1140fe7b99b1b427da1bbac36c2c1e4"
+    },
+    {
+      "path": "docs/MANAGER.md",
+      "sha256": "sha256:31a0249172f058af87f9c67053b2a04d1ddab22358a7677ba82f0c6e76dd2c9b"
+    }
+  ],
+  "scope": {
+    "path": "docs/slices/slice-provider-sessions-1.md",
+    "sha256": "sha256:b33eab060443973e7aa14289d93eb368389be1ac31929163eee91b0e754033a1"
+  }
+}

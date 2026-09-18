@@ -1,0 +1,15 @@
+# Session support — manager acceptance
+
+Accepted 2026-09-17 UTC (2026-09-18 local), PROTOTYPE, under the human's explicit session-per-role/per-slice request. Runtime and source are still uncommitted; exact accepted file identities are recorded beside this file. This is manual manager acceptance, not the held Stage-4 gate.
+
+SPS-L01..05 and P01..02 are satisfied in the named scope: separate explicit Codex/Claude native IDs for each builder/reviewer slice, including requirements/design work; persistence through retries/restarts and report-processing failure; no-ID unfinished work starts new conversations without replacing work; current permissions/model/input delivery remain. DONE prevents further reuse via that slice's dispatch. Unsupported providers and auxiliary roles do not acquire implicit reuse.
+
+Sol built; Terra separately reviewed. After initial approval, manager public-use-case inspection found M-SPS-01 (reviewer ID overwritten on processing failure). Same-native-session Sol/Terra follow-ups corrected/reviewed it and the artifact-kind exclusion. Original review retained; final independent review approved. Manager independently reran typecheck, all183 tests, build and diff-check successfully. Regression includes pre-upgrade no-ID requirements work and retained edits/evidence; independent fault retest preserves the reviewer ID. Actual freshly built Codex and Claude adapters resumed their isolated native sessions and recalled their tokens. No cache measurements, new dependency, service, or module.
+
+Introduced boundary data: ProviderSessionRequest/returned ID/capability marker; users are existing target-relay builder/reviewer dispatch and Codex/Claude adapters; concrete variation is their native headless continuation syntax/protocol (Copilot lacks this support); rejected alternative was provider-specific branching in workflow policy. Slice-local bindings and retry callback directly serve the two roles and avoid losing IDs before a retry; no session registry was added.
+
+Limitations: session identity is captured from completed/failed process output, not a guaranteed crash-time transaction before the first ID is observed. Native provider history/cache remains provider-owned and may be unavailable; no cache-hit guarantee is made. Lint is not installed in this repository and was not a mandatory check (builder reported exit127 rather than installing dependencies). Source/input snapshots and evidence gates are unchanged; no context-pruning or message-interpretation feature is claimed by this increment.
+
+Successor handoff: MANAGER-MESSAGE-INTERPRETATION-1 subsequently used a fresh process of this accepted runner and reused both native role sessions across rounds; its separate acceptance records the final 209-test combined candidate. No main-repository commit, push or deployment performed.
+
+Administrative closeout updated the slice status only; reviewed-scope.md retains the exact original reviewed scope bytes referenced by the accepted source identities.

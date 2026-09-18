@@ -1,0 +1,55 @@
+{
+  "note": "Actual bounded relay reused separate same-slice builder/reviewer conversations for two build/review rounds. Native continuation evidence, not a prompt-cache measurement.",
+  "runs": [
+    {
+      "runId": "build-MANAGER-MESSAGE-INTERPRETATION-1-0",
+      "role": "builder",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "permission": "write",
+      "providerSession": {
+        "request": "fresh",
+        "returnedSessionId": "01a0b147-c7c6-71c0-9644-dbb9ee9a5468"
+      },
+      "status": "completed"
+    },
+    {
+      "runId": "review-MANAGER-MESSAGE-INTERPRETATION-1-0",
+      "role": "reviewer",
+      "provider": "codex",
+      "model": "gpt-5.6-terra",
+      "permission": "read-only",
+      "providerSession": {
+        "request": "fresh",
+        "returnedSessionId": "01a0b15d-0c71-71b0-9627-b08bc5cfbb4a"
+      },
+      "status": "completed"
+    },
+    {
+      "runId": "build-MANAGER-MESSAGE-INTERPRETATION-1-1",
+      "role": "builder",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "permission": "write",
+      "providerSession": {
+        "request": "resume",
+        "requestedSessionId": "01a0b147-c7c6-71c0-9644-dbb9ee9a5468",
+        "returnedSessionId": "01a0b147-c7c6-71c0-9644-dbb9ee9a5468"
+      },
+      "status": "completed"
+    },
+    {
+      "runId": "review-MANAGER-MESSAGE-INTERPRETATION-1-1",
+      "role": "reviewer",
+      "provider": "codex",
+      "model": "gpt-5.6-terra",
+      "permission": "read-only",
+      "providerSession": {
+        "request": "resume",
+        "requestedSessionId": "01a0b15d-0c71-71b0-9627-b08bc5cfbb4a",
+        "returnedSessionId": "01a0b15d-0c71-71b0-9627-b08bc5cfbb4a"
+      },
+      "status": "completed"
+    }
+  ]
+}

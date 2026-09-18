@@ -1,0 +1,52 @@
+{
+  "note": "Bounded actual built-adapter continuation probes, not cache measurements. Codex initial probe fixture lacked Git and was corrected without product changes; originals remain in local run traces.",
+  "results": [
+    {
+      "provider": "claude",
+      "passed": true,
+      "requested": [
+        "--print",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--prompt-suggestions",
+        "false",
+        "--model",
+        "claude-opus-4-8",
+        "--effort",
+        "high",
+        "--permission-mode",
+        "plan",
+        "--resume",
+        "447d66b8-b591-47f7-9116-2f69a1a2d4a3",
+        "-p",
+        "-"
+      ],
+      "sessionId": "447d66b8-b591-47f7-9116-2f69a1a2d4a3",
+      "status": "completed",
+      "finalText": "MAPLE-6831"
+    },
+    {
+      "provider": "codex",
+      "passed": true,
+      "requested": [
+        "exec",
+        "--sandbox",
+        "read-only",
+        "-C",
+        "/private/tmp/am-native-session-AZjt6W",
+        "resume",
+        "01a0b122-cfe5-79d0-9ea0-9650b1d40f0f",
+        "--model",
+        "gpt-5.6-terra",
+        "--config",
+        "model_reasoning_effort=\"low\"",
+        "--json",
+        "-"
+      ],
+      "sessionId": "01a0b122-cfe5-79d0-9ea0-9650b1d40f0f",
+      "status": "completed",
+      "finalText": "ORCHID-4729"
+    }
+  ]
+}

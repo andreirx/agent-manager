@@ -1271,11 +1271,11 @@ const legacyRoutingCapture = [
   '  stdin: <pinned role prompts> + <generated select-slice context>',
   '# implement  (codex, mode=edit, permission=write)',
   '  cwd : <target-root>',
-  '  cmd : codex exec --model gpt-5.6-sol --config model_reasoning_effort="high" --config developer_instructions="# Engineering discipline for supervised agent w...(<shared-prompt-length> chars, TOML-escaped) --sandbox workspace-write -C <target-root> -',
+  '  cmd : codex exec --model gpt-5.6-sol --config model_reasoning_effort="high" --config developer_instructions="# Engineering discipline for supervised agent w...(<shared-prompt-length> chars, TOML-escaped) --sandbox workspace-write -C <target-root> --json -',
   '  stdin: <pinned role prompts> + <generated implement context>',
   '# review-impl  (codex, mode=review, permission=read-only)',
   '  cwd : <target-root>',
-  '  cmd : codex exec --model gpt-5.6-terra --config model_reasoning_effort="high" --config developer_instructions="# Engineering discipline for supervised agent w...(<shared-prompt-length> chars, TOML-escaped) --sandbox read-only -C <target-root> -',
+  '  cmd : codex exec --model gpt-5.6-terra --config model_reasoning_effort="high" --config developer_instructions="# Engineering discipline for supervised agent w...(<shared-prompt-length> chars, TOML-escaped) --sandbox read-only -C <target-root> --json -',
   '  stdin: <pinned role prompts> + <generated review-impl context>',
 ];
 
@@ -1419,6 +1419,8 @@ describe('ASSURANCE-1 built CLI isolation and dry-run (A1-C04)', () => {
     expect(result.stdout).toContain('declared SLICE_DOC (not validated): docs/slices/S2.md');
     expect(result.stdout).toContain('relay will then validate its SLICE_DOC allocation before reviewer dispatch');
     expect(result.stdout).not.toContain('input: review-subject');
+    expect(result.stdout).toContain('--json');
+    expect(result.stdout).not.toContain(' resume ');
     expect(await readRegularFileBytesByPath(target)).toEqual(before);
     expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
   });
@@ -1427,6 +1429,13 @@ describe('ASSURANCE-1 built CLI isolation and dry-run (A1-C04)', () => {
     target = await mkdtemp('/private/tmp/ASSURANCE-2-document-preflight-candidate-');
     const seeded = await seedV1DocumentBridge(target);
     await writeV2DocumentCandidate(target);
+    const statusPath = join(seeded.sliceDir, 'status.json');
+    const status = JSON.parse(await readFile(statusPath, 'utf-8')) as Record<string, unknown>;
+    status.providerSessions = {
+      builder: { provider: 'codex', sessionId: 'document-author-dry-run' },
+      reviewer: { provider: 'codex', sessionId: 'document-reviewer-dry-run' },
+    };
+    await writeFile(statusPath, json(status), 'utf-8');
     const before = await readRegularFileBytesByPath(target);
     const result = await builtCli([
       target, '--dry-run', '--baseline', seeded.inputClosure.manifestPath, '--slice', 'DOC-NEG',
@@ -1439,6 +1448,9 @@ describe('ASSURANCE-1 built CLI isolation and dry-run (A1-C04)', () => {
     expect(result.stdout).toContain('input: review-subject target:docs/requirements/baselines/B2.json');
     expect(result.stdout).toContain('input: review-subject target:docs/slices/S2.md');
     expect(result.stdout).not.toContain('pending authored review subject');
+    expect(result.stdout).toContain(`exec --sandbox workspace-write -C ${target} resume document-author-dry-run`);
+    expect(result.stdout).toContain(`exec --sandbox read-only -C ${target} resume document-reviewer-dry-run`);
+    expect(result.stdout).toContain('--json -');
     expect(await readRegularFileBytesByPath(target)).toEqual(before);
     expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
   });
@@ -1668,6 +1680,26 @@ describe('ASSURANCE-1 built CLI isolation and dry-run (A1-C04)', () => {
         .replace(/\(\d+ chars, TOML-escaped\)/, '(<shared-prompt-length> chars, TOML-escaped)')
     );
     expect(normalized).toEqual(legacyRoutingCapture);
+  });
+
+  it('legacy dry-run shows the exact retained role session ids without spawning providers', async () => {
+    target = await mkdtemp('/private/tmp/SLICE-PROVIDER-SESSIONS-1-dry-run-');
+    await seedImplementationSessionSlice(target, 'DRY-SESSION', {
+      providerSessions: {
+        builder: { provider: 'codex', sessionId: 'dry-builder-id' },
+        reviewer: { provider: 'codex', sessionId: 'dry-reviewer-id' },
+      },
+    });
+    const result = await builtCli([
+      target, '--slice', 'DRY-SESSION', '--dry-run',
+      '--builder', 'codex', '--supervisor', 'codex',
+      '--shared-prompt', join(process.cwd(), 'SYSTEM.txt'),
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`exec --sandbox workspace-write -C ${target} resume dry-builder-id`);
+    expect(result.stdout).toContain(`exec --sandbox read-only -C ${target} resume dry-reviewer-id`);
+    expect(result.stdout).toContain('--json -');
+    expect(await exists(join(target, '.agent-manager/logs'))).toBe(false);
   });
 
   it('live terminal resume labels the resolved persisted mode rather than flag presence', async () => {
@@ -1991,16 +2023,16 @@ class FixedClock implements ClockPort {
 /** Stub provider: canned text per role, records every request for assertions. */
 class StubRunner implements ProviderRunnerPort {
   public readonly calls: RunRequest[] = [];
-  constructor(private readonly respond: (req: RunRequest) => string) {}
+  constructor(private readonly respond: (req: RunRequest) => string | RunResult['outputArtifacts']) {}
   async run(request: RunRequest): Promise<RunResult> {
     this.calls.push(request);
-    const content = this.respond(request);
+    const response = this.respond(request);
     return {
       runId: request.runId,
       status: RunStatus.COMPLETED,
-      outputArtifacts: content
-        ? [{ suggestedPath: `${request.role}-output.md`, type: 'provider-output', content }]
-        : [],
+      outputArtifacts: typeof response === 'string'
+        ? response ? [{ suggestedPath: `${request.role}-output.md`, type: 'provider-output', content: response }] : []
+        : response,
       logPath: `/tmp/stub-${request.role}.log`,
       startedAt: '2026-06-26T00:00:00.000Z',
       completedAt: '2026-06-26T00:00:01.000Z',
@@ -2126,6 +2158,223 @@ function makeInput(target: string): TargetRelayInput {
     reselect: false,
   };
 }
+
+class NativeSessionStub implements ProviderRunnerPort {
+  readonly sessionSupport = 'explicit-id' as const;
+  readonly calls: RunRequest[] = [];
+
+  constructor(
+    private readonly respond: (request: RunRequest, callIndex: number) => Promise<{
+      status?: RunResult['status'];
+      content: string;
+      sessionId?: string;
+      error?: string;
+    }> | {
+      status?: RunResult['status'];
+      content: string;
+      sessionId?: string;
+      error?: string;
+    }
+  ) {}
+
+  async run(request: RunRequest): Promise<RunResult> {
+    this.calls.push(request);
+    const response = await this.respond(request, this.calls.length - 1);
+    const status = response.status ?? RunStatus.COMPLETED;
+    return {
+      runId: request.runId,
+      status,
+      outputArtifacts: status === RunStatus.COMPLETED && response.content
+        ? [{ suggestedPath: `${request.role}-output.md`, type: 'provider-output', content: response.content }]
+        : [],
+      logPath: `/tmp/session-stub-${request.role}.log`,
+      startedAt: '2026-09-18T00:00:00.000Z',
+      completedAt: '2026-09-18T00:00:01.000Z',
+      deliveryReceipt: receiptFor(request),
+      ...(response.sessionId !== undefined ? { providerSessionId: response.sessionId } : {}),
+      ...(response.error !== undefined ? { error: response.error } : {}),
+    };
+  }
+}
+
+async function seedImplementationSessionSlice(target: string, sliceId: string, extraStatus: Record<string, unknown> = {}): Promise<string> {
+  const sliceDir = join(target, '.agent-manager/slices', sliceId);
+  const sliceDoc = `docs/slices/${sliceId}.md`;
+  await mkdir(join(sliceDir, 'runs'), { recursive: true });
+  await writeFile(join(sliceDir, 'selection.md'), `STATUS: selected\nSLICE_ID: ${sliceId}\nSLICE_DOC: ${sliceDoc}\nARTIFACT_KIND: IMPLEMENTATION\n`, 'utf-8');
+  await writeFile(join(sliceDir, 'status.json'), json({
+    phase: 'implement', sliceId, sliceDoc, iteration: 0,
+    updatedAt: '2026-09-18T00:00:00.000Z', lastActor: 'human',
+    builderProvider: 'codex', supervisorProvider: 'codex', ...extraStatus,
+  }), 'utf-8');
+  return sliceDir;
+}
+
+describe('SLICE-PROVIDER-SESSIONS-1 role conversation lifecycle', () => {
+  let target = '';
+  afterEach(async () => {
+    if (target) await rm(target, { recursive: true, force: true });
+    target = '';
+  });
+
+  it('keeps separate builder/reviewer ids across a relay restart, model change, and two-provider-same case', async () => {
+    target = await mkdtemp('/private/tmp/SLICE-PROVIDER-SESSIONS-1-lifecycle-');
+    const sliceDir = await seedImplementationSessionSlice(target, 'SPS-ONE');
+    await writeFile(join(target, 'partial-user-edit.txt'), 'keep me\n', 'utf-8');
+    await writeFile(join(sliceDir, 'retained-evidence.txt'), 'existing evidence\n', 'utf-8');
+
+    let reviewCount = 0;
+    const firstProcess = new NativeSessionStub((request) => {
+      const sessionId = request.providerSession?.kind === 'resume'
+        ? request.providerSession.sessionId
+        : request.role === 'builder' ? 'builder-native-1' : 'reviewer-native-1';
+      if (request.role === 'reviewer') reviewCount += 1;
+      return { content: request.role === 'reviewer' && reviewCount === 1 ? 'STATUS: revise\nRefine.' : 'built', sessionId };
+    });
+    const firstInput = {
+      ...makeInput(target), sliceId: 'SPS-ONE', maxIterations: 1,
+      builderProvider: 'codex' as const, supervisorProvider: 'codex' as const,
+    };
+    expect((await targetRelayLoop(firstInput, makeDeps(firstProcess, firstProcess))).phase).toBe('blocked');
+    expect(firstProcess.calls.map((call) => [call.role, call.providerSession])).toEqual([
+      ['builder', { kind: 'fresh' }],
+      ['reviewer', { kind: 'fresh' }],
+    ]);
+
+    const afterFirst = JSON.parse(await readFile(join(sliceDir, 'status.json'), 'utf-8')) as Record<string, unknown>;
+    expect(afterFirst.providerSessions).toEqual({
+      builder: { provider: 'codex', sessionId: 'builder-native-1' },
+      reviewer: { provider: 'codex', sessionId: 'reviewer-native-1' },
+    });
+    expect(await readFile(join(target, 'partial-user-edit.txt'), 'utf-8')).toBe('keep me\n');
+    expect(await readFile(join(sliceDir, 'retained-evidence.txt'), 'utf-8')).toBe('existing evidence\n');
+
+    const secondProcess = new NativeSessionStub((request) => ({
+      content: request.role === 'reviewer' ? 'STATUS: approved\nAccepted.' : 'rebuilt',
+      sessionId: request.providerSession?.kind === 'resume' ? request.providerSession.sessionId : 'unexpected-fresh',
+    }));
+    const resumed = await targetRelayLoop({
+      ...firstInput, maxIterations: 2, builderModel: 'changed-model', supervisorModel: 'changed-review-model',
+    }, makeDeps(secondProcess, secondProcess));
+    expect(resumed.phase).toBe('done');
+    expect(secondProcess.calls.map((call) => [call.role, call.model, call.providerSession])).toEqual([
+      ['builder', 'changed-model', { kind: 'resume', sessionId: 'builder-native-1' }],
+      ['reviewer', 'changed-review-model', { kind: 'resume', sessionId: 'reviewer-native-1' }],
+    ]);
+    const buildRecord = JSON.parse(await readFile(join(sliceDir, 'runs/build-1.json'), 'utf-8')) as Record<string, unknown>;
+    const reviewRecord = JSON.parse(await readFile(join(sliceDir, 'runs/review-1.json'), 'utf-8')) as Record<string, unknown>;
+    expect(buildRecord.providerSession).toEqual({ request: 'resume', requestedSessionId: 'builder-native-1', returnedSessionId: 'builder-native-1' });
+    expect(reviewRecord.providerSession).toEqual({ request: 'resume', requestedSessionId: 'reviewer-native-1', returnedSessionId: 'reviewer-native-1' });
+
+    const terminalProcess = new NativeSessionStub(() => ({ content: 'must not run' }));
+    expect((await targetRelayLoop({ ...firstInput, maxIterations: 3 }, makeDeps(terminalProcess, terminalProcess))).phase).toBe('done');
+    expect(terminalProcess.calls).toHaveLength(0);
+
+    await seedImplementationSessionSlice(target, 'SPS-TWO');
+    const newSliceProcess = new NativeSessionStub((request) => ({
+      content: request.role === 'reviewer' ? 'STATUS: approved' : 'built',
+      sessionId: request.role === 'builder' ? 'builder-native-2' : 'reviewer-native-2',
+    }));
+    expect((await targetRelayLoop({ ...firstInput, sliceId: 'SPS-TWO' }, makeDeps(newSliceProcess, newSliceProcess))).phase).toBe('done');
+    expect(newSliceProcess.calls.map((call) => call.providerSession)).toEqual([{ kind: 'fresh' }, { kind: 'fresh' }]);
+  });
+
+  it('starts fresh after a provider switch and refuses malformed or mismatched retained sessions', async () => {
+    target = await mkdtemp('/private/tmp/SLICE-PROVIDER-SESSIONS-1-state-');
+    await seedImplementationSessionSlice(target, 'SWITCH', {
+      providerSessions: { builder: { provider: 'codex', sessionId: 'old-builder' } },
+    });
+    const switched = new NativeSessionStub((request) => ({
+      content: request.role === 'reviewer' ? 'STATUS: approved' : 'built',
+      sessionId: request.role === 'builder' ? 'claude-builder' : 'claude-reviewer',
+    }));
+    const input = { ...makeInput(target), sliceId: 'SWITCH', builderProvider: 'claude' as const, supervisorProvider: 'claude' as const };
+    expect((await targetRelayLoop(input, makeDeps(switched, switched))).phase).toBe('done');
+    expect(switched.calls[0]?.providerSession).toEqual({ kind: 'fresh' });
+
+    await seedImplementationSessionSlice(target, 'MALFORMED', {
+      providerSessions: { builder: { provider: 'codex', sessionId: '   ' } },
+    });
+    const untouched = new NativeSessionStub(() => ({ content: 'must not run' }));
+    const malformed = await targetRelayLoop({ ...makeInput(target), sliceId: 'MALFORMED' }, makeDeps(untouched, untouched));
+    expect(malformed.phase).toBe('blocked');
+    expect(malformed.reason).toContain('Malformed status.json');
+    expect(untouched.calls).toHaveLength(0);
+
+    await seedImplementationSessionSlice(target, 'MISMATCH', {
+      providerSessions: { builder: { provider: 'codex', sessionId: 'expected-builder' } },
+    });
+    const mismatch = new NativeSessionStub((request) => ({ content: 'built', sessionId: request.role === 'builder' ? 'replacement-builder' : 'reviewer' }));
+    const mismatched = await targetRelayLoop({ ...makeInput(target), sliceId: 'MISMATCH', builderProvider: 'codex', supervisorProvider: 'codex' }, makeDeps(mismatch, mismatch));
+    expect(mismatched.phase).toBe('blocked');
+    expect(await readFile(join(target, '.agent-manager/slices/MISMATCH/notes-for-human.md'), 'utf-8')).toContain('refusing a silent new conversation');
+    expect(mismatch.calls).toHaveLength(1);
+  });
+
+  it('keeps selection and decision challenge/rebuttal outside the role conversations', async () => {
+    target = await mkdtemp('/private/tmp/SLICE-PROVIDER-SESSIONS-1-stateless-roles-');
+    const runner = new NativeSessionStub((request) => {
+      if (request.role === 'supervisor') return { content: 'STATUS: selected\nSLICE_ID: STATELESS\nSLICE_DOC: docs/slices/STATELESS.md' };
+      if (request.role === 'builder') return { content: MARKER_ARTIFACT, sessionId: 'builder-session' };
+      if (request.role === 'reviewer') return { content: 'STATUS: approved', sessionId: 'reviewer-session' };
+      if (request.role === 'decision-challenger') return { content: CHALLENGE_OUTPUT };
+      return { content: REBUTTAL_OUTPUT };
+    });
+    const input = {
+      ...makeInput(target), reselect: true,
+      builderProvider: 'codex' as const, supervisorProvider: 'codex' as const,
+    };
+    expect((await targetRelayLoop(input, makeDeps(runner, runner))).phase).toBe('awaiting-ratification');
+    expect(runner.calls.map((call) => [call.role, call.providerSession])).toEqual([
+      ['supervisor', undefined],
+      ['builder', { kind: 'fresh' }],
+      ['reviewer', { kind: 'fresh' }],
+      ['decision-challenger', undefined],
+      ['decision-rebutter', undefined],
+    ]);
+  });
+
+  it('persists a failed attempt session before retrying that exact conversation', async () => {
+    target = await mkdtemp('/private/tmp/SLICE-PROVIDER-SESSIONS-1-retry-');
+    const sliceDir = await seedImplementationSessionSlice(target, 'RETRY');
+    let builderAttempts = 0;
+    const runner = new NativeSessionStub((request) => {
+      if (request.role === 'builder') {
+        builderAttempts += 1;
+        if (builderAttempts === 1) return { status: RunStatus.FAILED, content: '', sessionId: 'retry-builder', error: 'transient' };
+        return { content: 'built after retry', sessionId: request.providerSession?.kind === 'resume' ? request.providerSession.sessionId : 'wrong' };
+      }
+      return { content: 'STATUS: approved', sessionId: 'retry-reviewer' };
+    });
+    const deps = { ...makeDeps(runner, runner), retryDelay: async () => {} };
+    expect((await targetRelayLoop({ ...makeInput(target), sliceId: 'RETRY', builderProvider: 'codex', supervisorProvider: 'codex' }, deps)).phase).toBe('done');
+    expect(runner.calls[0]?.providerSession).toEqual({ kind: 'fresh' });
+    expect(runner.calls[1]?.providerSession).toEqual({ kind: 'resume', sessionId: 'retry-builder' });
+    const firstAttempt = JSON.parse(await readFile(join(sliceDir, 'runs/build-0-attempt-1.json'), 'utf-8')) as Record<string, unknown>;
+    expect(firstAttempt.providerSession).toEqual({ request: 'fresh', returnedSessionId: 'retry-builder' });
+    const status = JSON.parse(await readFile(join(sliceDir, 'status.json'), 'utf-8')) as Record<string, unknown>;
+    expect((status.providerSessions as Record<string, unknown>).builder).toEqual({ provider: 'codex', sessionId: 'retry-builder' });
+  });
+
+  it('preserves a captured reviewer id when later review-output processing throws', async () => {
+    target = await mkdtemp('/private/tmp/SLICE-PROVIDER-SESSIONS-1-review-error-');
+    const sliceDir = await seedSlice(target, 'REVIEW-ERROR', 'already built');
+    await mkdir(join(sliceDir, 'review-0.json'));
+    const builder = new NativeSessionStub(() => ({ content: 'must not run', sessionId: 'unused-builder' }));
+    const reviewer = new NativeSessionStub(() => ({ content: 'STATUS: approved', sessionId: 'reviewer-before-processing-error' }));
+
+    expect((await targetRelayLoop({ ...makeInput(target), sliceId: 'REVIEW-ERROR' }, makeDeps(builder, reviewer))).phase).toBe('blocked');
+    expect(builder.calls).toHaveLength(0);
+    expect(reviewer.calls[0]?.providerSession).toEqual({ kind: 'fresh' });
+    const status = JSON.parse(await readFile(join(sliceDir, 'status.json'), 'utf-8')) as Record<string, unknown>;
+    expect((status.providerSessions as Record<string, unknown>).reviewer).toEqual({
+      provider: 'codex',
+      sessionId: 'reviewer-before-processing-error',
+    });
+    const attempt = JSON.parse(await readFile(join(sliceDir, 'runs/review-0-attempt-1.json'), 'utf-8')) as Record<string, unknown>;
+    expect(attempt.providerSession).toEqual({ request: 'fresh', returnedSessionId: 'reviewer-before-processing-error' });
+  });
+});
 
 const CHALLENGE_OUTPUT = [
   'Adversarial decision review.',
@@ -2949,7 +3198,7 @@ describe('ASSURANCE-3 target relay evidence gate', () => {
     }
   });
 
-  it('retains the implementation base after invalid builder evidence and resumes the partial candidate', async () => {
+  it('retains the implementation base and partial candidate while invalid builder evidence awaits interpretation', async () => {
     target = await mkdtemp('/private/tmp/ASSURANCE-3-resume-');
     const seeded = await seedStage3Implementation(target);
     let builderAttempt = 0;
@@ -2964,15 +3213,16 @@ describe('ASSURANCE-3 target relay evidence gate', () => {
     });
     const partial = observation([candidateEntry()]);
     const first = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), partial]));
-    expect(first.phase).toBe('blocked');
-    const blockedStatus = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')) as { candidateTracking?: { state: string; baseRevision: string } };
-    expect(blockedStatus.candidateTracking).toEqual({ contract: 'requirements-assurance/v3-candidate-tracking', state: 'building', baseRevision: 'a'.repeat(40) });
+    expect(first.phase).toBe('awaiting-manager-interpretation');
+    const pendingStatus = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')) as { candidateTracking?: { state: string; baseRevision: string }; pendingInterpretation?: { contract: string } };
+    expect(pendingStatus.candidateTracking).toEqual({ contract: 'requirements-assurance/v3-candidate-tracking', state: 'building', baseRevision: 'a'.repeat(40) });
+    expect(pendingStatus.pendingInterpretation?.contract).toBe('requirements-assurance/v3-implementation-evidence');
 
-    const resumed = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [partial, partial, partial, partial, partial]));
-    expect(resumed.phase).toBe('done');
-    expect(builder.calls).toHaveLength(2);
-    expect(reviewer.calls).toHaveLength(1);
-    expect(await exists(join(target, 'docs/assurance/S2/verification.json'))).toBe(true);
+    const resumed = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, []));
+    expect(resumed.phase).toBe('awaiting-manager-interpretation');
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(0);
+    expect(await exists(join(target, 'docs/assurance/S2/verification.json'))).toBe(false);
   });
 
   it('keeps a structured decision block on plain resume without invoking another builder', async () => {
@@ -3031,6 +3281,511 @@ describe('ASSURANCE-3 target relay evidence gate', () => {
     expect(resumed).toEqual(expect.objectContaining({ phase: 'blocked', stopped: true, reason: expect.stringContaining('malformed or unreadable') }));
     expect(builder.calls).toHaveLength(1);
     expect(reviewer.calls).toHaveLength(1);
+  });
+});
+
+describe('MANAGER-MESSAGE-INTERPRETATION-1 retained output routing', () => {
+  let target = '';
+  afterEach(async () => { if (target) await rm(target, { recursive: true, force: true }); target = ''; });
+
+  type OffShape = 'empty' | 'multiple' | 'structured';
+  const offShapeArtifacts = (shape: OffShape): RunResult['outputArtifacts'] => shape === 'empty'
+    ? []
+    : shape === 'multiple'
+      ? [
+          { suggestedPath: 'first.md', type: 'provider-output', content: 'first retained message' },
+          { suggestedPath: 'second.md', type: 'provider-output', content: 'second retained message' },
+        ]
+      : [{ suggestedPath: 'structured.json', type: 'provider-output', content: { summary: 'structured retained message', evidence: ['A3-C04'] } }];
+
+  async function writeInterpretation(path: string, content: Record<string, unknown>, rationale = 'The retained message supplies these semantics despite its alternate shape.'): Promise<void> {
+    await writeFile(path, json({ managerId: 'manager-fixture', rationale, content }), 'utf-8');
+  }
+
+  it.each(['empty', 'multiple', 'structured'] as const)('retains %s implementation-evidence artifacts and awaits interpretation', async (shape) => {
+    target = await mkdtemp(`/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-evidence-${shape}-`);
+    const seeded = await seedStage3Implementation(target);
+    const candidate = observation([candidateEntry()]);
+    const builder = new StubRunner(() => offShapeArtifacts(shape));
+    const reviewer = new StubRunner(() => 'must not run');
+    const first = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), candidate]));
+    expect(first.phase).toBe('awaiting-manager-interpretation');
+    expect(reviewer.calls).toHaveLength(0);
+    const retained = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/build-0.md'), 'utf-8')) as { kind: string; artifacts: unknown[] };
+    expect(retained.kind).toBe('retained-provider-output-artifacts');
+    expect(retained.artifacts).toEqual(offShapeArtifacts(shape));
+    expect(await exists(join(target, '.agent-manager/slices/S2/runs/build-0.json'))).toBe(true);
+  });
+
+  it.each(['empty', 'multiple', 'structured'] as const)('retains %s implementation-review artifacts and awaits interpretation', async (shape) => {
+    target = await mkdtemp(`/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-implementation-review-${shape}-`);
+    const seeded = await seedStage3Implementation(target);
+    const candidate = observation([candidateEntry()]);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const reviewer = new StubRunner(() => offShapeArtifacts(shape));
+    const first = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), candidate, candidate, candidate]));
+    expect(first.phase).toBe('awaiting-manager-interpretation');
+    const envelope = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/review-0.json'), 'utf-8')) as { raw: string };
+    const retained = JSON.parse(envelope.raw) as { kind: string; artifacts: unknown[] };
+    expect(retained.kind).toBe('retained-provider-output-artifacts');
+    expect(retained.artifacts).toEqual(offShapeArtifacts(shape));
+    expect(await exists(join(target, '.agent-manager/slices/S2/runs/review-0.json'))).toBe(true);
+  });
+
+  it.each(['empty', 'multiple', 'structured'] as const)('retains %s requirements-review artifacts and awaits interpretation', async (shape) => {
+    target = await mkdtemp(`/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-requirements-review-${shape}-`);
+    const seeded = await seedV1DocumentBridge(target);
+    const author = new AsyncStubRunner(async () => { await writeV2DocumentCandidate(target); return 'candidate authored'; });
+    const reviewer = new StubRunner(() => offShapeArtifacts(shape));
+    const first = await targetRelayLoop(seeded.input, makeDeps(author, reviewer));
+    expect(first.phase).toBe('awaiting-manager-interpretation');
+    const envelope = JSON.parse(await readFile(join(seeded.sliceDir, 'review-0.json'), 'utf-8')) as { raw: string };
+    const retained = JSON.parse(envelope.raw) as { kind: string; artifacts: unknown[] };
+    expect(retained.kind).toBe('retained-provider-output-artifacts');
+    expect(retained.artifacts).toEqual(offShapeArtifacts(shape));
+    expect(await exists(join(seeded.sliceDir, 'runs/review-0.json'))).toBe(true);
+  });
+
+  it('retains alternate builder evidence across restart, rejects incomplete content, and applies valid semantics with zero provider calls', async () => {
+    target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-evidence-');
+    const seeded = await seedStage3Implementation(target);
+    const pinnedBefore = await Promise.all(['SYSTEM.txt', 'prompts/system/base.md', 'prompts/roles/builder-target.md', 'prompts/roles/reviewer-target.md'].map((path) => readFile(join(target, path), 'utf-8')));
+    const builder = new StubRunner(() => 'I ran A3-C04 successfully and changed src/a.ts for EX-REQ-001-L01; exact envelope omitted.');
+    const reviewer = new StubRunner(() => 'must not run');
+    const candidate = observation([candidateEntry()]);
+    const first = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), candidate]));
+    expect(first.phase).toBe('awaiting-manager-interpretation');
+    const rawBefore = await readFile(join(target, '.agent-manager/slices/S2/build-0.md'), 'utf-8');
+    expect(rawBefore).toContain('exact envelope omitted');
+
+    const restartRunner = new StubRunner(() => 'must not run');
+    expect((await targetRelayLoop(seeded.input, stage3Deps(restartRunner, restartRunner, []))).phase).toBe('awaiting-manager-interpretation');
+    expect(restartRunner.calls).toHaveLength(0);
+
+    const commandPath = join(target, 'manager-command.json');
+    const semantic = evidenceResult(seeded.allocationRef);
+    await writeInterpretation(commandPath, { checks: [], changeJustifications: semantic.changeJustifications, limitations: semantic.limitations, report: semantic.report });
+    const noCall = new StubRunner(() => 'must not run');
+    const incomplete = await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'apply-interpretation', commandPath } }, stage3Deps(noCall, noCall, [candidate]));
+    expect(incomplete.phase).toBe('awaiting-manager-interpretation');
+    expect(incomplete.reason).toContain('review-coverage-missing');
+    expect(noCall.calls).toHaveLength(0);
+    expect(await exists(join(target, '.agent-manager/slices/S2/manager-interpretation-builder-0.json'))).toBe(false);
+
+    await writeInterpretation(commandPath, { checks: semantic.checks, changeJustifications: semantic.changeJustifications, limitations: semantic.limitations, report: semantic.report });
+    const applied = await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'apply-interpretation', commandPath } }, stage3Deps(noCall, noCall, [candidate]));
+    expect(applied.phase).toBe('review-impl');
+    expect(noCall.calls).toHaveLength(0);
+    const evidenceState = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/implementation-evidence-0.json'), 'utf-8')) as { evidence: { limitations: string[] }; verification: { limitations: string[] } };
+    expect(evidenceState.evidence.limitations.join('\n')).toContain('Manager interpretation by manager-fixture');
+    expect(evidenceState.verification.limitations).toEqual(evidenceState.evidence.limitations);
+    expect(await readFile(join(target, '.agent-manager/slices/S2/build-0.md'), 'utf-8')).toBe(rawBefore);
+    const audit = await readFile(join(target, '.agent-manager/slices/S2/manager-interpretation-builder-0.json'), 'utf-8');
+    expect(audit).toContain('"resultingRoute": "review-impl"');
+    const pinnedAfter = await Promise.all(['SYSTEM.txt', 'prompts/system/base.md', 'prompts/roles/builder-target.md', 'prompts/roles/reviewer-target.md'].map((path) => readFile(join(target, path), 'utf-8')));
+    expect(pinnedAfter).toEqual(pinnedBefore);
+  });
+
+  it.each(['raw', 'run', 'candidate', 'input'] as const)('refuses %s drift and keeps the interpretation pending', async (drift) => {
+    target = await mkdtemp(`/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-${drift}-`);
+    const seeded = await seedStage3Implementation(target);
+    const candidate = observation([candidateEntry()]);
+    const builder = new StubRunner(() => 'alternate evidence shape');
+    expect((await targetRelayLoop(seeded.input, stage3Deps(builder, new StubRunner(() => 'unused'), [observation(), candidate]))).phase).toBe('awaiting-manager-interpretation');
+    if (drift === 'raw') await writeFile(join(target, '.agent-manager/slices/S2/build-0.md'), 'changed raw\n', 'utf-8');
+    if (drift === 'run') {
+      const path = join(target, '.agent-manager/slices/S2/runs/build-0.json');
+      const run = JSON.parse(await readFile(path, 'utf-8')) as Record<string, unknown>;
+      run.runId = 'different-run';
+      await writeFile(path, json(run), 'utf-8');
+    }
+    if (drift === 'input') await writeFile(join(target, 'prompts/roles/builder-target.md'), 'changed pinned instruction\n', 'utf-8');
+    const semantic = evidenceResult(seeded.allocationRef);
+    const commandPath = join(target, 'manager-command.json');
+    await writeInterpretation(commandPath, { checks: semantic.checks, changeJustifications: semantic.changeJustifications, limitations: semantic.limitations, report: semantic.report });
+    const observed = drift === 'candidate' ? observation([candidateEntry(computeDigest('old'), computeDigest('drift'))]) : candidate;
+    const untouched = new StubRunner(() => 'must not run');
+    const { baselinePath: _baselinePath, ...resumeInput } = seeded.input;
+    const operationInput = drift === 'input'
+      ? { ...resumeInput, managerOperation: { kind: 'apply-interpretation' as const, commandPath } }
+      : { ...seeded.input, managerOperation: { kind: 'apply-interpretation' as const, commandPath } };
+    const result = await targetRelayLoop(operationInput, stage3Deps(untouched, untouched, [observed]));
+    expect(result.phase).toBe('awaiting-manager-interpretation');
+    expect(result.reason).toMatch(/(digest-mismatch|subject-mismatch)/);
+    expect(untouched.calls).toHaveLength(0);
+    const retained = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')) as { phase: string };
+    expect(retained.phase).toBe('awaiting-manager-interpretation');
+  });
+
+  it('applies an alternate implementation review through accepted publication with durable manager attribution', async () => {
+    target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-implementation-review-');
+    const seeded = await seedStage3Implementation(target);
+    const candidate = observation([candidateEntry()]);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const reviewer = new StubRunner(() => 'All obligations, the check, and src/a.ts are acceptable; envelope omitted.');
+    const first = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), candidate, candidate, candidate]));
+    expect(first.phase).toBe('awaiting-manager-interpretation');
+    const rawEnvelopeBefore = await readFile(join(target, '.agent-manager/slices/S2/review-0.json'), 'utf-8');
+    const evidenceState = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/implementation-evidence-0.json'), 'utf-8')) as { checkpoint: CandidateCheckpoint; verificationSha256: string };
+    const complete = implementationReview(evidenceState.checkpoint, evidenceState.verificationSha256);
+    const commandPath = join(target, 'review-command.json');
+    await writeInterpretation(commandPath, {
+      result: complete.result,
+      obligationAssessments: complete.obligationAssessments,
+      checkAssessments: complete.checkAssessments,
+      changedPathAssessments: complete.changedPathAssessments,
+      findings: complete.findings,
+      decisions: complete.decisions,
+      report: complete.report,
+    });
+    const noCall = new StubRunner(() => 'must not run');
+    const applied = await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'apply-interpretation', commandPath } }, stage3Deps(noCall, noCall, [candidate, candidate]));
+    expect(applied.phase).toBe('done');
+    expect(noCall.calls).toHaveLength(0);
+    const durable = await readFile(join(target, 'docs/assurance/S2/implementation-review.json'), 'utf-8');
+    expect(durable).toContain('Manager interpretation by manager-fixture');
+    expect(durable).toContain('The provider remains the performer');
+    expect(durable).toContain('this interpretation is not independent execution evidence');
+    expect(durable).not.toContain('the manager did not execute provider-reported checks');
+    expect(await readFile(join(target, '.agent-manager/slices/S2/review-0.json'), 'utf-8')).toBe(rawEnvelopeBefore);
+  });
+
+  it('keeps builder and reviewer interpretation and clarification identities distinct in one cycle', async () => {
+    target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-same-cycle-');
+    const seeded = await seedStage3Implementation(target);
+    const candidate = observation([candidateEntry()]);
+    const builder = new NativeSessionStub(() => ({ content: 'Builder evidence is meaningful prose.', sessionId: 'builder-cycle-session' }));
+    const reviewer = new NativeSessionStub(() => ({ content: 'Reviewer assessment is meaningful prose.', sessionId: 'reviewer-cycle-session' }));
+    const first = await targetRelayLoop(seeded.input, stage3Deps(builder, reviewer, [observation(), candidate]));
+    expect(first.phase).toBe('awaiting-manager-interpretation');
+    const builderRaw = await readFile(join(target, '.agent-manager/slices/S2/build-0.md'), 'utf-8');
+
+    const builderQuestion = join(target, 'builder-question.txt');
+    await writeFile(builderQuestion, 'Which command supports A3-C04?\n', 'utf-8');
+    const builderClarifier = new NativeSessionStub((request) => ({ content: 'A3-C04 exited 0.', sessionId: request.providerSession?.kind === 'resume' ? request.providerSession.sessionId : 'wrong' }));
+    const noCall = new StubRunner(() => 'must not run');
+    expect((await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'clarify-pending', questionPath: builderQuestion, managerId: 'manager-builder-question' } }, {
+      ...stage3Deps(noCall, noCall, [candidate]),
+      clarificationRunner: () => builderClarifier,
+    })).phase).toBe('awaiting-manager-interpretation');
+
+    const evidenceCommand = join(target, 'builder-interpretation.json');
+    const evidence = evidenceResult(seeded.allocationRef);
+    await writeInterpretation(evidenceCommand, { checks: evidence.checks, changeJustifications: evidence.changeJustifications, limitations: evidence.limitations, report: evidence.report });
+    expect((await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'apply-interpretation', commandPath: evidenceCommand } }, stage3Deps(noCall, noCall, [candidate]))).phase).toBe('review-impl');
+
+    expect((await targetRelayLoop(seeded.input, stage3Deps(noCall, reviewer, [candidate]))).phase).toBe('awaiting-manager-interpretation');
+    const reviewerRaw = await readFile(join(target, '.agent-manager/slices/S2/review-0.json'), 'utf-8');
+    const reviewerQuestion = join(target, 'reviewer-question.txt');
+    await writeFile(reviewerQuestion, 'Which assessments support the verdict?\n', 'utf-8');
+    const reviewerClarifier = new NativeSessionStub((request) => ({ content: 'All allocated assessments are accepted.', sessionId: request.providerSession?.kind === 'resume' ? request.providerSession.sessionId : 'wrong' }));
+    expect((await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'clarify-pending', questionPath: reviewerQuestion, managerId: 'manager-reviewer-question' } }, {
+      ...stage3Deps(noCall, noCall, [candidate]),
+      clarificationRunner: () => reviewerClarifier,
+    })).phase).toBe('awaiting-manager-interpretation');
+
+    const evidenceState = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/implementation-evidence-0.json'), 'utf-8')) as { checkpoint: CandidateCheckpoint; verificationSha256: string };
+    const review = implementationReview(evidenceState.checkpoint, evidenceState.verificationSha256);
+    const reviewCommand = join(target, 'reviewer-interpretation.json');
+    await writeInterpretation(reviewCommand, {
+      result: review.result,
+      obligationAssessments: review.obligationAssessments,
+      checkAssessments: review.checkAssessments,
+      changedPathAssessments: review.changedPathAssessments,
+      findings: review.findings,
+      decisions: review.decisions,
+      report: review.report,
+    });
+    expect((await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'apply-interpretation', commandPath: reviewCommand } }, stage3Deps(noCall, noCall, [candidate, candidate]))).phase).toBe('done');
+
+    const sliceDir = join(target, '.agent-manager/slices/S2');
+    for (const path of [
+      'manager-interpretation-builder-0.json',
+      'manager-interpretation-reviewer-0.json',
+      'clarification-builder-0-0.json',
+      'clarification-reviewer-0-0.json',
+      'runs/clarify-builder-0-0.json',
+      'runs/clarify-reviewer-0-0.json',
+    ]) expect(await exists(join(sliceDir, path))).toBe(true);
+    expect(await readFile(join(sliceDir, 'build-0.md'), 'utf-8')).toBe(builderRaw);
+    expect(await readFile(join(sliceDir, 'review-0.json'), 'utf-8')).toBe(reviewerRaw);
+    expect(builderClarifier.calls).toHaveLength(1);
+    expect(reviewerClarifier.calls).toHaveLength(1);
+  });
+
+  it('reuses an identical immutable interpretation audit after a recoverable consume failure', async () => {
+    target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-audit-retry-');
+    const seeded = await seedStage3Implementation(target);
+    const candidate = observation([candidateEntry()]);
+    const builder = new StubRunner(() => 'Meaningful evidence prose.');
+    const noCall = new StubRunner(() => 'must not run');
+    expect((await targetRelayLoop(seeded.input, stage3Deps(builder, noCall, [observation(), candidate]))).phase).toBe('awaiting-manager-interpretation');
+    const commandPath = join(target, 'manager-command.json');
+    const evidence = evidenceResult(seeded.allocationRef);
+    await writeInterpretation(commandPath, { checks: evidence.checks, changeJustifications: evidence.changeJustifications, limitations: evidence.limitations, report: evidence.report });
+    const originalCommand = await readFile(commandPath, 'utf-8');
+    const consumePath = join(target, '.agent-manager/slices/S2/implementation-evidence-0.json');
+    await mkdir(consumePath);
+    const first = await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'apply-interpretation', commandPath } }, stage3Deps(noCall, noCall, [candidate]));
+    expect(first.phase).toBe('awaiting-manager-interpretation');
+    const auditPath = join(target, '.agent-manager/slices/S2/manager-interpretation-builder-0.json');
+    const auditBefore = await readFile(auditPath, 'utf-8');
+    await writeInterpretation(commandPath, { checks: evidence.checks, changeJustifications: evidence.changeJustifications, limitations: evidence.limitations, report: evidence.report }, 'A conflicting rationale must not replace the existing audit.');
+    const conflicting = await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'apply-interpretation', commandPath } }, stage3Deps(noCall, noCall, [candidate]));
+    expect(conflicting.phase).toBe('awaiting-manager-interpretation');
+    expect(conflicting.reason).toContain('manager-interpretation-audit-conflict');
+    expect(await readFile(auditPath, 'utf-8')).toBe(auditBefore);
+    await writeFile(commandPath, originalCommand, 'utf-8');
+    await rm(consumePath, { recursive: true });
+    const retry = await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'apply-interpretation', commandPath } }, stage3Deps(noCall, noCall, [candidate]));
+    expect(retry.phase).toBe('review-impl');
+    expect(await readFile(auditPath, 'utf-8')).toBe(auditBefore);
+    expect(noCall.calls).toHaveLength(0);
+  });
+
+  it('applies an alternate requirements review without rerunning either role and publishes attribution', async () => {
+    target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-requirements-review-');
+    const seeded = await seedV1DocumentBridge(target);
+    let subject: { path: string; sha256: string } | undefined;
+    const author = new AsyncStubRunner(async () => { subject = await writeV2DocumentCandidate(target); return 'candidate authored'; });
+    const reviewer = new StubRunner(() => 'The complete submitted obligation set is acceptable; envelope omitted.');
+    expect((await targetRelayLoop(seeded.input, makeDeps(author, reviewer))).phase).toBe('awaiting-manager-interpretation');
+    const complete = v2ReviewResult(subject as { path: string; sha256: string }, ['EX-REQ-001', 'EX-REQ-001-L01']);
+    const commandPath = join(target, 'requirements-command.json');
+    await writeInterpretation(commandPath, { result: complete.result, assessments: complete.assessments, findings: complete.findings, decisions: complete.decisions, report: complete.report });
+    const noCall = new StubRunner(() => 'must not run');
+    const applied = await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'apply-interpretation', commandPath } }, makeDeps(noCall, noCall));
+    expect(applied.phase).toBe('done');
+    expect(noCall.calls).toHaveLength(0);
+    expect(await readFile(join(target, 'docs/assurance/B2/requirements-review.json'), 'utf-8')).toContain('Manager interpretation by manager-fixture');
+  });
+
+  it('routes an unknown legacy verdict from manager semantics with zero additional provider calls', async () => {
+    target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-legacy-');
+    const sliceDir = await seedSlice(target, 'MMI-LEGACY', 'existing build report');
+    const reviewer = new StubRunner(() => 'The change is sound, but I did not emit the historical status line.');
+    expect((await targetRelayLoop({ ...makeInput(target), sliceId: 'MMI-LEGACY' }, makeDeps(new StubRunner(() => 'unused'), reviewer))).phase).toBe('awaiting-manager-interpretation');
+    const commandPath = join(target, 'legacy-command.json');
+    await writeInterpretation(commandPath, { verdict: 'revise', rationale: 'A concrete finding still requires builder rework.' });
+    const noCall = new StubRunner(() => 'must not run');
+    const applied = await targetRelayLoop({ ...makeInput(target), sliceId: 'MMI-LEGACY', managerOperation: { kind: 'apply-interpretation', commandPath } }, makeDeps(noCall, noCall));
+    expect(applied.phase).toBe('implement');
+    expect(noCall.calls).toHaveLength(0);
+    const status = JSON.parse(await readFile(join(sliceDir, 'status.json'), 'utf-8')) as Record<string, unknown>;
+    expect(status.iteration).toBe(1);
+    expect(status.pendingInterpretation).toBeUndefined();
+  });
+
+  it('clarifies read-only in the saved same-role session, retains failures, and never increments the cycle', async () => {
+    target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-clarify-');
+    const seeded = await seedStage3Implementation(target);
+    const candidate = observation([candidateEntry()]);
+    const firstRunner = new NativeSessionStub(() => ({ content: 'Evidence summary needs a focused clarification.', sessionId: 'builder-pending-session' }));
+    expect((await targetRelayLoop({ ...seeded.input, builderProvider: 'codex' }, stage3Deps(firstRunner, new StubRunner(() => 'unused'), [observation(), candidate]))).phase).toBe('awaiting-manager-interpretation');
+    await writeFile(join(target, 'partial-work.txt'), 'retain partial work\n', 'utf-8');
+    const questionPath = join(target, 'question.txt');
+    await writeFile(questionPath, 'Which exact command outcome supports A3-C04?\n', 'utf-8');
+    const clarification = new NativeSessionStub((request) => ({ content: 'A3-C04 exited 0; evidence is build-progress.md#A3-C04.', sessionId: request.providerSession?.kind === 'resume' ? request.providerSession.sessionId : 'unexpected-fresh' }));
+    const noCall = new StubRunner(() => 'must not run');
+    const clarified = await targetRelayLoop({ ...seeded.input, builderProvider: 'codex', managerOperation: { kind: 'clarify-pending', questionPath, managerId: 'manager-fixture' } }, {
+      ...stage3Deps(noCall, noCall, [candidate]),
+      clarificationRunner: () => clarification,
+    });
+    expect(clarified.phase).toBe('awaiting-manager-interpretation');
+    expect(clarification.calls[0]).toEqual(expect.objectContaining({ role: 'builder', mode: 'review', permission: 'read-only', providerSession: { kind: 'resume', sessionId: 'builder-pending-session' } }));
+    expect(clarification.calls[0]?.delivery.kind).toBe('reviewed-input-snapshots');
+    expect(await readFile(join(target, 'partial-work.txt'), 'utf-8')).toBe('retain partial work\n');
+    let status = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')) as { iteration: number; providerSessions: { builder: unknown }; pendingInterpretation: { clarifications: unknown[] } };
+    expect(status.iteration).toBe(0);
+    expect(status.pendingInterpretation.clarifications).toHaveLength(1);
+
+    const mismatched = new NativeSessionStub(() => ({ content: 'mismatched continuation', sessionId: 'replacement-session' }));
+    const second = await targetRelayLoop({ ...seeded.input, builderProvider: 'codex', managerOperation: { kind: 'clarify-pending', questionPath, managerId: 'manager-fixture' } }, {
+      ...stage3Deps(noCall, noCall, [candidate]),
+      clarificationRunner: () => mismatched,
+    });
+    expect(second.phase).toBe('awaiting-manager-interpretation');
+    expect(second.reason).toContain('instead of requested');
+    status = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')) as typeof status;
+    expect(status.providerSessions.builder).toEqual({ provider: 'codex', sessionId: 'builder-pending-session' });
+    expect(status.pendingInterpretation.clarifications).toHaveLength(2);
+
+    const failed = new NativeSessionStub(() => ({ status: RunStatus.FAILED, content: '', error: 'clarification transport failed' }));
+    const third = await targetRelayLoop({ ...seeded.input, builderProvider: 'codex', managerOperation: { kind: 'clarify-pending', questionPath, managerId: 'manager-on-failure' } }, {
+      ...stage3Deps(noCall, noCall, [candidate]),
+      clarificationRunner: () => failed,
+    });
+    expect(third.phase).toBe('awaiting-manager-interpretation');
+    expect(third.reason).toContain('clarification transport failed');
+    status = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')) as typeof status;
+    expect(status.iteration).toBe(0);
+    expect(status.providerSessions.builder).toEqual({ provider: 'codex', sessionId: 'builder-pending-session' });
+    expect(status.pendingInterpretation.clarifications).toHaveLength(3);
+    const failedRecord = await readFile(join(target, '.agent-manager/slices/S2/clarification-builder-0-2.json'), 'utf-8');
+    expect(failedRecord).toContain('"managerId": "manager-on-failure"');
+    expect(failedRecord).toContain('"error": "clarification transport failed"');
+
+    const throwing = new NativeSessionStub(() => { throw new Error('clarification composition failed'); });
+    const fourth = await targetRelayLoop({ ...seeded.input, builderProvider: 'codex', managerOperation: { kind: 'clarify-pending', questionPath, managerId: 'manager-on-throw' } }, {
+      ...stage3Deps(noCall, noCall, [candidate]),
+      clarificationRunner: () => throwing,
+    });
+    expect(fourth.phase).toBe('awaiting-manager-interpretation');
+    expect(fourth.reason).toContain('could not produce a provider result');
+    status = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')) as typeof status;
+    expect(status.iteration).toBe(0);
+    expect(status.providerSessions.builder).toEqual({ provider: 'codex', sessionId: 'builder-pending-session' });
+    expect(status.pendingInterpretation.clarifications).toHaveLength(4);
+    const thrownRecord = await readFile(join(target, '.agent-manager/slices/S2/clarification-builder-0-3.json'), 'utf-8');
+    expect(thrownRecord).toContain('"managerId": "manager-on-throw"');
+    expect(thrownRecord).toContain('"status": "execution-failed"');
+    expect(thrownRecord).toContain('"error": "clarification composition failed"');
+  });
+
+  it('starts clarification explicitly fresh when unfinished pre-upgrade work has no native ID', async () => {
+    target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-clarify-fresh-');
+    const seeded = await seedStage3Implementation(target);
+    const candidate = observation([candidateEntry()]);
+    expect((await targetRelayLoop(seeded.input, stage3Deps(new StubRunner(() => 'alternate evidence'), new StubRunner(() => 'unused'), [observation(), candidate]))).phase).toBe('awaiting-manager-interpretation');
+    const questionPath = join(target, 'question.txt');
+    await writeFile(questionPath, 'Clarify the reported check outcome.\n', 'utf-8');
+    const clarification = new NativeSessionStub(() => ({ content: 'The check passed.', sessionId: 'fresh-clarification-session' }));
+    const noCall = new StubRunner(() => 'unused');
+    const result = await targetRelayLoop({ ...seeded.input, managerOperation: { kind: 'clarify-pending', questionPath, managerId: 'manager-fixture' } }, {
+      ...stage3Deps(noCall, noCall, [candidate]),
+      clarificationRunner: () => clarification,
+    });
+    expect(result.phase).toBe('awaiting-manager-interpretation');
+    expect(clarification.calls[0]?.providerSession).toEqual({ kind: 'fresh' });
+    const status = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')) as { providerSessions: { builder: unknown } };
+    expect(status.providerSessions.builder).toEqual({ provider: 'claude', sessionId: 'fresh-clarification-session' });
+  });
+
+  it('delivers the current builder report to a fresh legacy reviewer clarification with no native ID', async () => {
+    target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-legacy-reviewer-fresh-');
+    const currentReport = 'CURRENT BUILDER REPORT: preserved evidence and changed paths.\n';
+    await seedSlice(target, 'MMI-LEGACY-FRESH', currentReport);
+    const reviewer = new StubRunner(() => 'The reviewer verdict needs clarification.');
+    expect((await targetRelayLoop({ ...makeInput(target), sliceId: 'MMI-LEGACY-FRESH' }, makeDeps(new StubRunner(() => 'unused'), reviewer))).phase).toBe('awaiting-manager-interpretation');
+    const questionPath = join(target, 'question.txt');
+    await writeFile(questionPath, 'Does this require revision?\n', 'utf-8');
+    const clarifier = new NativeSessionStub(() => ({ content: 'Yes; finding F-1 remains.', sessionId: 'fresh-legacy-reviewer-session' }));
+    const result = await targetRelayLoop({ ...makeInput(target), sliceId: 'MMI-LEGACY-FRESH', managerOperation: { kind: 'clarify-pending', questionPath, managerId: 'manager-legacy-fresh' } }, {
+      ...makeDeps(new StubRunner(() => 'unused'), new StubRunner(() => 'unused')),
+      clarificationRunner: () => clarifier,
+    });
+    expect(result.phase).toBe('awaiting-manager-interpretation');
+    expect(clarifier.calls).toHaveLength(1);
+    expect(clarifier.calls[0]?.providerSession).toEqual({ kind: 'fresh' });
+    expect(clarifier.calls[0]?.delivery.kind).toBe('legacy-live-inputs');
+    if (clarifier.calls[0]?.delivery.kind !== 'legacy-live-inputs') throw new Error('expected legacy clarification delivery');
+    expect(clarifier.calls[0].delivery.contextText).toContain(currentReport.trim());
+    expect(clarifier.calls[0].delivery.contextText).toContain('The reviewer verdict needs clarification.');
+    expect(clarifier.calls[0].delivery.contextText).toContain('Does this require revision?');
+    const status = JSON.parse(await readFile(join(target, '.agent-manager/slices/MMI-LEGACY-FRESH/status.json'), 'utf-8')) as { iteration: number; providerSessions: { reviewer: unknown } };
+    expect(status.iteration).toBe(0);
+    expect(status.providerSessions.reviewer).toEqual({ provider: 'codex', sessionId: 'fresh-legacy-reviewer-session' });
+  });
+
+  it('records a not-run clarification when the retained native ID cannot be resumed by the runner', async () => {
+    target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-clarify-session-unavailable-');
+    const seeded = await seedStage3Implementation(target);
+    const candidate = observation([candidateEntry()]);
+    const firstRunner = new NativeSessionStub(() => ({ content: 'Evidence needs clarification.', sessionId: 'retained-builder-session' }));
+    expect((await targetRelayLoop({ ...seeded.input, builderProvider: 'codex' }, stage3Deps(firstRunner, new StubRunner(() => 'unused'), [observation(), candidate]))).phase).toBe('awaiting-manager-interpretation');
+    const questionPath = join(target, 'question.txt');
+    await writeFile(questionPath, 'Which check result is supported?\n', 'utf-8');
+    const unsupportedRunner = new StubRunner(() => 'must not run');
+    const observed = await targetRelayLoop({ ...seeded.input, builderProvider: 'codex', managerOperation: { kind: 'clarify-pending', questionPath, managerId: 'manager-unavailable-session' } }, {
+      ...stage3Deps(new StubRunner(() => 'unused'), new StubRunner(() => 'unused'), [candidate]),
+      clarificationRunner: () => unsupportedRunner,
+    });
+    expect(observed.phase).toBe('awaiting-manager-interpretation');
+    expect(observed.reason).toContain("cannot explicitly resume native session 'retained-builder-session'");
+    expect(unsupportedRunner.calls).toHaveLength(0);
+    const record = await readFile(join(target, '.agent-manager/slices/S2/clarification-builder-0-0.json'), 'utf-8');
+    expect(record).toContain('"managerId": "manager-unavailable-session"');
+    expect(record).toContain('"status": "not-run"');
+    expect(record).toContain('retained-builder-session');
+    const status = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/status.json'), 'utf-8')) as { iteration: number; providerSessions: { builder: unknown }; pendingInterpretation: { clarifications: unknown[] } };
+    expect(status.iteration).toBe(0);
+    expect(status.providerSessions.builder).toEqual({ provider: 'codex', sessionId: 'retained-builder-session' });
+    expect(status.pendingInterpretation.clarifications).toHaveLength(1);
+  });
+
+  it('records a not-run clarification when the retained binding belongs to another provider', async () => {
+    target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-clarify-provider-mismatch-');
+    const seeded = await seedStage3Implementation(target);
+    const candidate = observation([candidateEntry()]);
+    const firstRunner = new NativeSessionStub(() => ({ content: 'Evidence needs clarification.', sessionId: 'codex-builder-session' }));
+    expect((await targetRelayLoop({ ...seeded.input, builderProvider: 'codex' }, stage3Deps(firstRunner, new StubRunner(() => 'unused'), [observation(), candidate]))).phase).toBe('awaiting-manager-interpretation');
+    const statusPath = join(target, '.agent-manager/slices/S2/status.json');
+    const incompatible = JSON.parse(await readFile(statusPath, 'utf-8')) as { providerSessions: { builder: { provider: string; sessionId: string } } };
+    incompatible.providerSessions.builder.provider = 'claude';
+    await writeFile(statusPath, json(incompatible), 'utf-8');
+    const questionPath = join(target, 'question.txt');
+    await writeFile(questionPath, 'Which check result is supported?\n', 'utf-8');
+    const runner = new NativeSessionStub(() => ({ content: 'must not run', sessionId: 'replacement' }));
+    const observed = await targetRelayLoop({ ...seeded.input, builderProvider: 'codex', managerOperation: { kind: 'clarify-pending', questionPath, managerId: 'manager-provider-mismatch' } }, {
+      ...stage3Deps(new StubRunner(() => 'unused'), new StubRunner(() => 'unused'), [candidate]),
+      clarificationRunner: () => runner,
+    });
+    expect(observed.phase).toBe('awaiting-manager-interpretation');
+    expect(observed.reason).toContain("session belongs to 'claude', but pending run used 'codex'");
+    expect(runner.calls).toHaveLength(0);
+    const record = await readFile(join(target, '.agent-manager/slices/S2/clarification-builder-0-0.json'), 'utf-8');
+    expect(record).toContain('"managerId": "manager-provider-mismatch"');
+    expect(record).toContain('"status": "not-run"');
+    const status = JSON.parse(await readFile(statusPath, 'utf-8')) as { iteration: number; providerSessions: { builder: unknown }; pendingInterpretation: { clarifications: unknown[] } };
+    expect(status.iteration).toBe(0);
+    expect(status.providerSessions.builder).toEqual({ provider: 'claude', sessionId: 'codex-builder-session' });
+    expect(status.pendingInterpretation.clarifications).toHaveLength(1);
+  });
+});
+
+describe('MANAGER-MESSAGE-INTERPRETATION-1 built CLI commands', () => {
+  const roots: string[] = [];
+  beforeAll(async () => { await execFileTest('npm', ['run', 'build'], { cwd: process.cwd() }); });
+  afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+
+  it('applies a retained legacy interpretation with zero provider executable calls', async () => {
+    const target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-cli-apply-');
+    roots.push(target);
+    await seedSlice(target, 'MMI-CLI-APPLY', 'existing build');
+    const reviewer = new StubRunner(() => 'Accepted in meaning, without a STATUS envelope.');
+    expect((await targetRelayLoop({ ...makeInput(target), sliceId: 'MMI-CLI-APPLY' }, makeDeps(new StubRunner(() => 'unused'), reviewer))).phase).toBe('awaiting-manager-interpretation');
+    const command = join(target, 'interpretation.json');
+    await writeFile(command, json({ managerId: 'cli-manager', rationale: 'The retained review is semantically accepted.', content: { verdict: 'approved', rationale: 'No findings or decisions remain.' } }), 'utf-8');
+    const result = await builtCli([target, '--slice', 'MMI-CLI-APPLY', '--apply-manager-interpretation', command]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Final phase: done');
+    expect(result.stdout).toContain('without a provider call');
+  });
+
+  it('clarifies a pending legacy review through the built CLI in an isolated fresh native session', async () => {
+    const target = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-cli-clarify-');
+    const bin = await mkdtemp('/private/tmp/MANAGER-MESSAGE-INTERPRETATION-1-cli-bin-');
+    roots.push(target, bin);
+    await seedSlice(target, 'MMI-CLI-CLARIFY', 'existing build');
+    const reviewer = new StubRunner(() => 'The outcome needs clarification.');
+    expect((await targetRelayLoop({ ...makeInput(target), sliceId: 'MMI-CLI-CLARIFY' }, makeDeps(new StubRunner(() => 'unused'), reviewer))).phase).toBe('awaiting-manager-interpretation');
+    const calls = join(bin, 'calls.log');
+    const executable = join(bin, 'codex');
+    await writeFile(executable, `#!${process.execPath}\nconst fs=require('node:fs');fs.readFileSync(0);fs.appendFileSync(process.env.MMI_CALLS,'call\\n');process.stdout.write(JSON.stringify({type:'thread.started',thread_id:'MMI-FRESH-SESSION'})+'\\n');process.stdout.write(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'The review means revise because finding F-1 remains.'}})+'\\n');process.stdout.write(JSON.stringify({type:'turn.completed'})+'\\n');\n`, 'utf-8');
+    await chmod(executable, 0o755);
+    const question = join(target, 'question.txt');
+    await writeFile(question, 'Does the retained message mean accepted, revise, or escalate?\n', 'utf-8');
+    const result = await builtCli([target, '--slice', 'MMI-CLI-CLARIFY', '--clarify-pending', question, '--manager-id', 'cli-manager'], { providerBin: bin, environment: { MMI_CALLS: calls } });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Final phase: awaiting-manager-interpretation');
+    expect(await readFile(calls, 'utf-8')).toBe('call\n');
+    const status = JSON.parse(await readFile(join(target, '.agent-manager/slices/MMI-CLI-CLARIFY/status.json'), 'utf-8')) as { iteration: number; providerSessions: { reviewer: unknown }; pendingInterpretation: { clarifications: unknown[] } };
+    expect(status.iteration).toBe(0);
+    expect(status.providerSessions.reviewer).toEqual({ provider: 'codex', sessionId: 'MMI-FRESH-SESSION' });
+    expect(status.pendingInterpretation.clarifications).toHaveLength(1);
+    const retained = await readFile(join(target, '.agent-manager/slices/MMI-CLI-CLARIFY/clarification-reviewer-0-0.json'), 'utf-8');
+    expect(retained).toContain('"permission": "read-only"');
+    expect(retained).toContain('Does the retained message mean accepted');
   });
 });
 
@@ -3170,6 +3925,15 @@ while (offset < raw.length) {
 }
 fs.appendFileSync(process.env.A3_CALL_LOG, 'call\n');
 const builder = inputs.some((item) => item.header.label === 'implementation-builder-task');
+const resumeAt = process.argv.indexOf('resume');
+const sessionId = resumeAt >= 0 ? process.argv[resumeAt + 1] : builder ? 'A3-BUILDER-SESSION' : 'A3-REVIEWER-SESSION';
+const emit = (text) => {
+  if (process.argv.includes('--json')) {
+    process.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: sessionId }) + '\n');
+    process.stdout.write(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } }) + '\n');
+    process.stdout.write(JSON.stringify({ type: 'turn.completed' }) + '\n');
+  } else process.stdout.write(text);
+};
 const allocationInput = builder
   ? inputs.find((item) => item.header.path === 'docs/slices/S2.md')
   : inputs.find((item) => item.header.label?.startsWith('implementation-allocation-'));
@@ -3204,7 +3968,7 @@ if (builder) {
   } else {
     fs.writeFileSync(candidatePath, 'export const delivered = true;\n');
   }
-  process.stdout.write(JSON.stringify({
+  emit(JSON.stringify({
     formatVersion: 3,
     kind: 'implementation-evidence-result',
     allocation: { path: allocationInput.header.path, sha256: allocationInput.header.sha256 },
@@ -3221,7 +3985,7 @@ if (builder) {
   fs.writeFileSync(process.env.A3_DIFF_LOG, candidateDiffInput.text);
   const checkpoint = JSON.parse(checkpointInput.text);
   const obligations = [...allocation.implements, ...allocation.preserves, ...allocation.changes, ...allocation.preservationObligationIds];
-  process.stdout.write(JSON.stringify({
+  emit(JSON.stringify({
     formatVersion: 3,
     kind: 'implementation-review-result',
     subject: { candidateSha256: checkpoint.sha256, verificationSha256: verificationInput.header.sha256 },
@@ -3355,6 +4119,56 @@ if (builder) {
   }, 60_000);
 });
 
+describe('SLICE-PROVIDER-SESSIONS-1 hermetic native adapter sessions', () => {
+  let root = '';
+  afterEach(async () => { if (root) await rm(root, { recursive: true, force: true }); root = ''; });
+
+  const request = (rootDir: string, providerSession: NonNullable<RunRequest['providerSession']>): RunRequest => ({
+    runId: 'session-run', sliceId: 'SPS', role: 'builder', mode: 'edit', permission: 'write',
+    workingDir: rootDir, model: 'selected-model', effort: 'high', providerSession,
+    delivery: { kind: 'legacy-live-inputs', prompts: [], contextText: 'session prompt' }, inputArtifacts: [],
+  });
+
+  it('Codex uses parent sandbox/cwd resume argv and returns only extracted agent text', async () => {
+    root = await mkdtemp('/private/tmp/SLICE-PROVIDER-SESSIONS-1-codex-adapter-');
+    const argsLog = join(root, 'args.txt');
+    const fake = join(root, 'fake-codex');
+    await writeFile(fake, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${argsLog}'\ncat >/dev/null\ncase " $* " in\n  *" resume CODEX-SESSION-1 "*) text=SECOND;;\n  *) text=FIRST;;\nesac\nprintf '%s\\n' '{"type":"thread.started","thread_id":"CODEX-SESSION-1"}'\nprintf '{"type":"item.completed","item":{"type":"agent_message","text":"%s"}}\\n' "$text"\nprintf '%s\\n' '{"type":"turn.completed"}'\n`, 'utf-8');
+    await chmod(fake, 0o755);
+    const adapter = new CodexAdapter({ logsDir: join(root, 'logs'), promptRoot: root, command: fake }, new FilesystemArtifactStore(), new FixedClock());
+    const fresh = await adapter.run(request(root, { kind: 'fresh' }));
+    const resumed = await adapter.run(request(root, { kind: 'resume', sessionId: 'CODEX-SESSION-1' }));
+    expect(fresh.providerSessionId).toBe('CODEX-SESSION-1');
+    expect(fresh.outputArtifacts[0]?.content).toBe('FIRST');
+    expect(resumed.providerSessionId).toBe('CODEX-SESSION-1');
+    expect(resumed.outputArtifacts[0]?.content).toBe('SECOND');
+    expect(String(resumed.outputArtifacts[0]?.content)).not.toContain('thread.started');
+    const lines = (await readFile(argsLog, 'utf-8')).trim().split('\n');
+    expect(lines[0]).toContain(`exec --model selected-model --config model_reasoning_effort="high" --sandbox workspace-write -C ${root} --json -`);
+    expect(lines[1]).toContain(`exec --sandbox workspace-write -C ${root} resume CODEX-SESSION-1 --model selected-model --config model_reasoning_effort="high" --json -`);
+  });
+
+  it('Claude forces transcript events for managed sessions even with legacy text capture disabled', async () => {
+    root = await mkdtemp('/private/tmp/SLICE-PROVIDER-SESSIONS-1-claude-adapter-');
+    const argsLog = join(root, 'args.txt');
+    const fake = join(root, 'fake-claude');
+    await writeFile(fake, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${argsLog}'\ncat >/dev/null\ncase " $* " in\n  *" --resume CLAUDE-SESSION-1 "*) text=SECOND;;\n  *) text=FIRST;;\nesac\nprintf '%s\\n' '{"type":"system","subtype":"init","session_id":"CLAUDE-SESSION-1"}'\nprintf '{"type":"result","result":"%s","is_error":false,"session_id":"CLAUDE-SESSION-1"}\\n' "$text"\n`, 'utf-8');
+    await chmod(fake, 0o755);
+    const adapter = new ClaudeAdapter({ logsDir: join(root, 'logs'), promptRoot: root, command: fake, captureTranscript: false }, new FilesystemArtifactStore(), new FixedClock());
+    const fresh = await adapter.run(request(root, { kind: 'fresh' }));
+    const resumed = await adapter.run(request(root, { kind: 'resume', sessionId: 'CLAUDE-SESSION-1' }));
+    expect(fresh.providerSessionId).toBe('CLAUDE-SESSION-1');
+    expect(fresh.outputArtifacts[0]?.content).toBe('FIRST');
+    expect(resumed.providerSessionId).toBe('CLAUDE-SESSION-1');
+    expect(resumed.outputArtifacts[0]?.content).toBe('SECOND');
+    const lines = (await readFile(argsLog, 'utf-8')).trim().split('\n');
+    expect(lines[0]).toContain('--output-format stream-json --verbose');
+    expect(lines[1]).toContain('--dangerously-skip-permissions');
+    expect(lines[1]).toContain('--resume CLAUDE-SESSION-1');
+    expect(lines[1]).toContain('--model selected-model --effort high');
+  });
+});
+
 describe('ASSURANCE-2 adapter delivery composition (A2-C05/C06)', () => {
   let root = '';
   afterEach(async () => { if (root) await rm(root, { recursive: true, force: true }); root = ''; });
@@ -3388,6 +4202,66 @@ describe('ASSURANCE-2 adapter delivery composition (A2-C05/C06)', () => {
 describe('ASSURANCE-2 document routing and approval operation (A2-C03/C04/C07)', () => {
   let target = '';
   afterEach(async () => { if (target) await rm(target, { recursive: true, force: true }); target = ''; });
+
+  it('starts missing pre-upgrade document-role sessions and resumes both roles through refinement after relay restart', async () => {
+    target = await mkdtemp('/private/tmp/SLICE-PROVIDER-SESSIONS-1-document-resume-');
+    const seeded = await seedV1DocumentBridge(target);
+    let subject: { path: string; sha256: string } | undefined;
+    const finding = {
+      findingId: 'F-DOC-SESSION',
+      obligationId: 'EX-REQ-001-L01',
+      category: 'correctness',
+      evidence: 'The first review requires a bounded correction.',
+      consequence: 'The document cannot yet be accepted.',
+      requiredAction: 'Apply the retained review finding in the same author conversation.',
+    };
+    const firstAuthor = new NativeSessionStub(async (request) => {
+      subject = await writeV2DocumentCandidate(target);
+      return {
+        content: 'candidate authored',
+        sessionId: request.providerSession?.kind === 'resume' ? request.providerSession.sessionId : 'document-author-native',
+      };
+    });
+    const firstReviewer = new NativeSessionStub((request) => {
+      const base = v2ReviewResult(subject as { path: string; sha256: string }, ['EX-REQ-001', 'EX-REQ-001-L01']);
+      return {
+        content: json({
+          ...base,
+          result: 'refinement-required',
+          assessments: base.assessments.map((item) => item.obligationId === 'EX-REQ-001-L01'
+            ? { ...item, result: 'refinement-required', findingIds: [finding.findingId] }
+            : item),
+          findings: [finding],
+          report: 'Refinement is required.',
+        }),
+        sessionId: request.providerSession?.kind === 'resume' ? request.providerSession.sessionId : 'document-reviewer-native',
+      };
+    });
+
+    expect((await targetRelayLoop({ ...seeded.input, maxIterations: 1 }, makeDeps(firstAuthor, firstReviewer))).phase).toBe('blocked');
+    expect(firstAuthor.calls[0]?.providerSession).toEqual({ kind: 'fresh' });
+    expect(firstReviewer.calls[0]?.providerSession).toEqual({ kind: 'fresh' });
+    const firstStatus = JSON.parse(await readFile(join(seeded.sliceDir, 'status.json'), 'utf-8')) as Record<string, unknown>;
+    expect(firstStatus.providerSessions).toEqual({
+      builder: { provider: 'claude', sessionId: 'document-author-native' },
+      reviewer: { provider: 'codex', sessionId: 'document-reviewer-native' },
+    });
+
+    const resumedAuthor = new NativeSessionStub(async (request) => {
+      subject = await writeV2DocumentCandidate(target);
+      return { content: 'candidate refined', sessionId: request.providerSession?.kind === 'resume' ? request.providerSession.sessionId : 'unexpected-author-fresh' };
+    });
+    const resumedReviewer = new NativeSessionStub((request) => ({
+      content: json(v2ReviewResult(subject as { path: string; sha256: string }, ['EX-REQ-001', 'EX-REQ-001-L01'])),
+      sessionId: request.providerSession?.kind === 'resume' ? request.providerSession.sessionId : 'unexpected-reviewer-fresh',
+    }));
+
+    expect((await targetRelayLoop({ ...seeded.input, maxIterations: 2 }, makeDeps(resumedAuthor, resumedReviewer))).phase).toBe('done');
+    expect(resumedAuthor.calls[0]?.providerSession).toEqual({ kind: 'resume', sessionId: 'document-author-native' });
+    expect(resumedReviewer.calls[0]?.providerSession).toEqual({ kind: 'resume', sessionId: 'document-reviewer-native' });
+    expect((resumedAuthor.calls[0]?.delivery.kind === 'reviewed-input-snapshots' ? resumedAuthor.calls[0].delivery.roleSpecific : [])
+      .some((item) => item.purpose === 'prior-review')).toBe(true);
+  });
 
   it('authors then separately reviews a v2 candidate, publishes only accepted review, and awaits approval', async () => {
     target = await mkdtemp('/private/tmp/ASSURANCE-2-document-');
@@ -3457,7 +4331,7 @@ describe('ASSURANCE-2 document routing and approval operation (A2-C03/C04/C07)',
     ['stale subject', (subject: { path: string; sha256: string }) => json(v2ReviewResult({ ...subject, sha256: computeDigest('stale') }, ['EX-REQ-001', 'EX-REQ-001-L01']))],
     ['omitted scope ID', (subject: { path: string; sha256: string }) => json(v2ReviewResult(subject, ['EX-REQ-001']))],
     ['unknown scope ID', (subject: { path: string; sha256: string }) => json(v2ReviewResult(subject, ['EX-REQ-001', 'EX-REQ-001-L01', 'EX-REQ-999']))],
-  ])('blocks %s review output without publishing a durable review', async (_label, reviewOutput) => {
+  ])('retains %s review output for manager interpretation without publishing a durable review', async (_label, reviewOutput) => {
     target = await mkdtemp('/private/tmp/ASSURANCE-2-document-review-refusal-');
     const seeded = await seedV1DocumentBridge(target);
     let subject: { path: string; sha256: string } | undefined;
@@ -3467,7 +4341,7 @@ describe('ASSURANCE-2 document routing and approval operation (A2-C03/C04/C07)',
     });
     const reviewer = new StubRunner(() => reviewOutput(subject as { path: string; sha256: string }));
     const result = await targetRelayLoop(seeded.input, makeDeps(author, reviewer));
-    expect(result.phase).toBe('blocked');
+    expect(result.phase).toBe('awaiting-manager-interpretation');
     expect(author.calls).toHaveLength(1);
     expect(reviewer.calls).toHaveLength(1);
     expect(await exists(join(target, 'docs/assurance/B2/requirements-review.json'))).toBe(false);
@@ -3952,4 +4826,3 @@ describe('provider-result framing is not an error (human ruling 2026-09-13, TD-0
     expect(extractProviderResultJson('no json here')).toBe('no json here');
   });
 });
-

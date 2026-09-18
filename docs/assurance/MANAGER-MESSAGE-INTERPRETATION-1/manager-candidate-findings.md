@@ -1,0 +1,16 @@
+# Manager candidate review — not acceptance
+
+## M-MMI-01 — both roles in one cycle collide (confirmed public-use-case reproduction)
+At source checkpoint around 2026-09-17T21:50Z, `writeInterpretationAudit` names every audit `manager-interpretation-${iteration}.json` and uses create-only `wx`. A builder evidence interpretation at iteration 0 succeeds; the reviewer then also returns prose; applying its valid interpretation at the same iteration refuses with EEXIST on the builder's audit. Both role paths work alone, not in composition. The supported normal use must allow both interpretations without overwriting either original/audit or rerunning providers.
+
+Reproduction is appended to a COPY of source under the path in manager-probe-root.txt, test `MANAGER-PROBE applies both role interpretations in one iteration`. No main source/test was changed by the manager. /tmp/am-mmi-composition-probe-retest.txt contains actual failure: expected done, received awaiting-manager-interpretation, reason EEXIST manager-interpretation-0.json. Initial probe launch failed because manager guessed jest.config.js rather than checking the actual jest.config.mjs; no product code ran in that launch. Corrected config copy, then the reproduction above actually ran.
+
+Related composition risk to verify: clarification record/run names also use only iteration + per-pending index, which resets for the reviewer. Clarifying both roles in the same cycle must not overwrite the builder run record or collide on clarification-0-0.json after making a needless second provider call. Bind these local record names to actual pending run/role; no new service/schema is needed.
+
+Also verify conscious retry after a recoverable publication failure: the audit is currently written before consuming/publication, so a retry can collide on its own completed audit even though state remains pending. Do not overwrite historical audits; make retry of the same pending command/effect recoverable with existing file identities, or explicitly preserve an actionable distinction if truly conflicting.
+
+## M-MMI-02 — attribution wording
+The generated statement 'the manager did not execute provider-reported checks' claims knowledge the runtime lacks. Requirement only prohibits claiming independent execution *from interpretation*. Prefer 'This interpretation is not independent execution evidence' while retaining provider performer/manager attribution. Local truthful wording, not another schema.
+
+## M-MMI-03 — fresh legacy reviewer clarification omits current build evidence
+Source inspection: clarificationDelivery calls buildReviewerContext(..., undefined, ...) then returns early for legacy. The build report is loaded only in the assured branch. Normal legacy reviewer delivery explicitly inlines build-<n>.md because it is gitignored. In the supported old unfinished/no-native-ID clarification case, a new reviewer conversation therefore lacks that current build report. Reuse normal current-role inputs, including existing build report, before adding question/original output; do not rely on imaginary cached history. Verify with a fresh legacy clarification request that the existing report reaches the provider (not just packet and question).
