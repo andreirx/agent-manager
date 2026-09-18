@@ -802,3 +802,19 @@ while another live run holds it.
   (3) with a resumed native session, the prior context is already in the conversation — the delivery need not repeat it.
 - When to address: with the session-id increment's follow-up; before another slice exceeds ~10 review cycles.
 - Status: OPEN (manager workaround applied on CALL-BINDING-RECEIVER-1).
+
+## TD-025 — the requirements-document AUTHOR task directive names the reviewer's output contract
+
+- Date: 2026-09-18
+- What was done: nothing in the runtime; recorded from the author's own report (EXPLAIN-CYCLES-HONEST-1-PREP build-1.md).
+- What happened: for an `ARTIFACT_KIND: REQUIREMENTS_DOCUMENT` item the generated author directive carries
+  `ROLE_OUTPUT_CONTRACT: requirements-assurance/v2-requirements-review` — the REVIEWER's contract — while the builder-target
+  duty for that kind is "verify/correct/re-emit the two deliverables, never write a review or approval". The claude author
+  noticed the contradiction, did the document duty, and flagged it as unresolved rather than emitting a review object. Every
+  PREP item since TRUST-MODULE-EDGES-1-PREP has run this way (authors report; reviewers review), so the process outcome is
+  right; the directive text is wrong and costs the author a reasoning detour each cycle.
+- Why acceptable: no wrong record has been produced; the role prompt's duty text wins in practice.
+- Proper solution: the author directive for a REQUIREMENTS_DOCUMENT item names an author output contract (the two
+  deliverables + a report), or omits `ROLE_OUTPUT_CONTRACT`; the reviewer directive keeps `v2-requirements-review`.
+- When to address: with TD-020/024 in the human's runtime session.
+- Status: OPEN.
