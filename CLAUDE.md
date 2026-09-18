@@ -315,6 +315,19 @@ code at start, so mid-run edits do not affect it.
   decoupled from its receiver; a malformed type folded into "absent"). For every evidence field a slice introduces, the
   packet lists absent / present-valid / present-malformed and binds a test to each — an evidence taxonomy table in §2 —
   so the review converges in one cycle instead of five.
+- **The whitespace oracle must include `cargo fmt --check` (bitten 2026-09-18, CALL-BINDING-RECEIVER-1 closeout):** C19 checked
+  `git diff --check` only; the accepted candidate failed the tracked gate suite's fmt gate, and the manager had to format after
+  acceptance and PROVE the committed bytes equal the accepted bytes modulo whitespace (HEAD worktree + the accepted patch;
+  rustfmt also adds trailing commas when it wraps arguments — count them). Put `cargo fmt --check -p <crates>` in the oracle.
+- **Manager interpretation (runtime 5840038) — mappings that validated on the first real uses (2026-09-18):** content is ONLY
+  result/obligationAssessments/checkAssessments/changedPathAssessments/findings/decisions/report; a split
+  `preservationObligationAssessments` array merges into obligationAssessments; `execution-failed`/`unverified` are NOT
+  assessment results (use refinement-required + the finding, keep the reviewer's text in verification.limitation); a
+  relied-on-builder-evidence verification is `{kind, limitation}` (fold the reviewer's outcome/supportingEvidence text into
+  the limitation); a reproduced one is `{kind, outcome:{kind, actual, supportingEvidence}}`; implementation finding categories
+  are correctness|preservation|evidence|integration|scope|naming|architecture|traceability; an accepted assessment references
+  no finding (a check the reviewer accepted while attaching a finding whose required action re-runs it is refinement-required).
+  Verify the findings on the code BEFORE applying — the runtime derives identities, the manager owns the semantics.
 - **Never quote a per-cycle identity in a packet note (bitten 2026-09-14):** the verification digest a reviewer must echo
   in `subject` is regenerated every cycle and lives only in that cycle's task directive; I quoted one in a manager note to
   explain a mismatch, and the next reviewer copied it — a second accept of the same candidate refused for the same field.
