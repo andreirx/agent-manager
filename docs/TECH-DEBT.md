@@ -784,3 +784,21 @@ while another live run holds it.
   tracked prompt and should go through the overhaul track's own path, not be patched mid-slice.
 - Status: OPEN.
 
+
+## TD-024 — reviewer input grows without bound with the slice's review history and hit the provider's input cap
+
+- Date: 2026-09-18
+- What was done: nothing in the runtime; the manager trimmed the live selection packet (superseded per-cycle notes moved to a
+  non-input history file) to get the reviewer delivery under Codex's 1,048,576-character `turn/start` limit.
+- What happened: CALL-BINDING-RECEIVER-1 cycle 14 (the first Codex reviewer RESUME after the session-id increment) failed
+  four times with `input_too_large` (actual 1,048,951 chars). The reviewer delivery includes every prior review of the slice
+  as `prior-review` inputs (review-1…12 ≈ 250 KB) plus the packet, the 126 KB candidate diff, the verification draft,
+  the allocation and the task directive. The relay classified it as a transient provider failure and retried with backoff;
+  the failure is deterministic.
+- Why acceptable: rare — needs a long-running slice; the manager can shrink the packet; the durable record is unaffected.
+- Proper solution: (1) classify `input_too_large` (and any provider "request too large" code) as a non-retryable delivery
+  failure that blocks immediately with the byte breakdown per input; (2) bound the prior-review inputs (e.g. the last N
+  reviews plus any review still referenced by an open finding, or the published findings ledger instead of whole records);
+  (3) with a resumed native session, the prior context is already in the conversation — the delivery need not repeat it.
+- When to address: with the session-id increment's follow-up; before another slice exceeds ~10 review cycles.
+- Status: OPEN (manager workaround applied on CALL-BINDING-RECEIVER-1).
