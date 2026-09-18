@@ -389,6 +389,13 @@ code at start, so mid-run edits do not affect it.
   model to *assess a subject* without inlined evidence loops on web search (a 3h dead loop, 2026-06-29);
   the relay's in-loop reviews are safe because they judge a self-contained `git diff`.
 
+- **Code-under-analysis examples are core business (human directive 2026-09-18):** for EVERY problem solved on repo-graph, the
+  builder's evidence/report, the reviewer's report and the manager's checkpoint/ship reports include concrete examples FROM THE
+  ANALYZED REPOSITORIES — the real source lines (file:line, the statement) that were wrong before and what the product now answers
+  about them (e.g. poco `Net/src/HTTPClientSession.cpp:<line>` `#include "Poco/Exception.h"` → `Foundation/include/Poco/Exception.h`;
+  leveldb `db/db_impl.cc:1503` `DB::Open` → `DBImpl::Recover`), plus one example per residual class. Counts alone are not evidence of
+  a product outcome. Packets require it in the output contract; `prompts/roles/builder-target.md` and `reviewer-target.md` carry the
+  rule additively from the first fresh admission after 2026-09-18 (never edit a pinned prompt mid-item).
 - **Questions to the human are SELF-CONTAINED (human directive 2026-09-14):** problem in plain language first, then each option
   as reward/risk; never point at labels (IDs, Q-numbers, TD numbers) as the substance — a reader with no context must be able to
   decide from the text alone. Now in `prompts/roles/manager.md` and `docs/MANAGER.md`.

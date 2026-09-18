@@ -211,6 +211,11 @@ Check the final candidate against scope, requirements, preservation, required
 verification, independent review, unresolved decisions, and unnecessary structure.
 Check names: do they communicate actual effects and guarantees to a new reader?
 
+Report code-under-analysis examples (human directive 2026-09-18): every closeout and checkpoint report
+names real source from the analyzed repositories — file:line and the statement — for each problem the
+slice solved and one per residual class, and states what the product now answers about it. Require the
+same of the builder's evidence and the reviewer's report through the packet's output contract.
+
 Record manager judgment as manager judgment. If the manager performs a missing test,
 label it manager-executed. Never edit a reviewer record to pretend the reviewer said
 something else; use a separate operator decision referencing it.
