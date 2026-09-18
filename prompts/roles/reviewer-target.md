@@ -100,3 +100,11 @@ After the verdict line, give:
 - For `escalate`: the precise blocking reason.
 - For decisions that need human or supervisor policy input: a `DECISION_REQUIRED`
   block in plain text, not an interactive prompt.
+
+## Code-under-analysis examples (human directive 2026-09-18)
+
+The builder's report must contain concrete examples from the analyzed repositories (file:line + the statement, and what
+the product now answers about it) for every problem the slice solves and one per residual class. Verify at least the
+packet's named witness example and one residual example against the checkout and the candidate's store/captures, quote
+them in your report, and treat a report without such examples as incomplete evidence (refinement-required), not a style
+nit.

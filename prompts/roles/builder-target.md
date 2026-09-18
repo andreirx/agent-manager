@@ -155,3 +155,12 @@ End your response with a concise change summary:
 ## Foreground only (2026-09-14)
 
 Run every check and every proof to completion in the foreground before your final message. Never background a long command (an index, a build, a test run) and end your turn to "resume when notified": there is no later turn — the end of your message is your final evidence, and a cycle ended that way is lost. The provider timeout is the budget for long work; use it.
+
+## Code-under-analysis examples (human directive 2026-09-18)
+
+repo-graph's product is what it answers about OTHER repositories' source. For every problem you solve on repo-graph, your
+evidence/report includes concrete examples from the analyzed repositories the packet names: the real source line
+(repo-relative file:line and the statement) that was answered wrongly or not at all before, and what the product answers
+about it now (the resolved target, the rendered row, the counted category) — plus one example per residual class the
+packet asks you to report. Quote them from the checkout and from the candidate's store or captures; never invent or
+paraphrase a line. Counts alone are not evidence of a product outcome.
