@@ -319,6 +319,10 @@ code at start, so mid-run edits do not affect it.
   `git diff --check` only; the accepted candidate failed the tracked gate suite's fmt gate, and the manager had to format after
   acceptance and PROVE the committed bytes equal the accepted bytes modulo whitespace (HEAD worktree + the accepted patch;
   rustfmt also adds trailing commas when it wraps arguments — count them). Put `cargo fmt --check -p <crates>` in the oracle.
+- **A slice manifest pins the CLOSURE of its parent requirements' `sources` (bitten 2026-09-19, Q5 PREP cycle 1 refused at
+  review with ten `source-not-found` lines):** every `sources[].path` in each parent requirement file's `requirements-assurance-v1`
+  block must appear exactly once in the manifest's dependencies (role `source`), plus the slice's own sources; generate the list
+  from the requirement files, never by hand (the Q5 manager script now does: parse the blocks, union the paths, digest each).
 - **Re-admitting a superseded implementation item: copy the previous admission's runtime-written status.json and replace ONLY
   `assurance.manifest` (bitten 2026-09-19, two refused launches):** the runtime compares the persisted `assurance` block with the
   requested one by byte-equal JSON; a hand-built v1-stage1 block is refused as "Baseline conflict" (the message prints two
