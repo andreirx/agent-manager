@@ -319,6 +319,12 @@ code at start, so mid-run edits do not affect it.
   `git diff --check` only; the accepted candidate failed the tracked gate suite's fmt gate, and the manager had to format after
   acceptance and PROVE the committed bytes equal the accepted bytes modulo whitespace (HEAD worktree + the accepted patch;
   rustfmt also adds trailing commas when it wraps arguments — count them). Put `cargo fmt --check -p <crates>` in the oracle.
+- **Before allocating, grep every LITERAL construction of any struct the slice extends (bitten 2026-09-19, Q5 first admission):**
+  two additive fields on `ComposeDependenciesResult` broke a test helper's `ComposeDependenciesResult { … }` in a non-candidate
+  file; the runtime's checkpoint refused the seventh path after the builder had run all fourteen checks green. `git grep
+  '<Struct> {' HEAD -- 'rust/crates/**/*.rs'` and put every hit in candidatePaths (or use `..Default::default()` only when the
+  struct already derives Default). Same for a byte-identity oracle: enumerate the DERIVED lines a change legitimately moves (a
+  view-scoped count such as `non-import fragments dropped`) and strip/report them instead of asserting whole-output identity.
 - **A slice manifest pins the CLOSURE of its parent requirements' `sources` (bitten 2026-09-19, Q5 PREP cycle 1 refused at
   review with ten `source-not-found` lines):** every `sources[].path` in each parent requirement file's `requirements-assurance-v1`
   block must appear exactly once in the manifest's dependencies (role `source`), plus the slice's own sources; generate the list
