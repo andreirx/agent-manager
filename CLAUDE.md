@@ -319,6 +319,11 @@ code at start, so mid-run edits do not affect it.
   `git diff --check` only; the accepted candidate failed the tracked gate suite's fmt gate, and the manager had to format after
   acceptance and PROVE the committed bytes equal the accepted bytes modulo whitespace (HEAD worktree + the accepted patch;
   rustfmt also adds trailing commas when it wraps arguments — count them). Put `cargo fmt --check -p <crates>` in the oracle.
+- **Tell the reviewer, in every implementation packet, that the workspace suite + isolated dogfood are the OPERATOR's gate
+  after acceptance (bitten 2026-09-19, Q5 F-DEP-01):** repo-graph's CLAUDE.md "End-of-Slice Procedure" says "Test (always,
+  before handoff)"; the reviewer read it as a builder duty and refined P-DEP-05 although every check was accepted. Resolve
+  such a finding with the evidence (run the gate suite on the unchanged candidate BEFORE applying the interpretation, cite
+  the log) — never by fiat; CC-5 queues the wording fix in the pinned target file.
 - **Before allocating, grep every LITERAL construction of any struct the slice extends (bitten 2026-09-19, Q5 first admission):**
   two additive fields on `ComposeDependenciesResult` broke a test helper's `ComposeDependenciesResult { … }` in a non-candidate
   file; the runtime's checkpoint refused the seventh path after the builder had run all fourteen checks green. `git grep
