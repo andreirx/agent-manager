@@ -319,6 +319,21 @@ code at start, so mid-run edits do not affect it.
   `git diff --check` only; the accepted candidate failed the tracked gate suite's fmt gate, and the manager had to format after
   acceptance and PROVE the committed bytes equal the accepted bytes modulo whitespace (HEAD worktree + the accepted patch;
   rustfmt also adds trailing commas when it wraps arguments — count them). Put `cargo fmt --check -p <crates>` in the oracle.
+- **The acceptance boundary includes the WHOLE unit suite of every daemon crate a candidate touches, and every cross-engine
+  parity certificate is in the regression watch (bitten 2026-09-19, EXPLAIN-CYCLES-HONEST-1 third admission):** a candidate
+  accepted 13/13 obligations and 12/12 checks, then failed the operator gate suite on two `daemon-runtime --lib` M-2 parity tests
+  (LiveGraph decorator vs SQLite value-identity) the allocation never named — the packet said "the LiveGraph serve is unchanged"
+  and the chunked gates ran only the named integration tests. Cost: a human decision (D-ECH-002), a fourth baseline, a fourth
+  admission. Rule: when a slice changes a value one engine serves, grep the tests for the other engine's parity certificate
+  (`m2_parity_`, `canonical_cycle_shape`, `*_equals_sqlite*`) and bind them; put the crate's `--lib` in the boundary.
+- **A negated grep oracle names an exact file and a literal terminator (bitten 2026-09-19, ECH-C16):** `! grep -rn 'fn serve_cycles'
+  src` was unsatisfiable — the substring matched the frozen `serve_cycles_fastpath`/`serve_cycles_sqlite` and the untracked
+  `*_rs_MAP.md` sidecars; the author caught it before review. Write `! grep -n 'fn serve_cycles(' <exact file>`.
+- **A scripted text replacement that rewrites the head of a sentence must rewrite its tail (bitten 2026-09-19, ECH-PREP4-F01):**
+  the ECH-C12 `expected` got a "14 modified + 2 new" prefix while its tail still said "exactly the eight … (six modified, two
+  new)" — one document cycle. After a scripted edit, print the whole edited field and read it.
+- **A baseline pins the decision that authorizes it (bitten 2026-09-19, ECH-PREP4-F02):** an amendment carried under a human
+  decision record lists that record as a digested source dependency of its manifest.
 - **Manager interpretation (runtime 5840038) — mappings that validated on the first real uses (2026-09-18):** content is ONLY
   result/obligationAssessments/checkAssessments/changedPathAssessments/findings/decisions/report; a split
   `preservationObligationAssessments` array merges into obligationAssessments; `execution-failed`/`unverified` are NOT
