@@ -319,6 +319,20 @@ code at start, so mid-run edits do not affect it.
   `git diff --check` only; the accepted candidate failed the tracked gate suite's fmt gate, and the manager had to format after
   acceptance and PROVE the committed bytes equal the accepted bytes modulo whitespace (HEAD worktree + the accepted patch;
   rustfmt also adds trailing commas when it wraps arguments — count them). Put `cargo fmt --check -p <crates>` in the oracle.
+- **Re-admitting a superseded implementation item: copy the previous admission's runtime-written status.json and replace ONLY
+  `assurance.manifest` (bitten 2026-09-19, two refused launches):** the runtime compares the persisted `assurance` block with the
+  requested one by byte-equal JSON; a hand-built v1-stage1 block is refused as "Baseline conflict" (the message prints two
+  identical digests — misleading), a hand-built v2 block without `instructions` as "Malformed assured status.json". Drop
+  `providerSessions`/`candidateTracking`/`pendingInterpretation`, set phase implement / iteration 0 / lastActor human, keep the
+  instruction digests (prompts unchanged), replace the manifest path + sha256.
+- **When a slice REVERSES a served behaviour, grep the tests for the behaviour's name, including `#[path]`-included test files
+  (bitten 2026-09-19, ECH-IR-001):** `explain_coherence_served_tests.rs` (pulled in via `#[path]` from explain_coherence_tests.rs)
+  asserted "cycles served from the LiveGraph, provenance {livegraph}" — the exact behaviour A-1 reversed — and was not in the
+  candidate paths; the whole-crate unit suite caught it, at the cost of a fifth admission. Rename such a test to its NEW identity
+  in the packet with inverted assertions (a test named for the reversed behaviour is a false name).
+- **Manager interpretation of an implementation review: `changedPathAssessments` entries are exactly {path, result, findingIds,
+  decisionIds}; strip the reviewer's `rationale`/`assessment` prose (2026-09-19, three refused applications).** The `--shared-prompt`
+  flag is REQUIRED on `--apply-manager-interpretation` for a reviewed-inputs item ("requires a contained shared instruction").
 - **The acceptance boundary includes the WHOLE unit suite of every daemon crate a candidate touches, and every cross-engine
   parity certificate is in the regression watch (bitten 2026-09-19, EXPLAIN-CYCLES-HONEST-1 third admission):** a candidate
   accepted 13/13 obligations and 12/12 checks, then failed the operator gate suite on two `daemon-runtime --lib` M-2 parity tests
