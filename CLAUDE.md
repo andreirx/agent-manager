@@ -433,11 +433,12 @@ code at start, so mid-run edits do not affect it.
   model to *assess a subject* without inlined evidence loops on web search (a 3h dead loop, 2026-06-29);
   the relay's in-loop reviews are safe because they judge a self-contained `git diff`.
 
-- **Manual pause after each slice — 1 HOUR (human directive 2026-09-19, down from 3 hours after the plan upgrade):** when a slice's closeout is done (commit, ship line,
-  sweep, handoff), do NOT launch the next slice's document item for one hour; finish and close out the slice that is running,
-  then stop and state the earliest launch time in the closeout message. Reason: the Claude account's rolling session allowance —
-  three builder stops in one day (Q1 cycle 12, Q3 cycle 1, Q4 PREP) each cost a resume. Prepare the next packet's reads during
-  the pause if useful; launch nothing. The human may lift the pause explicitly ("continue").
+- **Pause after each slice — 1 HOUR, then CONTINUE on your own (human directive 2026-09-19; clarified 2026-09-20: "I never
+  meant stop forever … the intent was to continue working as long as there are slices"):** when a slice's closeout is done
+  (commit, ship line, sweep, handoff), start a background `sleep 3600` whose completion notification resumes you, prepare the
+  next packet's reads meanwhile (no launch), and when the sleep fires launch the next slice's document item WITHOUT waiting for
+  the human. Reason for the hour: the Claude account's rolling session allowance. The human may shorten it ("continue"). Never
+  turn the pause into a stop that waits for a message.
 - **Code-under-analysis examples are core business (human directive 2026-09-18):** for EVERY problem solved on repo-graph, the
   builder's evidence/report, the reviewer's report and the manager's checkpoint/ship reports include concrete examples FROM THE
   ANALYZED REPOSITORIES — the real source lines (file:line, the statement) that were wrong before and what the product now answers
