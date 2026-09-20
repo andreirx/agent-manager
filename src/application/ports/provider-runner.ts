@@ -32,6 +32,23 @@ export type RunInputPurpose =
   | 'prior-review'
   | 'task-directive';
 
+/**
+ * Why an input is framed by reference (header only, no body) instead of as
+ * content. The identity (path, sha256, byteLength) is delivered either way;
+ * only the bytes are withheld.
+ *
+ * - `delivered-earlier-in-session`: this native conversation already received
+ *   these exact bytes as content in an earlier completed turn.
+ * - `duplicate-in-this-delivery`: an earlier frame of this same delivery
+ *   carries these exact bytes.
+ * - `read-on-demand`: a bulk `source` dependency the role reads from its root
+ *   only if it needs it (the pinned digest lets it verify what it read).
+ */
+export type RunInputReferenceReason =
+  | 'delivered-earlier-in-session'
+  | 'duplicate-in-this-delivery'
+  | 'read-on-demand';
+
 export type RunTextInput =
   | {
       readonly origin: 'file';
@@ -40,6 +57,8 @@ export type RunTextInput =
       readonly path: string;
       readonly bytes: Uint8Array;
       readonly sha256: string;
+      /** Present when the frame carries no body. Absent means content. */
+      readonly reference?: { readonly reason: RunInputReferenceReason };
     }
   | {
       readonly origin: 'generated';
@@ -47,6 +66,7 @@ export type RunTextInput =
       readonly label: string;
       readonly bytes: Uint8Array;
       readonly sha256: string;
+      readonly reference?: { readonly reason: RunInputReferenceReason };
     };
 
 /** Closed input-delivery mode: legacy live files or immutable reviewed bytes. */
@@ -107,13 +127,17 @@ export function frameReviewedInputs(inputs: readonly RunTextInput[]): Uint8Array
     // Fatal decoding is an explicit pre-spawn validation even though framing
     // copies the original bytes rather than the decoded string.
     decoder.decode(input.bytes);
-    const header = input.origin === 'file'
+    const identity = input.origin === 'file'
       ? { origin: input.origin, root: input.root, purpose: input.purpose, path: input.path, sha256: input.sha256, byteLength: input.bytes.byteLength }
       : { origin: input.origin, purpose: input.purpose, label: input.label, sha256: input.sha256, byteLength: input.bytes.byteLength };
+    // A reference frame keeps the full identity (byteLength is the referenced
+    // content's length) and carries an empty body.
+    const header = input.reference ? { ...identity, delivery: 'reference', reason: input.reference.reason } : identity;
+    const body = input.reference ? new Uint8Array(0) : input.bytes;
     const opening = encoder.encode(`AGENT_MANAGER_INPUT_V2 ${JSON.stringify(header)}\n`);
     const closing = encoder.encode('\nAGENT_MANAGER_INPUT_END_V2\n');
-    chunks.push(opening, input.bytes, closing);
-    total += opening.byteLength + input.bytes.byteLength + closing.byteLength;
+    chunks.push(opening, body, closing);
+    total += opening.byteLength + body.byteLength + closing.byteLength;
   }
   const framed = new Uint8Array(total);
   let offset = 0;

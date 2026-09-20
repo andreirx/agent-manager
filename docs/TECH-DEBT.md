@@ -803,6 +803,8 @@ while another live run holds it.
 - When to address: with the session-id increment's follow-up; before another slice exceeds ~10 review cycles.
 - Status: OPEN (manager workaround applied on CALL-BINDING-RECEIVER-1).
 
+**Update 2026-09-20 (reference delivery, human decision "A and B"):** on a resumed native session, every input the conversation already received as content is now delivered as an identity-only reference frame, and `source` dependencies are references from the first turn (contract v2 section 8.4, "Reference frames"). Prior reviews already in the conversation are therefore no longer re-sent, which removes the growth this entry describes for resumed sessions. Still open: a FRESH reviewer session on a long slice still receives every prior review as content; the provider's input cap is still retried as transient.
+
 ## TD-025 — the requirements-document AUTHOR task directive names the reviewer's output contract
 
 - Date: 2026-09-18

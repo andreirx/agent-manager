@@ -207,6 +207,25 @@ When you put a question or decision to the human, make it self-contained: first 
 
 ## 6. Close out under explicit authority
 
+### Closeout checklist
+
+This is the one home of the closeout sequence. Status messages point here; they do not
+restate it.
+
+1. Apply any pending manager interpretation before touching a pinned input or the tree.
+2. Run the target's tracked gate suite on the unchanged accepted candidate, to a log file.
+3. In a separate command, assert the log's success marker and the absence of failures.
+4. Read the shipped change once more for product sense, names, and unearned structure.
+5. Commit the candidate paths and the published assurance records, only under granted
+   authority; confirm the committed bytes equal the accepted candidate.
+6. Add the roadmap ship line: the outcome with real examples from the product's inputs,
+   the tally (admissions, baselines, cycles, decisions, corrections), and the follow-ups.
+7. Remove the isolated resources this run created; check free disk.
+8. Update the slice handoff and memory; queue any lesson where it acts (see CLAUDE.md
+   "Rule hygiene").
+9. Start the standing pause as a wait that resumes by itself, then launch the next
+   eligible slice.
+
 Check the final candidate against scope, requirements, preservation, required
 verification, independent review, unresolved decisions, and unnecessary structure.
 Check names: do they communicate actual effects and guarantees to a new reader?

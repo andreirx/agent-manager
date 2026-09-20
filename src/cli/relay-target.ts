@@ -49,6 +49,7 @@ import {
   admitBaseline,
   isTargetRelayStatusShape,
   prepareReviewedTargetDryRunDeliveries,
+  finalizeReviewedDelivery,
   recordReviewedBaselineApproval,
   type TargetActor,
   type TargetPhase,
@@ -662,16 +663,25 @@ async function printDryRun(
       console.log('=== DRY RUN: planned reviewed-input provider deliveries (no processes spawned, no snapshot files written) ===\n');
       for (const phase of reviewedPhases) {
         const providerSession = plannedSession(phase.role === 'builder' ? 'builder' : 'reviewer', phase.provider, phase.adapter);
-        const request: RunRequest = { runId: `dry-run-${phase.label}`, sliceId: args.slice, role: phase.role, mode: phase.mode, permission: phase.permission, workingDir: targetDir, model: phase.model, effort: phase.effort, delivery: phase.delivery, inputArtifacts: [], ...(providerSession ? { providerSession } : {}) };
+        const request: RunRequest = await finalizeReviewedDelivery(
+          { runId: `dry-run-${phase.label}`, sliceId: args.slice, role: phase.role, mode: phase.mode, permission: phase.permission, workingDir: targetDir, model: phase.model, effort: phase.effort, delivery: phase.delivery, inputArtifacts: [], ...(providerSession ? { providerSession } : {}) },
+          join(targetDir, '.agent-manager', 'slices', args.slice)
+        );
+        if (request.delivery.kind !== 'reviewed-input-snapshots') throw new Error('role-context-mismatch: reviewed dry-run lost its reviewed delivery');
         const prepared = await phase.adapter.prepareRunDelivery(request);
         console.log(`# ${phase.label}  (${phase.provider}, mode=${phase.mode}, permission=${phase.permission})`);
         console.log(`  cwd : ${prepared.invocation.cwd}`);
         console.log(`  cmd : ${prepared.invocation.command} ${prepared.invocation.args.map(formatArg).join(' ')}`);
         if (prepared.sharedSnapshot) console.log(`  eventual-shared-snapshot: ${prepared.sharedSnapshot.path}`);
-        for (const input of [...phase.delivery.common, ...phase.delivery.roleSpecific]) {
+        let contentBytes = 0;
+        let referencedBytes = 0;
+        for (const input of [...request.delivery.common, ...request.delivery.roleSpecific]) {
           const identity = input.origin === 'file' ? `${input.root}:${input.path}` : `generated:${input.label}`;
-          console.log(`  input: ${input.purpose} ${identity} ${input.sha256} bytes=${input.bytes.byteLength}`);
+          const mode = input.reference ? `reference(${input.reference.reason})` : 'content';
+          if (input.reference) referencedBytes += input.bytes.byteLength; else contentBytes += input.bytes.byteLength;
+          console.log(`  input: ${input.purpose} ${identity} ${input.sha256} bytes=${input.bytes.byteLength} ${mode}`);
         }
+        console.log(`  delivery: content=${contentBytes} bytes, referenced=${referencedBytes} bytes (identity only)`);
         if (prepared.receipt.kind !== 'reviewed-input-snapshots') throw new Error('role-context-mismatch: reviewed dry-run produced a legacy receipt');
         for (const channel of prepared.receipt.channels) console.log(`  channel: ${channel.channel} mechanism=${channel.mechanism} ${channel.sha256} bytes=${channel.byteLength}`);
         console.log('');

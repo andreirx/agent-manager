@@ -66,9 +66,12 @@ import {
   extractDecisionIds,
   extractDecisionTexts,
   extractRecommendations,
+  withReferenceDelivery,
+  finalizeReviewedDelivery,
   type TargetRelayInput,
   type TargetRelayDeps,
 } from './relay-target.js';
+import { frameReviewedInputs, type RunTextInput } from '../ports/provider-runner.js';
 
 // ---------------------------------------------------------------------------
 // ASSURANCE-1: pure stage-1 grammar and policy
@@ -4824,5 +4827,92 @@ describe('provider-result framing is not an error (human ruling 2026-09-13, TD-0
     const unbalanced = 'STATUS: approved {"formatVersion": 3, "kind": "x"';
     expect(extractProviderResultJson(unbalanced)).toBe(unbalanced);
     expect(extractProviderResultJson('no json here')).toBe('no json here');
+  });
+});
+
+describe('reference delivery (human decision 2026-09-20: A resumed sessions, B bulk sources)', () => {
+  const text = (purpose: RunTextInput['purpose'], path: string, content: string): RunTextInput => ({
+    origin: 'file', root: 'target', purpose, path, bytes: new TextEncoder().encode(content), sha256: computeDigest(content),
+  });
+  const generated = (label: string, content: string): RunTextInput => ({
+    origin: 'generated', purpose: 'task-directive', label, bytes: new TextEncoder().encode(content), sha256: computeDigest(content),
+  });
+  const shared: RunTextInput = { origin: 'file', root: 'prompt', purpose: 'shared-instruction', path: 'SYSTEM.txt', bytes: new TextEncoder().encode('shared'), sha256: computeDigest('shared') };
+  const reviewed = (common: RunTextInput[], roleSpecific: RunTextInput[]): RunRequest['delivery'] => ({
+    kind: 'reviewed-input-snapshots', contract: 'requirements-assurance/v2-input-delivery', common, roleSpecific,
+  });
+
+  it('B: a fresh conversation gets requirements as content and bulk sources as read-on-demand references', () => {
+    const out = withReferenceDelivery(reviewed(
+      [shared, text('requirement', 'docs/requirements/r1.md', 'req'), text('source', 'docs/audits/big.md', 'audit')],
+      [text('role-instruction', 'prompts/roles/builder-target.md', 'role'), generated('task', 'go')]
+    ), new Set());
+    if (out.kind !== 'reviewed-input-snapshots') throw new Error('kind');
+    expect(out.common.map((i) => i.reference?.reason)).toEqual([undefined, undefined, 'read-on-demand']);
+    expect(out.roleSpecific.map((i) => i.reference?.reason)).toEqual([undefined, undefined]);
+    // Identity is never withheld.
+    expect(out.common[2]?.sha256).toBe(computeDigest('audit'));
+  });
+
+  it('A: bytes the resumed conversation already received as content are referenced; the directive and shared instruction never are', () => {
+    const req = text('requirement', 'docs/requirements/r1.md', 'req');
+    const out = withReferenceDelivery(reviewed([shared, req], [text('role-instruction', 'p.md', 'role'), generated('task', 'go')]), new Set([shared.sha256, req.sha256, computeDigest('role'), computeDigest('go')]));
+    if (out.kind !== 'reviewed-input-snapshots') throw new Error('kind');
+    expect(out.common.map((i) => i.reference?.reason)).toEqual([undefined, 'delivered-earlier-in-session']);
+    expect(out.roleSpecific.map((i) => i.reference?.reason)).toEqual(['delivered-earlier-in-session', undefined]);
+  });
+
+  it('a second frame with an identity already framed in this delivery is referenced, whichever way the first was framed', () => {
+    const src = text('source', 'docs/x.md', 'x');
+    const subject: RunTextInput = { ...src, purpose: 'review-subject' };
+    const out = withReferenceDelivery(reviewed([shared, src], [subject, generated('task', 'go')]), new Set());
+    if (out.kind !== 'reviewed-input-snapshots') throw new Error('kind');
+    expect(out.common[1]?.reference?.reason).toBe('read-on-demand');
+    expect(out.roleSpecific[0]?.reference?.reason).toBe('duplicate-in-this-delivery');
+  });
+
+  it('legacy live-input deliveries are untouched', () => {
+    const legacy: RunRequest['delivery'] = { kind: 'legacy-live-inputs', prompts: [] };
+    expect(withReferenceDelivery(legacy, new Set([computeDigest('x')]))).toBe(legacy);
+  });
+
+  it('a reference frame carries the full identity, the reason, and an empty body', () => {
+    const src = text('source', 'docs/x.md', 'the bytes');
+    const framed = new TextDecoder().decode(frameReviewedInputs([{ ...src, reference: { reason: 'read-on-demand' } }, generated('task', 'go')]));
+    const lines = framed.split('\n');
+    const header = JSON.parse(lines[0]!.slice('AGENT_MANAGER_INPUT_V2 '.length));
+    expect(header).toEqual({ origin: 'file', root: 'target', purpose: 'source', path: 'docs/x.md', sha256: computeDigest('the bytes'), byteLength: 9, delivery: 'reference', reason: 'read-on-demand' });
+    expect(lines[1]).toBe('');
+    expect(lines[2]).toBe('AGENT_MANAGER_INPUT_END_V2');
+    expect(framed).not.toContain('the bytes');
+    expect(framed).toContain('\ngo\nAGENT_MANAGER_INPUT_END_V2\n');
+  });
+
+  it('finalizeReviewedDelivery reconstructs the resumed session\'s content history from completed and timed-out run records only', async () => {
+    const sliceDir = await mkdtemp(join(tmpdir(), 'reference-delivery-'));
+    await mkdir(join(sliceDir, 'runs'), { recursive: true });
+    const req = text('requirement', 'docs/requirements/r1.md', 'req');
+    const gov = text('governance', 'CLAUDE.md', 'gov');
+    const src = text('source', 'docs/audits/big.md', 'audit');
+    const identity = (i: RunTextInput, reference?: { reason: string }) => ({ origin: 'file', root: 'target', purpose: i.purpose, path: i.origin === 'file' ? i.path : '', sha256: i.sha256, byteLength: i.bytes.byteLength, ...(reference ? { reference } : {}) });
+    const record = (name: string, status: string, sessionId: string, common: unknown[]) => writeFile(join(sliceDir, 'runs', name), JSON.stringify({ status, providerSession: { request: 'fresh', returnedSessionId: sessionId }, inputProvenance: { commonInputs: common, roleSpecificInputs: [] } }));
+    await record('build-0.json', 'completed', 'S1', [identity(req), identity(src, { reason: 'read-on-demand' })]);
+    await record('build-0-attempt-1.json', 'failed', 'S1', [identity(gov)]);
+    await record('review-0.json', 'completed', 'OTHER', [identity(gov)]);
+    await writeFile(join(sliceDir, 'runs', 'garbage.json'), '{not json');
+    const base: RunRequest = { runId: 'r', sliceId: 's', role: 'builder', mode: 'edit', permission: 'write', workingDir: sliceDir, delivery: reviewed([shared, req, gov, src], [generated('task', 'go')]), inputArtifacts: [] };
+    try {
+      const resumed = await finalizeReviewedDelivery({ ...base, providerSession: { kind: 'resume', sessionId: 'S1' } }, sliceDir);
+      if (resumed.delivery.kind !== 'reviewed-input-snapshots') throw new Error('kind');
+      expect(resumed.delivery.common.map((i) => i.reference?.reason)).toEqual([undefined, 'delivered-earlier-in-session', undefined, 'read-on-demand']);
+      const fresh = await finalizeReviewedDelivery({ ...base, providerSession: { kind: 'fresh' } }, sliceDir);
+      if (fresh.delivery.kind !== 'reviewed-input-snapshots') throw new Error('kind');
+      expect(fresh.delivery.common.map((i) => i.reference?.reason)).toEqual([undefined, undefined, undefined, 'read-on-demand']);
+      const noRuns = await finalizeReviewedDelivery({ ...base, providerSession: { kind: 'resume', sessionId: 'S1' } }, join(sliceDir, 'missing'));
+      if (noRuns.delivery.kind !== 'reviewed-input-snapshots') throw new Error('kind');
+      expect(noRuns.delivery.common.map((i) => i.reference?.reason)).toEqual([undefined, undefined, undefined, 'read-on-demand']);
+    } finally {
+      await rm(sliceDir, { recursive: true, force: true });
+    }
   });
 });

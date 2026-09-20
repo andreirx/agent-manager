@@ -18,6 +18,14 @@ and the assigned task. Follow the project's documented read order. If informatio
 is missing, identify the gap; do not invent documents or assume familiar conventions.
 Read relevant source and tests before relying on their behavior. Do not assume
 that a previous session's memory or an orientation summary is authoritative.
+Inputs the runner delivered to you as content, identified by path and digest, are
+the authoritative versions and are already in your context: do not read them again
+from disk. Read from disk what was not delivered and what you need to verify. An
+input framed with `"delivery":"reference"` has no body: `delivered-earlier-in-session`
+means this conversation already holds it; `duplicate-in-this-delivery` means an
+earlier frame of this delivery has the same identity; `read-on-demand` means read it
+from its root and path when you need it, and check its sha256 before relying on
+exact bytes.
 
 The assigned role and current task determine whether you may plan, edit, review,
 or select. Shared engineering rules do not grant additional permissions. Preserve
@@ -59,6 +67,12 @@ when investigation leaves a consequential ambiguity or missing authority, requir
 changing approved inputs, or makes recovery risk losing work. Never invent progress
 or approval, weaken admission, discard work, or overlap writers to make continuation
 convenient.
+
+Stopping on a contradiction or reporting a failed check is a correct outcome. A finding
+is recorded against the artifact and the policy that let the problem through (a packet,
+an oracle, a prompt, a runtime rule), never against the agent that produced or reported
+it. Do not spend effort on attribution, apology, or on listing options you have already
+ruled out. Never bend code, a name, or evidence so that a check selects or passes.
 
 ## 2. Establish the change contract BEFORE implementation
 
@@ -364,6 +378,11 @@ Reviewer responsibilities, in order:
 5. Check acceptance at the required system boundary and remaining regression risk.
    A second model's agreement is neither proof nor certification-level independence.
 
+Converge in one pass: when a finding is an instance of a pattern, inspect the candidate
+for the pattern's other instances before returning, report them together, and state the
+rule that would close the class. A builder correcting a finding closes its class with one
+rule where the contract permits, not the single reported instance, and states the rule.
+
 Findings identify the obligation (or evidenced missing obligation), exact location,
 failure scenario/user consequence, evidence, and smallest necessary correction.
 Distinguish blocking defects, authority decisions, and optional suggestions. Do not
@@ -381,13 +400,19 @@ do not create files outside scope. Follow the project's configuration-management
 and retention conventions. Identify the exact requirements/design baseline, code,
 build configuration, and verification evidence supporting an acceptance decision.
 
-Before each revision, after context loss/resume, and before completion, re-read the
-authoritative contract, P, prior findings, baseline, and current diff. Correcting the
-latest finding must not erase earlier requirements or already-fixed regressions.
+Before each revision and before completion, check your work against the authoritative
+contract, P, prior findings, baseline, and current diff. When they are still in your
+context from earlier in the same conversation, re-read from disk only what changed (new
+findings, the current diff, amended inputs); after context loss, re-read them all.
+Correcting the latest finding must not erase earlier requirements or already-fixed
+regressions.
 Update only affected trace links and checks. If requirements or material design
 change, identify the changed obligations, reason, downstream impact, review and
 approval needed. Old evidence remains historical, not proof for changed behavior.
 Do not rewrite acceptance after the fact to match what happened to get built.
+Durable records are append-only: never edit or delete a published review, evidence,
+decision, or approval so that it matches a later understanding; append a dated correction
+that references it. One rewritten record makes every other record unverifiable.
 
 Explain how the result serves the product vision and requirements, how consequential code works,
 and where policy, orchestration, and mechanisms reside when existing docs do not
@@ -401,7 +426,10 @@ including preservation, without deleting functionality or weakening verification
 If simplification stays within authority, apply it and re-run affected checks.
 If it changes a ratified decision, stop and surface the trade-off instead.
 
-Keep the handoff compact and compatible with the assigned role format: outcome;
+Keep the handoff compact and compatible with the assigned role format. Lead with what
+a reader can check independently (the command or inspection, expected and actual result,
+evidence location, candidate identity); keep narrative for failures and for design choices
+the existing documents do not record. Order: outcome;
 H/L/P results and evidence; changed-file/hunk justification; consequential design
 explanation; unresolved risks/decisions. Reference existing artifacts instead of
 copying the entire contract. Never claim global completeness, absence of regressions,

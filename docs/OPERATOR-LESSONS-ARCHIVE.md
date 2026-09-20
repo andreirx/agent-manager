@@ -1,0 +1,416 @@
+# Operator lessons archive
+
+Append-only. Entries are never edited or deleted; a later correction is a new dated entry below.
+These are the incident narratives behind the rules in CLAUDE.md "Operator practices". They are
+history and evidence, not standing instructions: the standing rule is whatever CLAUDE.md says today.
+
+## 2026-09-20 — the complete "Operator practices" section as it stood at e4eca98bfda4450ba55f86541e1cd83952d8894d
+
+Moved here verbatim when the section was curated into short rules (human direction 2026-09-20).
+Rules retired outright at that curation, with the reason:
+
+- Builder trial `claude-opus-4-6`, the Codex-quota interim reviewer, the 2026-09-08 builder switch to Codex: closed or superseded by the 2026-09-13 builder directive.
+- The 3-hour pause and its history: superseded by the 1-hour wait-then-continue rule.
+- `--timeout 60` for Rust slices: superseded by `--timeout 120`.
+- Codex CLI `models_cache.json` corruption: resolved by the 0.153.2 upgrade; only the post-upgrade smoke remains a rule.
+- The retention-pass store rebuild runbook: the defect was fixed (migration 035, `rmap repo rebuild`).
+- Colima / Testcontainers note: belongs to a different target (amodx), not to this repository's relay practice.
+- Builder-facing rules (foreground only, no stash, progress file, isolation, cleanup, retained roots are copies): live in `prompts/roles/builder-target.md` and in the target's CLAUDE.md.
+
+---
+
+### Operator practices (this way of working)
+
+- **Drive the queue; the relays do the work.** The operator bootstraps slices, watches the
+  gate, does an operator review (earned-abstraction / scope / honesty), commits on approval,
+  advances. Surface only genuine blast-radius decisions to the human.
+- **Checkpoint every 2-3 cycles — never let a loop run long unattended** (ratified
+  2026-07-04). Launch relays with `--max-iter <current_iteration + 3>` so the relay STOPS at
+  the checkpoint by design; the operator reads the newest review/build report + tree shape,
+  then continues (on track) or steers via OPERATOR_NOTE (in the weeds). Reviewers judge the
+  CONTRACT; only the operator/human judge PRODUCT SENSE — the field bugs (client timeout
+  aborting live indexes; success-only registry persistence) all passed green review cycles.
+  Corollary: when a review round's only pending input is the operator's own ratification,
+  close out HERE (operator review + commit) instead of buying another round.
+- **On a builder timeout, READ the build log's edit distribution (and the partial tree) to
+  STEER before discarding** — do not blind `git checkout`. The partial work is steering (where
+  a too-big slice should split) and a potential resume base. (Relay improvement pending — see
+  `docs/TECH-DEBT.md`.)
+- **Smaller slices converge; mega-slices block.** When a slice can't converge or times out,
+  SPLIT it (informed by the build log) rather than retry/raise-timeout.
+- **BUILDER TRIAL (human directive 2026-09-07): `claude-opus-4-6` "for a while"** — launch every
+  slice with `--builder-model claude-opus-4-6` (effort unchanged, `high`) starting with the launch
+  AFTER DEPS-CLASSIFIER-1B (which was already mid-build on opus-4-8); reviews stay GPT (gpt-5.6-terra
+  default, gpt-5.6-sol on escalation). The baked default below stays opus-4-8 until the human ends
+  the trial; record per-slice which builder model built it. Compare cycle counts / strain against the
+  opus-4-8 slices in the ROADMAP ship lines.
+  DELEGATED (human 2026-09-07): "if you determine you work better with claude-opus-4-8 as builder,
+  you can go back to it" — the operator decides after ≥2 trial slices, on: cycles to approval,
+  standing-honesty-rule misses (`unwrap_or(0)`-class, silent non-reconciliation), skipped DoD items,
+  substitution of fixtures for the packet's ordered corpus proofs, and strain. Record the decision and
+  its evidence in the ROADMAP; the builder model remains a per-launch flag either way.
+  TRIAL CLOSED 2026-09-08 (operator decision under the delegation): claude-opus-4-6 built 7 cycles across
+  HEADLINE-TRUTH-1 (4) and MODULES-METHOD-1 (3) with a standing-honesty-rule violation in SIX of them
+  (`unwrap_or(0)`, `.ok()`, `unwrap_or_default`, `.ok()/.flatten()`, `.ok().and_then`), one silently
+  substituted acceptance number, one isolation violation (read the operator's real state root), fixtures
+  or the wrong corpus in place of the packet's proofs, and spec items ignored (source_type vs key prefix;
+  doc path rules; §2.3 ordering). opus-4-8 closed HEADLINE-TRUTH-1's remainder in two cycles. Builder
+  default = `claude-opus-4-8` for everything; no `--builder-model` flag. Speed was real (32 files in 95
+  min) — discipline on binding rules was not.
+  BUILDER SWITCH (human directive 2026-09-08, "next slices we are switching the builder to gpt-5.6-sol"):
+  from EXIT-CODES-1 launch with `--builder codex --builder-model gpt-5.6-sol`; reviewer `--supervisor
+  claude --supervisor-model claude-opus-4-8` so the gate stays two-vendor (a Codex `sol` escalation
+  review is then same-vendor — say so in the record). `--dry-run` the first launch to inspect the codex
+  builder invocation (sandbox mode, working dir, prompt) before a real run; ship lines record both models.
+- **Agent-to-agent results are not schema-policed (human ruling 2026-09-13):** "we're not going to be sticklers for
+  schema adherence for something passed between two agents — they will understand what's in there, this is not an
+  error." Do not steer builders/reviewers on JSON shape minutiae and do not count a shape deviation as a defect of the
+  agent; the runtime's fail-closed provider-result validation is the thing to fix (TD-020). Integrity rules stay on
+  durable records and the input closure.
+  RUNTIME NOW TOLERATES THE WRAPPER (2026-09-13): `extractProviderResultJson` pulls the first balanced object out of a
+  final message before the strict parse — do not add "bare JSON only" steering to packets any more; a field-shape
+  deviation inside the object is still reported by the runtime and is still not the agent's fault (TD-020 open part).
+- **An oracle that selects a test the slice REWRITES must name the NEW identity (bitten 2026-09-13, TRUST-MODULE-EDGES-1,
+  D-TME-TEST-NAME-1):** TME-C03 bound `suspicious_modules_state_basis_and_point_at_stats` by exact filter while the slice
+  inverted its assertions; the builder kept the false name "so the assurance check selects it" and the reviewer
+  correctly blocked — a third re-baseline for a rename. When a packet rewrites a test's behaviour, rename it IN THE
+  PACKET and bind the new name; every literal identity in a check command is a latent re-baseline (see TD-022/TD-023).
+- **A catalog edit invalidates the admission baseline AND every per-slice manifest generated before it (bitten 2026-09-14,
+  two refused dry-runs):** the bootstrap baseline (RG-BOOTSTRAP-INPUT-n) pins every requirement file's digest, and a
+  slice manifest pins its parents' digests. After ANY requirement-file change: revise the bootstrap baseline (standalone
+  Terra pass over the diff + operator-authored v1 approval — the relay's approval verb serves v2 only) in the SAME commit,
+  and regenerate every not-yet-approved slice manifest. Read the digest-mismatch's file list before diagnosing: it names
+  which manifest is stale.
+- **Check commands resolve the candidate binary by ABSOLUTE path, never `$PWD` after a `cd` (bitten 2026-09-14,
+  CALL-BINDING-RECEIVER-1 PREP, seven checks):** `( cd '<corpus>' && … $PWD/rust/target/release/rmap )` evaluates `$PWD`
+  inside the corpus. Quote the absolute repo path (it contains spaces). And a packet that lets the builder "optionally" add
+  a category/variant whose home is outside candidatePaths is self-contradictory — decide it in the packet.
+- **Run the runtime's allocation parser over a stage-3 block BEFORE its document review (bitten 2026-09-14, two refusals
+  the document reviewer cannot see — TD-019):** `npx tsx scripts/validate-allocation.ts <slice.md> <workItemId>
+  <baselinePath> <manifest.json> <impl selection.md>` prints ALLOCATION VALID or the exact refusal lines (every preserved
+  L needs a check whose `expected` says no-behavior-change / remain / preserve — American spelling; every P-obligation must
+  be listed in a check's obligationIds). Seconds, not a review cycle.
+- **Three oracle-authoring lessons from CALL-BINDING-RECEIVER-1 PREP-3 (2026-09-14, one cycle each):** (1) a JSON oracle
+  asserts over the ANSWER list (`d['callees']`, `d['callers']`) — a whole-document `qualified_name` scan also collects the
+  focus symbol echoed in `target`, so "self not present" can never pass; (2) never splice a new ledger bullet into the middle
+  of an existing sentence — rebuild the section whole (OC-1's tail ended up inside OC-2); (3) when a decision record names
+  the proof ("compare the member SET"), the corrected check must perform exactly that proof (`cycles --json` nodes), not a
+  weaker proxy (edge count + size).
+- **A builder must never background a check and end its turn (bitten 2026-09-14, CALL-BINDING-RECEIVER-1 second admission
+  cycle 1):** the builder backgrounded a corpus index for one check, wrote "I'll pause here and resume when notified", and ended
+  its message — in `claude --print` there is no later turn, so the relay took that sentence as the final evidence and a cycle
+  with 17 green checks was lost. Rule now in `prompts/roles/builder-target.md` (additive) and in every packet's ordered round:
+  run every check to completion in the foreground; a long index is what the 120-minute budget is for.
+- **Never edit a tracked prompt while a work item is admitted (bitten 2026-09-14):** admission pins every role prompt's
+  digest in the item's status.json; I committed the foreground-only rule into `prompts/roles/builder-target.md` mid-item and
+  the review phase refused with `digest-mismatch: persisted reviewed-input instruction identities changed` — a cycle with
+  18 green checks never reached its reviewer. Queue prompt edits for the next fresh admission (which pins the new digest).
+- **Packets and notes quote FULL digests, never 12-character suffixes (bitten 2026-09-14, one document cycle):** a reviewer
+  compared "…194389761580" with the full HEAD digest, treated them as two conflicting baseline identities and raised a
+  provenance decision. A suffix is a rendering convenience for the terminal, not an identity a reviewer can verify.
+- **Allocate checks for the malformed/absent-evidence paths UP FRONT (lesson 2026-09-14, CALL-BINDING-RECEIVER-1):** 19
+  happy-path oracles were green on real data while the reviewer found, one cycle at a time, five real defects in the
+  defensive paths (a mocked test; a malformed carrier re-enabling a fabricated binding; a reverse suffix match; a type read
+  decoupled from its receiver; a malformed type folded into "absent"). For every evidence field a slice introduces, the
+  packet lists absent / present-valid / present-malformed and binds a test to each — an evidence taxonomy table in §2 —
+  so the review converges in one cycle instead of five.
+- **The whitespace oracle must include `cargo fmt --check` (bitten 2026-09-18, CALL-BINDING-RECEIVER-1 closeout):** C19 checked
+  `git diff --check` only; the accepted candidate failed the tracked gate suite's fmt gate, and the manager had to format after
+  acceptance and PROVE the committed bytes equal the accepted bytes modulo whitespace (HEAD worktree + the accepted patch;
+  rustfmt also adds trailing commas when it wraps arguments — count them). Put `cargo fmt --check -p <crates>` in the oracle.
+- **Tell the reviewer, in every implementation packet, that the workspace suite + isolated dogfood are the OPERATOR's gate
+  after acceptance (bitten 2026-09-19, Q5 F-DEP-01):** repo-graph's CLAUDE.md "End-of-Slice Procedure" says "Test (always,
+  before handoff)"; the reviewer read it as a builder duty and refined P-DEP-05 although every check was accepted. Resolve
+  such a finding with the evidence (run the gate suite on the unchanged candidate BEFORE applying the interpretation, cite
+  the log) — never by fiat; CC-5 queues the wording fix in the pinned target file.
+- **Before allocating, grep every LITERAL construction of any struct the slice extends (bitten 2026-09-19, Q5 first admission):**
+  two additive fields on `ComposeDependenciesResult` broke a test helper's `ComposeDependenciesResult { … }` in a non-candidate
+  file; the runtime's checkpoint refused the seventh path after the builder had run all fourteen checks green. `git grep
+  '<Struct> {' HEAD -- 'rust/crates/**/*.rs'` and put every hit in candidatePaths (or use `..Default::default()` only when the
+  struct already derives Default). Same for a byte-identity oracle: enumerate the DERIVED lines a change legitimately moves (a
+  view-scoped count such as `non-import fragments dropped`) and strip/report them instead of asserting whole-output identity.
+- **A slice manifest pins the CLOSURE of its parent requirements' `sources` (bitten 2026-09-19, Q5 PREP cycle 1 refused at
+  review with ten `source-not-found` lines):** every `sources[].path` in each parent requirement file's `requirements-assurance-v1`
+  block must appear exactly once in the manifest's dependencies (role `source`), plus the slice's own sources; generate the list
+  from the requirement files, never by hand (the Q5 manager script now does: parse the blocks, union the paths, digest each).
+- **Re-admitting a superseded implementation item: copy the previous admission's runtime-written status.json and replace ONLY
+  `assurance.manifest` (bitten 2026-09-19, two refused launches):** the runtime compares the persisted `assurance` block with the
+  requested one by byte-equal JSON; a hand-built v1-stage1 block is refused as "Baseline conflict" (the message prints two
+  identical digests — misleading), a hand-built v2 block without `instructions` as "Malformed assured status.json". Drop
+  `providerSessions`/`candidateTracking`/`pendingInterpretation`, set phase implement / iteration 0 / lastActor human, keep the
+  instruction digests (prompts unchanged), replace the manifest path + sha256.
+- **When a slice REVERSES a served behaviour, grep the tests for the behaviour's name, including `#[path]`-included test files
+  (bitten 2026-09-19, ECH-IR-001):** `explain_coherence_served_tests.rs` (pulled in via `#[path]` from explain_coherence_tests.rs)
+  asserted "cycles served from the LiveGraph, provenance {livegraph}" — the exact behaviour A-1 reversed — and was not in the
+  candidate paths; the whole-crate unit suite caught it, at the cost of a fifth admission. Rename such a test to its NEW identity
+  in the packet with inverted assertions (a test named for the reversed behaviour is a false name).
+- **Manager interpretation of an implementation review: `changedPathAssessments` entries are exactly {path, result, findingIds,
+  decisionIds}; strip the reviewer's `rationale`/`assessment` prose (2026-09-19, three refused applications).** The `--shared-prompt`
+  flag is REQUIRED on `--apply-manager-interpretation` for a reviewed-inputs item ("requires a contained shared instruction").
+- **The acceptance boundary includes the WHOLE unit suite of every daemon crate a candidate touches, and every cross-engine
+  parity certificate is in the regression watch (bitten 2026-09-19, EXPLAIN-CYCLES-HONEST-1 third admission):** a candidate
+  accepted 13/13 obligations and 12/12 checks, then failed the operator gate suite on two `daemon-runtime --lib` M-2 parity tests
+  (LiveGraph decorator vs SQLite value-identity) the allocation never named — the packet said "the LiveGraph serve is unchanged"
+  and the chunked gates ran only the named integration tests. Cost: a human decision (D-ECH-002), a fourth baseline, a fourth
+  admission. Rule: when a slice changes a value one engine serves, grep the tests for the other engine's parity certificate
+  (`m2_parity_`, `canonical_cycle_shape`, `*_equals_sqlite*`) and bind them; put the crate's `--lib` in the boundary.
+- **A negated grep oracle names an exact file and a literal terminator (bitten 2026-09-19, ECH-C16):** `! grep -rn 'fn serve_cycles'
+  src` was unsatisfiable — the substring matched the frozen `serve_cycles_fastpath`/`serve_cycles_sqlite` and the untracked
+  `*_rs_MAP.md` sidecars; the author caught it before review. Write `! grep -n 'fn serve_cycles(' <exact file>`.
+- **A scripted text replacement that rewrites the head of a sentence must rewrite its tail (bitten 2026-09-19, ECH-PREP4-F01):**
+  the ECH-C12 `expected` got a "14 modified + 2 new" prefix while its tail still said "exactly the eight … (six modified, two
+  new)" — one document cycle. After a scripted edit, print the whole edited field and read it.
+- **A baseline pins the decision that authorizes it (bitten 2026-09-19, ECH-PREP4-F02):** an amendment carried under a human
+  decision record lists that record as a digested source dependency of its manifest.
+- **Manager interpretation (runtime 5840038) — mappings that validated on the first real uses (2026-09-18):** content is ONLY
+  result/obligationAssessments/checkAssessments/changedPathAssessments/findings/decisions/report; a split
+  `preservationObligationAssessments` array merges into obligationAssessments; `execution-failed`/`unverified` are NOT
+  assessment results (use refinement-required + the finding, keep the reviewer's text in verification.limitation); a
+  relied-on-builder-evidence verification is `{kind, limitation}` (fold the reviewer's outcome/supportingEvidence text into
+  the limitation); a reproduced one is `{kind, outcome:{kind, actual, supportingEvidence}}`; implementation finding categories
+  are correctness|preservation|evidence|integration|scope|naming|architecture|traceability; an accepted assessment references
+  no finding (a check the reviewer accepted while attaching a finding whose required action re-runs it is refinement-required).
+  Verify the findings on the code BEFORE applying — the runtime derives identities, the manager owns the semantics.
+- **Never quote a per-cycle identity in a packet note (bitten 2026-09-14):** the verification digest a reviewer must echo
+  in `subject` is regenerated every cycle and lives only in that cycle's task directive; I quoted one in a manager note to
+  explain a mismatch, and the next reviewer copied it — a second accept of the same candidate refused for the same field.
+  Point at the directive; never restate its values.
+- **Bootstrapping a packet under the overhauled relay: copy a VALID CURRENT record, never an old one (bitten 2026-09-13,
+  two refused launches; human: "I told you agent-manager was overhauled maybe you should check its docs"):** MANAGER.md §2
+  says it — read the current contract and a valid record (`.agent-manager/slices/ASSURANCE-3/status.json`) before
+  constructing `status.json`; `lastActor`/`builderProvider`/`supervisorProvider` take provider values
+  (`claude|codex|copilot|human`). When the overhaul changes a contract, re-read the docs BEFORE the first launch, not after
+  the refusal.
+  BUILDER DIRECTIVE (human 2026-09-13, "you can use claude-opus-4-8 for the builder going forward"): for repo-graph
+  slices launch with `--builder claude --builder-model claude-opus-4-8`; the reviewer stays Codex `gpt-5.6-terra`
+  (two-vendor gate). The overhaul track's own self-build assignment (Codex/Codex) is unchanged. First assured
+  repo-graph item (TRUST-MODULE-EDGES-1-PREP) therefore pairs a Claude author with the Codex structured reviewer —
+  record the pairing in the run records; it is the first time that combination runs under the v2 delivery path.
+  CODEX BUILDER LIMITS (observed 2026-09-08, EXIT-CODES-1): `codex exec --sandbox workspace-write` CANNOT
+  bind a Unix socket ("Operation not permitted") — any live proof that needs a socket daemon fails
+  environmentally. Packets for a Codex builder must route live proofs through `RMAP_TRANSPORT=stdio`
+  (the daemon as a subprocess, no socket) or mark the socket proof as OPERATOR-RUN; the builder also
+  wrote no incremental progress for 90 minutes before a timeout — the packet must require
+  `build-progress.md` after each step explicitly (it did; the builder ignored it — repeat it in the
+  RESUME NOTE). It did produce a correct spec-contradiction finding at cycle 1 and a statically
+  complete 62-file diff by cycle 3.
+- **Builder model default is `claude-opus-4-8`, effort `high`** (human directive 2026-07-31, back from the 2026-07-26 opus-5 period;
+  baked into `relay-target.ts`; superseding the 2026-07-20 opus-4-8 default and the
+  2026-07-16 judge-by-complexity policy). Model/effort changes remain the HUMAN's decision,
+  not the operator's — per-run overrides via `--builder-model`; when strain appears, SURFACE
+  it and the escalation option to the human instead of escalating. **Codex reviewer model
+  default is `gpt-5.6-terra`** (human directive 2026-07-27, after the gpt-5.6-sol quota
+  lockout; quota was reset same day).
+  When strain appears (>2 substantive revise rounds, repeated fuse kills), SURFACE the
+  strain and the escalation option to the human instead of escalating. Codex reviewer
+  model stays per its own default.
+  INTERIM (human directive 2026-09-07): the Codex account hit its usage limit ("try again at
+  Sep 10th, 2026 6:39 PM"); until it returns, launch with `--supervisor claude
+  --supervisor-model claude-opus-4-6`. Same-vendor gate: mark every interim review record and
+  commit message "reviewed by claude-opus-4-6 (Codex quota interim)"; revert to Codex on Sep 10.
+  ENDED 2026-09-07 ~10:15Z (human: "codex is back — switch to the terra reviewer"; a `codex exec` smoke
+  returned before the announced date): default supervisor codex / gpt-5.6-terra restored; two slices
+  (SYMBOL-IDENTITY-1, DEPS-CLASSIFIER-1 inc 1) carry the interim marking.
+  ESCALATION MODEL (human delegation 2026-09-07: "you can even use GPT-5.6-sol as reviewer on
+  escalations"): the operator MAY relaunch a slice's review with `--supervisor-model gpt-5.6-sol`
+  when (a) a review escalates on a design/invariant question the operator cannot settle from the
+  spec, or (b) strain appears (>2 substantive revise rounds on one slice). Default stays
+  gpt-5.6-terra; the review record names the model used. Builder model/effort remain the human's knob.
+- **Deep vertical slices — no dormant capability** (operator directive 2026-07-11). Whatever
+  support a slice delivers must be WIRED through and REFLECTED IN THE OUTPUT somewhere, in the
+  same slice. A capability that exists but never runs or never renders is the field-bug factory
+  (retention shipped-but-never-ran; enrichment opt-in-never-invocable; resolutions computed but
+  promoted=0). Slice packets must name the output surface where the delivered support becomes
+  visible, and validation must prove it renders there.
+- **Infra blocks (provider auth/quota lapse, transient timeout) → resume**; real `escalate` →
+  surface the DECISION_REQUIRED to the human.
+- **A big smoke run gets a usefulness GATE: an agent analyzing the outputs against the VISION, the
+  current architecture, and the net tech-debt balance — plus the reviewer model's take** (the two-agent
+  gate; `repo-graph/docs/testing/end-to-end-usefulness-protocol.md`). The reviewer pass runs the model
+  STANDALONE (outside the relay), so use a **self-contained prompt**: inline the evidence, forbid web
+  search / tools, read-only sandbox (`prompts/standalone-review.md`). A standalone review that asks the
+  model to *assess a subject* without inlined evidence loops on web search (a 3h dead loop, 2026-06-29);
+  the relay's in-loop reviews are safe because they judge a self-contained `git diff`.
+
+- **Pause after each slice — 1 HOUR, then CONTINUE on your own (human directive 2026-09-19; clarified 2026-09-20: "I never
+  meant stop forever … the intent was to continue working as long as there are slices"):** when a slice's closeout is done
+  (commit, ship line, sweep, handoff), start a background `sleep 3600` whose completion notification resumes you, prepare the
+  next packet's reads meanwhile (no launch), and when the sleep fires launch the next slice's document item WITHOUT waiting for
+  the human. Reason for the hour: the Claude account's rolling session allowance. The human may shorten it ("continue"). Never
+  turn the pause into a stop that waits for a message.
+- **Code-under-analysis examples are core business (human directive 2026-09-18):** for EVERY problem solved on repo-graph, the
+  builder's evidence/report, the reviewer's report and the manager's checkpoint/ship reports include concrete examples FROM THE
+  ANALYZED REPOSITORIES — the real source lines (file:line, the statement) that were wrong before and what the product now answers
+  about them (e.g. poco `Net/src/HTTPClientSession.cpp:<line>` `#include "Poco/Exception.h"` → `Foundation/include/Poco/Exception.h`;
+  leveldb `db/db_impl.cc:1503` `DB::Open` → `DBImpl::Recover`), plus one example per residual class. Counts alone are not evidence of
+  a product outcome. Packets require it in the output contract; `prompts/roles/builder-target.md` and `reviewer-target.md` carry the
+  rule additively from the first fresh admission after 2026-09-18 (never edit a pinned prompt mid-item).
+- **Questions to the human are SELF-CONTAINED (human directive 2026-09-14):** problem in plain language first, then each option
+  as reward/risk; never point at labels (IDs, Q-numbers, TD numbers) as the substance — a reader with no context must be able to
+  decide from the text alone. Now in `prompts/roles/manager.md` and `docs/MANAGER.md`.
+- **Decision-surfacing format (human directive 2026-07-27):** when presenting the human a
+  decision, FIRST explain the problem in detail (what is broken/at stake, how we got here),
+  THEN present each option in explicit RISK vs REWARD terms. No option lists without the
+  problem statement; no labels without consequences.
+
+- **Kill the whole relay family, then verify (operator lesson 2026-08-16):** `pkill -f relay-target`
+  kills the wrapper but can ORPHAN the spawned provider child (claude/codex), which keeps
+  editing the target tree — a ghost builder wrote files DURING the next cycle's review and the
+  reviewer correctly escalated on a moving diff. After any relay kill: `pgrep -f "claude.*stream-json|codex exec"`
+  and kill survivors, then confirm tree stability (two `git status` hashes apart in time).
+  Related: launches get their OWN command — never chained/backgrounded behind other commands
+  (orphaned twice: GS-2 2026-08-12, TZ-4 2026-08-16). A Claude Code SESSION EXIT does the same: the
+  relay wrapper dies with the session but the `claude --print … stream-json` builder survives
+  (bitten 2026-09-06, DAEMON-RESIDUALS-2C cycle 3) — on resume, FIRST `pgrep -fl "claude.*stream-json|codex exec"`,
+  kill survivors, confirm two `git status` hashes apart in time, read `build-progress.md`'s mtime,
+  then relaunch (the relay resumes at the interrupted cycle).
+  A provider TIMEOUT orphans the builder's CARGO children too (bitten 2026-09-08, AUDIT5-MINORS-1: a
+  `cargo build --release` + two rustc kept compiling in rust/target after the builder died — the next
+  builder would have blocked on the lock): before any relaunch, `pgrep -fl "cargo|rustc"` (note
+  `pgrep -fl rmapd` ALSO matches `cargo build -p rmapd` — read the whole line), kill survivors, and
+  confirm `lsof rust/target/release/.cargo-lock` has no holders.
+- **Rust slices on opus-4-8/high need `--timeout 60` (operator lesson 2026-08-23):** the relay's 20-min
+  per-provider default killed FORGET-REPO-1's builder mid-implementation (605 partial lines, no
+  build report). Launch code slices on repo-graph with `--timeout 60`; on a timeout, keep the partial
+  tree, add a RESUME NOTE to `selection.md` (build ON the diff, write build-N.md incrementally), and
+  re-run `--slice <ID>` (the relay unblocks and retries at the next cycle).
+- **Incremental build reports have ONE home (operator lesson 2026-09-04, three strays):** the relay
+  stores only the builder's FINAL message as `build-<n>.md` (relay-target.ts `runBuild`), so a
+  provider timeout erases all executed-gate evidence unless the builder wrote progress somewhere.
+  Builders told "report incrementally" without a path chose `docs/slices/*-build-N.md` — a
+  tracked, out-of-scope edit the reviewer must reject. The path is
+  `<target>/.agent-manager/slices/<ID>/build-progress.md` (now in `builder-target.md` and every
+  packet); on a timeout, READ it before writing the RESUME NOTE.
+- **Codex CLI is the Homebrew cask, upgraded 0.144.1 → 0.153.2 (human directive 2026-09-04):** the
+  recurring `models_cache.json` corruption ("missing field `base_instructions`", 4× — codex
+  self-quarantines to `.corrupt-<date>`) was the OLD client failing to parse the newer models
+  schema; gone on 0.153.2 (verified: relay flag shape `exec --model … -c model_reasoning_effort=…
+  -c developer_instructions=… --sandbox read-only -C <dir> -` runs, zero ERROR lines). Upgrade path
+  `brew upgrade --cask codex`; verify with the same minimal real `exec` smoke BEFORE a relay reaches
+  its review phase. Reviewer MODEL stays `gpt-5.6-terra` (human's knob).
+- **The codex reviewer at high effort needs ~2h on a 10-file Rust diff (measured 2026-09-04):**
+  two HONESTY-GATE-1 review runs were killed at 60 and 90 min while AT THE VERDICT STEP — a
+  linear 36-read review (no loop, no incident; distinguish by exec count + zero
+  `Reconnecting` lines + last commands being `git diff --check`/build-report reads). Launch
+  code slices with `--timeout 120`. When a kill lands at the verdict step on a diff an earlier
+  review already judged code-sound and the only pending items are operator rulings, close out
+  operator-side (write `review-<n>.json` naming who approved and why). Reviewer EFFORT is the
+  human's knob (not the operator's) — surface it if the 2h pace becomes the bottleneck.
+- **Sweep `/private/tmp` after every slice and watch `rust/target` (operator lesson 2026-09-05, disk
+  at 37 GB free):** builders leave 2–5 GB isolated roots per slice (hg1/hg2/cppfid2/mi2… = 30 GB in a
+  day) and `rust/target` regrew from 21 GB to 74 GB in eight slices (debug 51 GB). After each
+  commit: `du -sh /private/tmp/* | sort -rh | head` and remove that slice's roots; keep only the
+  retained audit root that packets reference. At the release cut, `clean-build.sh` runs — then warm
+  the cache ONCE (gate script) before the next relay. Check `df -g /` in every status.
+- **Warm the debug build cache after a release cut (operator lesson 2026-09-04, two hours lost):**
+  `cut_release_minor.sh` cleans `rust/target/` ("next build will be slower"); the next relay
+  builder's cold `cargo test --workspace` then eats the whole 60-min timeout — twice in a row
+  on HONESTY-GATE-1, with the code fix already complete. After any release cut, run
+  `cargo build --workspace --tests` (debug) in its own background call BEFORE launching a
+  relay, or run the operator gate script once (it compiles the same targets). When a builder
+  times out with a complete fix and only gates pending, run `/tmp/ch1-gates.sh` yourself,
+  write `build-<n>.md` from its `build-progress.md` + the gate verdict, set phase
+  `review-impl`, and relaunch — do not buy another cold hour.
+- **A record script's git step must be CONDITIONAL on the script succeeding (operator lesson
+  2026-09-05, third slip):** `python3 - <<EOF … EOF` followed by `git add … && git commit` on a
+  NEW line commits whatever the script wrote before its first failed assert — half-applied
+  records with a message claiming the whole. Put the commit inside the script, or chain the
+  heredoc's exit into the git step with `&&` on the same logical line, and print an explicit
+  "all edits applied" line the commit message can be trusted against.
+- **A schema/index claim is verified on the LIVE database, never grepped from migration sources
+  (operator lesson 2026-09-05):** the "15 FK child tables unindexed on snapshot_uid" premise went
+  into a ratified spec from a grep of `migrations/*.rs` that never saw `001-initial.sql` or the
+  `sqlite_autoindex` entries UNIQUE/PK constraints create — every table was indexed; the builder
+  caught it. Before a mechanism claim enters a spec: `PRAGMA index_list(<table>)` +
+  `PRAGMA index_info` + `EXPLAIN QUERY PLAN <the actual statement>` on a read-only copy. Tool output
+  is a claim; a partial file glob is not evidence.
+- **A measured target in a spec names its EXACT measure (operator lesson 2026-09-05):** "≤15% cursor
+  bytes" let a builder report success on "repeated boilerplate only" (3.5–6.8%) while whole cursor
+  lines stayed ~31%; the reviewer blocked the redefinition. Write targets as "≤N% of <output> bytes
+  spent on <precisely which bytes>, measured by <how>", and say what is excluded. If the literal
+  target is hard, fix the DESIGN (here: rows already carry the cursor's identity, so per-row cursor
+  lines became one header pattern) — never let the metric drift to meet the code.
+- **Scripted record edits assert their anchor (operator lesson 2026-09-04, two silent no-ops):**
+  a `str.replace(anchor, …)` with no `assert anchor in text` silently does nothing when the
+  anchor drifted, and the commit message then claims a record that was never written (ROADMAP:
+  HONESTY-GATE-1 shipped + JAVA-RESOLVER-IDENTITY-1 both missing until b5cacbb). Always
+  `assert anchor in s` (or grep-verify after) before committing a record edit.
+- **A retention pass that never finishes is a store that must be REBUILT, not waited on (production
+  incident 2026-09-04):** repo-graph's store hit 4.8 GB / 29 snapshots because every daemon restart
+  killed the multi-hour prune (15 FK child tables unindexed on `snapshot_uid`, 2 MB page cache) and it
+  restarted from zero; after 5h it had committed NOTHING. Recovery (human-ratified): `launchctl
+  bootout` → `bootstrap` → `rmap repo remove <path>` (retry every 3 s until the startup readers
+  release the coordinator — it refuses with "being read right now") → `rmap index` (blocks; run it
+  in a background call — macOS has no `timeout`). Watch `rmap doctor` before `repo remove`: if a
+  detached index is already persisting into the old store, bootout again first. The fix is
+  DAEMON-RESIDUALS-1 (a)+(b) + the prevention set (snapshot cap, prune-on-commit, time budget →
+  rebuild, cache sizing, doctor visibility, benchmark gate).
+- **A builder timeout with a CLEAN tree means "look in `git stash list`" (bitten 2026-09-05):**
+  SEED-CHUNK-2's entire 15-file implementation was in `stash@{0}` (the builder stashed to build a
+  before-baseline; the timeout hit first). Before writing a RESUME NOTE on a clean tree: `git
+  stash list` → if a `<slice>-wip…` stash exists, `git stash pop` it on the same HEAD and verify the
+  file count. The builder prompt now forbids stashing (baselines via `git worktree`).
+- **A retained "read-only" state root is NOT read-only under a serving daemon (bitten 2026-09-07,
+  CPP-DECLARATORS-1):** querying the retained audit root with `rmap` started a daemon whose chained
+  enrichment/WAL side-writes CHANGED the retained leveldb + vcmi DBs — the "before" baseline is
+  no longer pristine for those repos. A baseline is a COPY (`cp -R` the root to an isolated
+  location, served with RMAP_AUTO_ENRICH=off RMAP_AUTO_RETENTION=off) or a `git worktree` "before"
+  binary on a fresh isolated index — never the retained root itself. Packets must say so.
+- **An evidence round is ORDERED, and "nothing else" must not forbid the smallest fix a ratified
+  DoD needs (operator lesson 2026-09-07, CPP-DECLARATORS-1 — three cycles burned):** a packet that lists
+  a workspace test + dogfood + five corpus proofs inside one 120-min window ends every cycle with
+  "incomplete/running". Write the round as an ORDER: (1) the one honesty/code fix, (2) chunked per-crate
+  gates (never `cargo test --workspace` — the operator's suite runs it after approval), (3) proofs on the
+  smallest corpora with a `git worktree` before-binary on the SAME tiny isolated index, (4) cleanup —
+  with `build-progress.md` written after EACH step. And a "nothing else" note is about SCOPE, not about
+  the smallest change that makes a ratified behaviour hold end-to-end (the decorator forwarding the live
+  proof exposed) — say "beyond the ratified DoD" so the reviewer does not escalate on governance alone.
+- **Live proofs are scoped to the SMALLEST corpus that demonstrates the contract (operator lesson
+  2026-09-05, two 120-min kills on SEED-CHUNK-2):** a before/after proof that rebuilds a large
+  repo twice (two full indexes + embedding passes) eats the whole builder budget with the code
+  already fixed and the gates unrecorded. Packets name the proof corpus (leveldb, a fixture, the
+  retained seeded root served read-only) and order the round: gates recorded FIRST, then the
+  small proof, then hand-off. A "before" binary comes from `git worktree` and is built once.
+- **Audit smoke runs skip linux (`SMOKE_SKIP=linux ./scripts/smoke-validation-repos.sh --retain <task>`)
+  until the per-repo index timeout override lands (carried protocol item):** the kernel index never
+  fits the 300 s client window, blocks the serial daemon for the rest of the batch (the v0.16.0
+  round's assess/orient bounces), and only yields a known failure. Re-enable it when the override
+  ships; it stays the S-1..S-3 deployment-scale corpus for M-R2's union-flip evidence.
+- **The gate script lives in THIS repo (`scripts/repo-graph-gates.sh`), never only in /private/tmp
+  (bitten 2026-09-08):** macOS purges /private/tmp files idle for ~3 days; `/private/tmp/ch1-gates.sh`
+  vanished, the background `script | tail -40` reported exit 0 (tail's), and a commit chained after
+  `echo green=$(grep -c …)` went through on green=0 — caught by the count, reverted with `git reset
+  --soft`. Run the suite to a LOG FILE (`scripts/repo-graph-gates.sh > /private/tmp/<slice>-gates.out
+  2>&1`), then assert `grep -c ALL-GATES-GREEN` == 1 AND the fail-grep == 0 in a SEPARATE command
+  BEFORE any commit — never `echo …; git commit` in one chain. The retained state roots under
+  /private/tmp were exposed to the same purge: RELOCATED 2026-09-08 to `~/repo-graph-retained/`
+  (`audit-v0.17.0`, `HT1-retained`; registries rewritten) — new retained roots go there, never /private/tmp.
+- **Gate exit codes are sacred (operator lesson 2026-07-31):** NEVER pipe a gate command's exit
+  away (`gradlew test | tail` reports tail's exit, not the gate's) — run the gate bare, check
+  `$?` explicitly, and never commit in the same chain as an unverified gate. Bitten: a red
+  Gradle run (colima socket switch) was committed as green; code happened to be sound, process
+  was not. Also: the Docker runtime is COLIMA — `~/.testcontainers.properties` pins
+  `docker.host` to colima's socket; if Testcontainers fails with DockerClientProviderStrategy,
+  check `docker context ls` before blaming code.
+- **Root-cause before packeting (human directive 2026-09-06):** an audit's defect list is NOT a
+  fix queue. Before any packet is written or a queue proposed, every defect/regression gets a
+  code-level root cause — render site (file:line), data path (table/query/struct), the exact
+  predicate that produces the wrong output, regression-or-never-worked via `git log -S`/blame,
+  smallest fix shape, verification. Slices are cut along SHARED ROOT CAUSES, not symptom labels;
+  a packet that says "fix D1" is hand-waving at the builder (bitten: audit round five's first
+  queue was withdrawn on this ground). Read-only investigators may run while a relay builds
+  (no `rmap`, no `cargo`, no edits in the target tree).
+- **Rewards are product outcomes, never implementation convenience (human directive 2026-09-06):**
+  "no reindex", "render-only", "small" are COSTS avoided, not rewards, and a root-caused defect is
+  addressed at its cause — a zero-state wording fix or a query-time gate over a known index-time
+  defect is papering over. Present options in terms of what the USER of the product gains; if an
+  option's only reward is that it is cheaper, it is not an option.
+- **The map is not the territory (human directive 2026-09-06):** rmap answers HIGH-LEVEL QUESTIONS
+  ABOUT REPOS, directionally correct — not absolute truth, and never pedantry about its own methods.
+  A defect is only a defect if a user asking about a repo is misled or unhelped; a verdict token's
+  footnote, a posture line about an internal in-memory graph, a confidence label's provenance are
+  instrument navel-gazing and are NOT surfaced as decisions (bitten: G1/G2 of audit round five). A
+  line that reads the same on every repo answers nothing — remove it, don't ratify it.
+  Refinement (human, same day): an internal-method decision MAY be surfaced when it is MAPPED to
+  the outward surface it changes — name the command/output a user of the product sees and the
+  question about a repo it answers differently under each option. No mapping → no decision.

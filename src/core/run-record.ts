@@ -52,6 +52,8 @@ export type RunInputIdentity =
       readonly path: string;
       readonly sha256: string;
       readonly byteLength: number;
+      /** Present when the input was framed by reference (identity only, no bytes). */
+      readonly reference?: { readonly reason: string };
     }
   | {
       readonly origin: 'generated';
@@ -59,6 +61,7 @@ export type RunInputIdentity =
       readonly label: string;
       readonly sha256: string;
       readonly byteLength: number;
+      readonly reference?: { readonly reason: string };
     };
 
 export interface RunChannelIdentityRecord {

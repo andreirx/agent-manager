@@ -17,6 +17,26 @@ results follow the requirement rather than the implementation. Inspect relevant 
 and negative/preservation cases, not only the changed surface. Check names without relying
 on the builder's private context: scope, effects and guarantees must be truthful.
 
+Inputs that Agent Manager delivered to you as content (each framed with its path and
+digest) are the pinned, authoritative versions and are already in your context. Do not
+read those files again from disk; read from disk what was not delivered and what you need
+in order to verify. In a continued conversation, inputs and findings from your earlier
+turns are still yours; re-read only what the new turn says has changed, and check that
+each of your earlier findings was actually closed.
+
+Converge in one pass. When a finding is an instance of a pattern (a rule implemented as a
+list of cases, a defensive path handled in one place but not its siblings, a name or
+comment that claims more than the code does), inspect the candidate for the other
+instances of that pattern before you return, report them together, and state the rule
+that would close the class. Returning one instance of the same class per review cycle is a
+review defect, not thoroughness.
+
+A finding names the artifact, the obligation it breaks, the evidence and the smallest
+correction. It is recorded against the artifact and the policy that let it through, never
+against the agent that produced it. A suite that the packet or the target's process
+assigns to the operator after acceptance (for example a whole-workspace run or a dogfood
+run) is not a builder duty; its absence from the builder's evidence is not a finding.
+
 A positive verdict is your review result, not human authority or proof of absent side
 effects. Disclose separate-invocation/same-provider review accurately. Classify inherited
 manager edits separately from builder changes using the packet's starting inventory;
@@ -101,10 +121,10 @@ After the verdict line, give:
 - For decisions that need human or supervisor policy input: a `DECISION_REQUIRED`
   block in plain text, not an interactive prompt.
 
-## Code-under-analysis examples (human directive 2026-09-18)
+## Evidence the target requires
 
-The builder's report must contain concrete examples from the analyzed repositories (file:line + the statement, and what
-the product now answers about it) for every problem the slice solves and one per residual class. Verify at least the
-packet's named witness example and one residual example against the checkout and the candidate's store/captures, quote
-them in your report, and treat a report without such examples as incomplete evidence (refinement-required), not a style
-nit.
+When the target's CLAUDE.md or the packet requires specific evidence in the builder's
+report (for example real examples from the product's inputs rather than counts), verify
+at least the packet's named witness and one residual example yourself, quote them in your
+report, and treat a report without them as incomplete evidence (refinement-required), not
+a style nit.

@@ -22,11 +22,11 @@
  */
 
 import { join, sep } from 'node:path';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 
 import type { ArtifactStorePort, ClockPort, ProviderRunnerPort } from '../ports/index.js';
 import type { RunRequest, RunResult } from '../ports/provider-runner.js';
-import type { RunTextInput } from '../ports/provider-runner.js';
+import type { RunTextInput, RunInputReferenceReason } from '../ports/provider-runner.js';
 import type { PromptRef } from '../../core/run-record.js';
 import type { RunInputProvenance } from '../../core/run-record.js';
 import { RunStatus } from '../../core/run-record.js';
@@ -1203,7 +1203,11 @@ function sameAssurance(a: AnyPersistedAssurance, b: AnyPersistedAssurance): bool
 }
 
 function sameInputProvenanceContext(a: RunInputProvenance, b: RunInputProvenance): boolean {
-  return a.baseline.path === b.baseline.path && a.baseline.sha256 === b.baseline.sha256 && JSON.stringify(a.commonInputs) === JSON.stringify(b.commonInputs);
+  // Builder and reviewer must share the same common IDENTITIES. Whether a frame
+  // carried its bytes or a reference depends on each role's own conversation
+  // history, so the reference marks are excluded from the comparison.
+  const identities = (items: RunInputProvenance['commonInputs']) => JSON.stringify(items.map(({ reference: _reference, ...identity }) => identity));
+  return a.baseline.path === b.baseline.path && a.baseline.sha256 === b.baseline.sha256 && identities(a.commonInputs) === identities(b.commonInputs);
 }
 
 const TARGET_PHASE_VALUES: Readonly<Record<TargetPhase, true>> = {
@@ -1429,9 +1433,12 @@ function makeRunRecord(
   }
   if (request.delivery.kind === 'reviewed-input-snapshots') {
     if (result.deliveryReceipt.kind !== 'reviewed-input-snapshots' || !promptRoot || !baseline) throw new Error('role-context-mismatch: reviewed request completed without identified roots/baseline');
-    const project = (item: RunTextInput): RunInputProvenance['commonInputs'][number] => item.origin === 'file'
-      ? { origin: 'file', root: item.root, purpose: item.purpose, path: item.path, sha256: item.sha256, byteLength: item.bytes.byteLength }
-      : { origin: 'generated', purpose: item.purpose, label: item.label, sha256: item.sha256, byteLength: item.bytes.byteLength };
+    const project = (item: RunTextInput): RunInputProvenance['commonInputs'][number] => ({
+      ...(item.origin === 'file'
+        ? { origin: 'file' as const, root: item.root, purpose: item.purpose, path: item.path, sha256: item.sha256, byteLength: item.bytes.byteLength }
+        : { origin: 'generated' as const, purpose: item.purpose, label: item.label, sha256: item.sha256, byteLength: item.bytes.byteLength }),
+      ...(item.reference ? { reference: { reason: item.reference.reason } } : {}),
+    });
     record = {
       ...record,
       inputProvenance: {
@@ -1445,6 +1452,88 @@ function makeRunRecord(
     };
   }
   return record;
+}
+
+/**
+ * Reference-delivery policy (human decision 2026-09-20, "A and B").
+ *
+ * Pure. Decides which frames of a reviewed delivery carry their bytes. Every
+ * input keeps its identity (path, sha256, byteLength) so provenance, receipts
+ * and the common-identity assertion are unchanged; only bodies are withheld.
+ * Precedence per input: the shared instruction (own channel) and this turn's
+ * task directive are always content; bytes the same native session already
+ * received as content are referenced; a second frame with an identity already
+ * framed in this delivery is referenced; a bulk `source` dependency is
+ * referenced for on-demand reading. Everything else is content.
+ *
+ * `contentDeliveredToSession` is the set of sha256 digests delivered AS CONTENT
+ * to the conversation this request resumes; pass an empty set for a fresh one.
+ */
+export function withReferenceDelivery(
+  delivery: RunRequest['delivery'],
+  contentDeliveredToSession: ReadonlySet<string>
+): RunRequest['delivery'] {
+  if (delivery.kind !== 'reviewed-input-snapshots') return delivery;
+  const framedInThisDelivery = new Set<string>();
+  const mark = (input: RunTextInput): RunTextInput => {
+    if (input.purpose === 'shared-instruction' || input.purpose === 'task-directive') return input;
+    let reason: RunInputReferenceReason | undefined;
+    if (contentDeliveredToSession.has(input.sha256)) reason = 'delivered-earlier-in-session';
+    else if (framedInThisDelivery.has(input.sha256)) reason = 'duplicate-in-this-delivery';
+    else if (input.purpose === 'source') reason = 'read-on-demand';
+    framedInThisDelivery.add(input.sha256);
+    return reason === undefined ? input : { ...input, reference: { reason } };
+  };
+  return { ...delivery, common: delivery.common.map(mark), roleSpecific: delivery.roleSpecific.map(mark) };
+}
+
+/**
+ * Digests delivered as content to one native conversation, reconstructed from
+ * this slice's run records (files are the system of record; no new state).
+ * Only a completed or timed-out run counts: both had their input consumed by
+ * the conversation. A failed or cancelled attempt, an unreadable record, or a
+ * missing runs directory contributes nothing, which errs toward re-sending
+ * content — never toward assuming the conversation holds bytes it may not.
+ */
+async function contentDeliveredToSession(sliceDir: string, sessionId: string): Promise<Set<string>> {
+  const digests = new Set<string>();
+  const runsDir = join(sliceDir, 'runs');
+  let names: string[];
+  try {
+    names = await readdir(runsDir);
+  } catch {
+    return digests;
+  }
+  for (const name of names.filter((entry) => entry.endsWith('.json')).sort()) {
+    let record: unknown;
+    try {
+      record = JSON.parse(await readFile(join(runsDir, name), 'utf-8'));
+    } catch {
+      continue;
+    }
+    if (!record || typeof record !== 'object') continue;
+    const r = record as { status?: unknown; providerSession?: { returnedSessionId?: unknown }; inputProvenance?: { commonInputs?: unknown; roleSpecificInputs?: unknown } };
+    if (r.status !== RunStatus.COMPLETED && r.status !== RunStatus.TIMEOUT) continue;
+    if (r.providerSession?.returnedSessionId !== sessionId) continue;
+    for (const list of [r.inputProvenance?.commonInputs, r.inputProvenance?.roleSpecificInputs]) {
+      if (!Array.isArray(list)) continue;
+      for (const item of list) {
+        if (item && typeof item === 'object' && typeof (item as { sha256?: unknown }).sha256 === 'string' && (item as { reference?: unknown }).reference === undefined) {
+          digests.add((item as { sha256: string }).sha256);
+        }
+      }
+    }
+  }
+  return digests;
+}
+
+/** Apply the reference-delivery policy to a request, using its session's delivery history. */
+export async function finalizeReviewedDelivery(request: RunRequest, sliceDir: string): Promise<RunRequest> {
+  if (request.delivery.kind !== 'reviewed-input-snapshots') return request;
+  const delivered = request.providerSession?.kind === 'resume'
+    ? await contentDeliveredToSession(sliceDir, request.providerSession.sessionId)
+    : new Set<string>();
+  return { ...request, delivery: withReferenceDelivery(request.delivery, delivered) };
 }
 
 async function writeRunRecord(
@@ -1694,7 +1783,8 @@ async function runSelectSlice(
     workingDir: input.targetDir,
     model: input.supervisorModel,
     effort: input.supervisorEffort,
-    delivery,
+    // Selection has no retained conversation: only the source-by-reference rule applies.
+    delivery: withReferenceDelivery(delivery, new Set()),
     inputArtifacts: [],
   };
   const { result } = await runWithRetry(deps.supervisor, request, 'select-slice', undefined, deps.retryDelay);
@@ -1841,7 +1931,7 @@ async function runImplement(
   };
   const terminal = await runWithRetry(
     deps.builder,
-    request,
+    await finalizeReviewedDelivery(request, sliceDir),
     `build ${status.sliceId} iter ${status.iteration}`,
     recordAttempt,
     deps.retryDelay
@@ -2178,7 +2268,7 @@ async function runReview(
   };
   const terminal = await runWithRetry(
     deps.supervisor,
-    request,
+    await finalizeReviewedDelivery(request, sliceDir),
     `review ${status.sliceId} iter ${status.iteration}`,
     recordAttempt,
     deps.retryDelay
@@ -2693,7 +2783,7 @@ async function clarifyPending(args: {
   } catch (cause) {
     return retainNotRun(`Clarification input revalidation failed before provider invocation: ${cause instanceof Error ? cause.message : String(cause)}. Pending state retained.`, providerSession);
   }
-  const request: RunRequest = {
+  const request: RunRequest = await finalizeReviewedDelivery({
     runId,
     sliceId: args.status.sliceId,
     role: pending.role,
@@ -2705,7 +2795,7 @@ async function clarifyPending(args: {
     delivery,
     inputArtifacts: [],
     ...(providerSession ? { providerSession } : {}),
-  };
+  }, args.sliceDir);
   let result: RunResult | undefined;
   let executionError: string | undefined;
   try {

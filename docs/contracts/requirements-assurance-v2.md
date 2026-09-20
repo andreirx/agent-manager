@@ -873,6 +873,8 @@ after all references have been validated. Each item retains its exact purpose.
 Both requirements author and reviewer receive the same ordered common array.
 Every dependency with role `governance`, including the target's `CLAUDE.md`, is
 therefore delivered as content rather than trusted to provider auto-discovery.
+Dependencies with role `source` are delivered as identity-only reference frames
+(section 8.4, "Reference frames"); the role reads them on demand.
 The manifest for an Agent Manager assured run must list `CLAUDE.md` as governance;
 other targets name their actual governance closure. Software does not infer
 additional governance merely from a filename or Markdown prose.
@@ -911,6 +913,33 @@ The compact header has members in this order: `origin`, `root` (file only),
 `byteLength`. It contains no insignificant whitespace. `byteLength` permits the
 source body to contain either marker without ambiguity. The common frames are
 followed by role-specific frames. No whitespace is trimmed or normalized.
+
+#### Reference frames (amendment 2026-09-20, human decision "A and B")
+
+A frame may carry its input's identity without its bytes. Its header has two
+further members after `byteLength`: `delivery` with the value `reference`, and
+`reason`. Its body is empty; `byteLength` remains the length of the referenced
+content. The closing marker follows as usual. The reasons are closed:
+
+- `delivered-earlier-in-session`: the native conversation this run resumes
+  already received these exact bytes as content in a completed or timed-out
+  earlier run (reconstructed from this slice's run records; a failed attempt
+  never counts);
+- `duplicate-in-this-delivery`: an earlier frame of this same delivery already
+  carries this identity;
+- `read-on-demand`: a dependency with role `source`; the role reads it from
+  its root and path only if needed and can verify the pinned digest.
+
+The shared instruction and the generated task directive are always content.
+Every other input is content unless one of the three reasons applies, in the
+order listed. Provenance records carry the same `reference` member per input
+identity, so a durable record shows exactly which bytes each role received.
+The builder/reviewer common-identity assertion (section 8.3) compares identities
+with `reference` removed: the shared basis is the identity set; whether a
+frame carried bytes depends on each role's own conversation history. Measured
+before the amendment: a builder invocation received 476 KB on every cycle,
+of which 194 KB were `source` dependencies, and a resumed cycle received the
+whole delivery again on top of the conversation it already held.
 
 The shared instruction is not duplicated into the ordinary stdin frames. Provider
 adapters deliver that one input through their actual mechanism:

@@ -978,6 +978,7 @@ export function parseApprovalRecord(snapshot: AssuranceFileSnapshot): ParsedReco
 const REVIEW_OUTCOMES = new Set<ReviewOutcome>(['accepted', 'refinement-required', 'decision-required']);
 const FINDING_CATEGORIES = new Set<ReviewFinding['category']>(['correctness', 'completeness', 'consistency', 'feasibility', 'verifiability', 'necessity', 'traceability', 'naming', 'architecture']);
 const INPUT_PURPOSES = new Set(['shared-instruction', 'common-role-instruction', 'baseline-manifest', 'requirement', 'source', 'governance', 'design', 'allocation', 'review', 'approval', 'authority', 'decision', 'role-instruction', 'selection-packet', 'review-subject', 'build-report', 'prior-review', 'task-directive']);
+const INPUT_REFERENCE_REASONS = new Set(['delivered-earlier-in-session', 'duplicate-in-this-delivery', 'read-on-demand']);
 
 function parseIdArray(value: unknown, recordPath: string, at: string, errors: AssuranceError[], allowEmpty: boolean): string[] {
   const values: string[] = [];
@@ -1123,12 +1124,20 @@ function parseInputProvenance(value: unknown, recordPath: string, at: string, er
       const iat = `${where}/${index}`;
       if (!isObject(item)) { errors.push(error('invalid-field', recordPath, iat, 'input identity must be an object')); return; }
       const origin = item.origin;
-      const fields = origin === 'file' ? ['origin', 'root', 'purpose', 'path', 'sha256', 'byteLength'] : ['origin', 'purpose', 'label', 'sha256', 'byteLength'];
+      // `reference` is optional: present only when the frame carried identity
+      // without bytes (contract section 8.4, reference frames).
+      const optional = Object.prototype.hasOwnProperty.call(item, 'reference') ? ['reference'] : [];
+      const fields = origin === 'file' ? ['origin', 'root', 'purpose', 'path', 'sha256', 'byteLength', ...optional] : ['origin', 'purpose', 'label', 'sha256', 'byteLength', ...optional];
       if (!isObjectAndCollectClosedFieldErrors(item, fields, recordPath, iat, errors)) return;
       const purposeOk = typeof item.purpose === 'string' && INPUT_PURPOSES.has(item.purpose);
       const hashOk = typeof item.sha256 === 'string' && SHA256.test(item.sha256);
       const lengthOk = typeof item.byteLength === 'number' && Number.isInteger(item.byteLength) && item.byteLength >= 0;
       if (!purposeOk || !hashOk || !lengthOk) errors.push(error('invalid-field', recordPath, iat, 'invalid input purpose, digest or byteLength'));
+      if (item.reference !== undefined) {
+        const rat = `${iat}/reference`;
+        if (!isObjectAndCollectClosedFieldErrors(item.reference, ['reason'], recordPath, rat, errors)) return;
+        if (!INPUT_REFERENCE_REASONS.has(item.reference.reason as string)) { errors.push(error('invalid-field', recordPath, `${rat}/reason`, 'reason must be delivered-earlier-in-session, duplicate-in-this-delivery or read-on-demand')); return; }
+      }
       if (origin === 'file') {
         const rootOk = item.root === 'target' || item.root === 'prompt';
         const pathOk = checkPath(item.path, recordPath, `${iat}/path`, errors);
@@ -1680,7 +1689,10 @@ export function validateBaselineAdmission(args: {
 }
 
 function sameInputContext(a: RunInputProvenance, b: RunInputProvenance): boolean {
-  return a.baseline.path === b.baseline.path && a.baseline.sha256 === b.baseline.sha256 && JSON.stringify(a.commonInputs) === JSON.stringify(b.commonInputs);
+  // Same common IDENTITIES. Whether a frame carried bytes or a reference depends
+  // on each role's own conversation history and is not part of the shared basis.
+  const identities = (items: RunInputProvenance['commonInputs']) => JSON.stringify(items.map(({ reference: _reference, ...identity }) => identity));
+  return a.baseline.path === b.baseline.path && a.baseline.sha256 === b.baseline.sha256 && identities(a.commonInputs) === identities(b.commonInputs);
 }
 
 /** Parse the closed persisted mode object without accepting partial assurance. */
