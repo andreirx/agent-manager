@@ -250,6 +250,8 @@ target's own CLAUDE.md, not here.
   two substantive revise rounds; the review record names the model. Any other model, provider or
   effort change is the human's: surface strain and the option, do not switch.
 - agent-manager self-build: see the overhaul assignment at the top of this file.
+- Reviewer model: `gpt-6-sol` is permitted alongside `gpt-5.6-terra` (human 2026-09-23, after the
+  Codex CLI upgrade to 0.156.0; smoke-verified). The review record names the model used.
 - A Codex builder cannot bind a Unix socket in its sandbox: route live proofs through stdio or mark
   them operator-run.
 - repo-graph code slices launch with `--timeout 120`. Reason: the builder's corpus proofs and the
