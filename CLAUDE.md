@@ -398,6 +398,12 @@ target's own CLAUDE.md, not here.
 
 - Every checkpoint and closeout report carries code-under-analysis examples: real file:line and
   statement from the analyzed repositories, before and after. Counts alone are not an outcome.
+- Every audit round also grades the front-page README against the shipped product: every command,
+  flag and output shape it shows exists in the binary under audit; every claim ("honest", counts,
+  language coverage, performance) is one the audit's own captures confirm; the architecture it
+  describes matches the crate graph. Mismatches are audit findings with file:line in the README.
+  Reason: the README is the first surface a user or agent reads; a stale one is a fabrication class
+  the product-surface audit cannot see (human direction 2026-09-23).
 - After each commit sweep that slice's roots from `/private/tmp`, check `rust/target` and
   `df -g /`. Retained roots live under `~/repo-graph-retained/`, never `/private/tmp`.
 - After a release cut, warm the debug cache once (`cargo build --workspace --tests`) before a relay.
