@@ -327,6 +327,16 @@ target's own CLAUDE.md, not here.
   `assurance.manifest`, drop sessions/tracking/pending interpretation, reset phase. `[retire: TD-021]`
 - Never edit a pinned input (role prompt, shared prompt, requirement, governance file) while an
   item is admitted or while an interpretation is pending. Queue the edit for the next admission.
+- A manifest pins requirement files, governance files and decision records — never an append-only
+  evidence record (an audit's root-cause file). Reason: the audit record grows while slices are
+  admitted; pinning it froze every addendum for the life of a slice (2026-09-23, an addendum had to
+  be reverted mid-admission).
+- A ratification-class decision is a decision record under `docs/assurance/.../decisions/`, named by
+  the manifest's `requiredDecisionIds` — never prose inside the allocation. Reason: the runtime and the
+  reviewer can see a record; prose in §0 cost CPP-ATTRIBUTE-MACRO-1 a whole document item.
+- One slice's deliverables live in the worktree at a time; the next packet stays in the scratchpad
+  staging tree until its launch. Reason: a second slice's untracked files broke a clean-tree oracle in
+  review (2026-09-23).
 
 #### Launch and checkpoint
 
