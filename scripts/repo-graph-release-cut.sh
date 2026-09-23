@@ -2,12 +2,20 @@
 # Operator release-cut checklist for ../repo-graph (tracked; run STEP BY STEP, never chained after an unverified gate).
 # Usage: scripts/repo-graph-release-cut.sh <step>   steps: 1 cut | 2 push | 3 install | 4 restart | 5 relocate | 6 warm
 # Preconditions for step 1: the last slice is COMMITTED on a green gate (scripts/repo-graph-gates.sh log asserted),
+# the release gates named in step 1 (D-PSI-RELEASE-GATE-1: TEST-EDGE-SCOPE-1B accepted at HEAD) hold,
 # no relay running (pgrep -fl "relay-target|codex exec|claude.*stream-json" empty), tree clean.
 set -u
 RG="/Users/apple/Documents/APLICATII BIJUTERIE/repo-graph"
 RET_DST="$HOME/repo-graph-retained"          # durable home for retained state roots (out of /private/tmp purge)
 case "${1:-}" in
   1) cd "$RG" && git status --short | grep -q . && { echo "tree not clean — stop"; exit 10; }
+     # D-PSI-RELEASE-GATE-1 (operator, 2026-09-24): no release while an INFERRED import family is persisted but the
+     # IMPORTS readers (cycles/path/map/boundary/trust) are not partitioned — TEST-EDGE-SCOPE-1B must be accepted at HEAD.
+     for gate in TEST-EDGE-SCOPE-1B; do
+       git -C "$RG" cat-file -e "HEAD:docs/assurance/$gate/implementation-review.json" 2>/dev/null \
+         && git -C "$RG" show "HEAD:docs/assurance/$gate/implementation-review.json" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('result')=='accepted' else 1)" \
+         || { echo "release gate $gate not accepted at HEAD (D-PSI-RELEASE-GATE-1) — stop"; exit 11; }
+     done
      ./scripts/cut_release_minor.sh; echo "cut-exit=$?" ;;
   2) cd "$RG" && git push && git push --tags; echo "push-exit=$?" ;;
   3) cd "$RG" && ./scripts/dev-install-local.sh; echo "install-exit=$?" ;;
