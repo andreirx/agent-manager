@@ -12,13 +12,19 @@ Usage:
   rg-store-diff.py <before-root> <after-root> [--ignore-metadata-keys k1,k2] [--only tables] [--summary]
                    [--expect '<table>:<n>' ...]   # exact number of differing rows allowed for a table (default 0)
 Exit 0 iff every table's differing-row count equals its expectation. Prints per-table counts and up to 8 sample
-differences per table. Reads with SQLite `immutable=1` (never writes, never serves).
+differences per table. Reads with SQLite `immutable=1` (never writes, never serves); refuses a store whose `-wal` file is non-empty (an immutable read would miss its pages).
 """
-import sys, glob, json, sqlite3, argparse
+import sys, os, glob, json, sqlite3, argparse
 
 def open_ro(root):
     dbs = glob.glob(root + "/databases/*.db")
     if len(dbs) != 1: sys.exit(f"rg-store-diff: expected exactly one database under {root}/databases, found {len(dbs)}")
+    # `immutable=1` reads the main file only: pages still in an uncheckpointed WAL are invisible. A store the
+    # daemon closed cleanly has no `-wal` (or an empty one); anything else is refused rather than read short
+    # (TEST-EDGE-SCOPE-1B review-0 F-TESB-FIELD, 2026-09-24). Stop the serving daemon (its exit checkpoints) first.
+    wal = dbs[0] + "-wal"
+    if os.path.exists(wal) and os.path.getsize(wal) > 0:
+        sys.exit(f"rg-store-diff: {wal} holds {os.path.getsize(wal)} uncheckpointed bytes — stop the daemon that serves {root} (a clean exit checkpoints the WAL) and rerun; refusing to read a partial store")
     return sqlite3.connect("file:" + dbs[0] + "?immutable=1", uri=True)
 
 def latest_snapshot(c):
