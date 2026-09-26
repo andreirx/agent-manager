@@ -68,6 +68,7 @@ import {
   extractRecommendations,
   withReferenceDelivery,
   finalizeReviewedDelivery,
+  evidenceBookkeepingSkeleton,
   type TargetRelayInput,
   type TargetRelayDeps,
 } from './relay-target.js';
@@ -4914,5 +4915,118 @@ describe('reference delivery (human decision 2026-09-20: A resumed sessions, B b
     } finally {
       await rm(sliceDir, { recursive: true, force: true });
     }
+  });
+});
+
+
+describe('bookkeeping transcription (human decision 2026-09-26: agent output is not policed; a bookkeeper transcribes it)', () => {
+  let target = '';
+  afterEach(async () => { if (target) await rm(target, { recursive: true, force: true }); target = ''; });
+  const withBookkeeper = async (input: TargetRelayInput): Promise<TargetRelayInput> => {
+    // The seeded fixture's prompt root is the temp target; give it the real bookkeeper prompt.
+    await mkdir(join(input.promptRoot, 'prompts/roles'), { recursive: true });
+    await writeFile(join(input.promptRoot, 'prompts/roles/bookkeeper.md'), await readFile(join(process.cwd(), 'prompts/roles/bookkeeper.md'), 'utf-8'), 'utf-8');
+    return { ...input, bookkeeper: { provider: 'codex', model: 'stub-luna', effort: 'low', promptPaths: ['prompts/roles/bookkeeper.md'] } };
+  };
+  const digestsFromSkeleton = (contextText: string) => {
+    const candidate = /"candidateSha256": "(sha256:[0-9a-f]{64})"/.exec(contextText)?.[1];
+    const verification = /"verificationSha256": "(sha256:[0-9a-f]{64})"/.exec(contextText)?.[1];
+    if (!candidate || !verification) throw new Error('skeleton did not carry the subject digests');
+    return { candidate, verification };
+  };
+
+  it("transcribes a builder's prose report into evidence and continues to review without parking", async () => {
+    target = await mkdtemp('/private/tmp/BOOKKEEP-builder-');
+    const seeded = await seedStage3Implementation(target);
+    const prose = 'Ran A3-C04: exit 0, the public case passed (see build-progress.md#A3-C04). Changed src/a.ts for EX-REQ-001-L01.';
+    const builder = new StubRunner(() => prose);
+    const bookkeeper = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const reviewer = new StubRunner((request) => {
+      const checkpointInput = generatedInput(request, 'candidate-checkpoint-0');
+      const verification = generatedInput(request, 'verification-draft-0');
+      return json(implementationReview(JSON.parse(new TextDecoder().decode(checkpointInput.bytes)) as CandidateCheckpoint, verification.sha256));
+    });
+    const deps = { ...stage3Deps(builder, reviewer, [observation(), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()])]), bookkeeper };
+    const result = await targetRelayLoop(await withBookkeeper(seeded.input), deps);
+    if (result.phase !== 'done') throw new Error(`${result.phase}: ${await readFile(join(target, '.agent-manager/slices/S2/notes-for-human.md'), 'utf-8').catch(() => result.reason ?? '')}`);
+    expect(result.phase).toBe('done');
+    expect(bookkeeper.calls).toHaveLength(1);
+    const call = bookkeeper.calls[0] as RunRequest;
+    expect(call.role).toBe('bookkeeper');
+    expect(call.permission).toBe('read-only');
+    expect(call.model).toBe('stub-luna');
+    if (call.delivery.kind !== 'legacy-live-inputs') throw new Error('bookkeeper delivery must be live inputs');
+    expect(call.delivery.prompts.map((item) => item.path)).toEqual(['prompts/roles/bookkeeper.md']);
+    expect(call.delivery.contextText).toContain('"checkId": "A3-C04"');
+    expect(call.delivery.contextText).toContain(prose);
+    expect(call.delivery.contextText).not.toContain('Parse errors from the previous attempt');
+    expect(reviewer.calls).toHaveLength(1);
+    const trail = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/builder-0-bookkeeping.json'), 'utf-8')) as { kind: string; sourceSha256: string; attempts: { ok?: boolean }[] };
+    expect(trail.kind).toBe('implementation-evidence-result');
+    expect(trail.sourceSha256).toBe(computeDigest(prose));
+    expect(trail.attempts).toEqual([expect.objectContaining({ attempt: 1, ok: true })]);
+    expect(await exists(join(target, '.agent-manager/slices/S2/runs/bookkeep-builder-0-1.json'))).toBe(true);
+    expect(await exists(join(target, 'docs/assurance/S2/verification.json'))).toBe(true);
+  });
+
+  it('feeds the parse errors into a second attempt, then falls back to manager interpretation', async () => {
+    target = await mkdtemp('/private/tmp/BOOKKEEP-fallback-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => 'prose only');
+    const bookkeeper = new StubRunner(() => '{"formatVersion": 3, "kind": "implementation-evidence-result"}');
+    const reviewer = new StubRunner(() => 'unused');
+    const deps = { ...stage3Deps(builder, reviewer, [observation(), observation([candidateEntry()])]), bookkeeper };
+    const result = await targetRelayLoop(await withBookkeeper(seeded.input), deps);
+    expect(result.phase).toBe('awaiting-manager-interpretation');
+    expect(bookkeeper.calls).toHaveLength(2);
+    const second = bookkeeper.calls[1] as RunRequest;
+    if (second.delivery.kind !== 'legacy-live-inputs') throw new Error('bookkeeper delivery must be live inputs');
+    expect(second.delivery.contextText).toContain('Parse errors from the previous attempt');
+    expect(second.delivery.contextText).toContain('required field is missing');
+    expect(reviewer.calls).toHaveLength(0);
+    const trail = JSON.parse(await readFile(join(target, '.agent-manager/slices/S2/builder-0-bookkeeping.json'), 'utf-8')) as { attempts: unknown[] };
+    expect(trail.attempts).toHaveLength(2);
+  });
+
+  it("transcribes a reviewer's prose verdict into the review result and routes on it", async () => {
+    target = await mkdtemp('/private/tmp/BOOKKEEP-reviewer-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const reviewer = new StubRunner(() => 'RESULT: accepted\nEvery obligation, check and changed path was inspected; A3-C04 relied on builder evidence.');
+    const bookkeeper = new StubRunner((request) => {
+      if (request.delivery.kind !== 'legacy-live-inputs') throw new Error('bookkeeper delivery must be live inputs');
+      const { candidate, verification } = digestsFromSkeleton(request.delivery.contextText ?? '');
+      const checkpoint = { sha256: candidate, entries: [{ path: 'src/a.ts' }] } as unknown as CandidateCheckpoint;
+      return json(implementationReview(checkpoint, verification));
+    });
+    const deps = { ...stage3Deps(builder, reviewer, [observation(), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()])]), bookkeeper };
+    const result = await targetRelayLoop(await withBookkeeper(seeded.input), deps);
+    expect(result.phase).toBe('done');
+    expect(bookkeeper.calls).toHaveLength(1);
+    expect((bookkeeper.calls[0] as RunRequest).runId).toContain('bookkeep-reviewer-');
+    const review = JSON.parse(await readFile(join(target, 'docs/assurance/S2/implementation-review.json'), 'utf-8')) as { result: string; checkAssessments: unknown[] };
+    expect(review.result).toBe('accepted');
+    expect(review.checkAssessments).toHaveLength(1);
+  });
+
+  it('is inert without a bookkeeper: an off-shape report parks as before', async () => {
+    target = await mkdtemp('/private/tmp/BOOKKEEP-inert-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => 'prose only');
+    const result = await targetRelayLoop(seeded.input, stage3Deps(builder, new StubRunner(() => 'unused'), [observation(), observation([candidateEntry()])]));
+    expect(result.phase).toBe('awaiting-manager-interpretation');
+    expect(await exists(join(target, '.agent-manager/slices/S2/builder-0-bookkeeping.json'))).toBe(false);
+  });
+
+  it('renders a skeleton with every planned check, candidate path and authorized id', () => {
+    const { allocation, ref } = parsedAllocation();
+    const checkpoint = makeCandidateCheckpoint({ observation: observation([candidateEntry()]), allocation, computeDigest });
+    if (!checkpoint.ok) throw new Error('checkpoint');
+    const { skeleton, rules } = evidenceBookkeepingSkeleton(allocation, ref, checkpoint.value);
+    expect(skeleton).toContain('"checkId": "A3-C04"');
+    expect(skeleton).toContain('"path": "src/a.ts"');
+    expect(skeleton).toContain(ref.sha256);
+    expect(rules.join('\n')).toContain('"EX-REQ-001-L01"');
+    expect(rules.join('\n')).toContain('not reported by the builder');
   });
 });

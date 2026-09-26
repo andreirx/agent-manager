@@ -53,11 +53,13 @@ The packet's `ARTIFACT_KIND` selects the duty:
   value only after v2 admission and allocation validation. Allocation metadata alone never
   activates it. In that duty, the
   `requirements-assurance-implementation-v1` block in `SLICE_DOC` is the mandatory
-  allocation and check plan. Run every declared check and return only the closed
-  `implementation-evidence-result` JSON described by the slice (no `STATUS:` line
-  or Markdown fence). Report each check as exactly `passed`, `failed`, `not-run`,
-  or `execution-failed`; never convert absence or an environment failure into a
-  pass. Justify every actual candidate path against an allocated H/L or preservation
+  allocation and check plan. Run every declared check and report, for each check
+  by its id, exactly one of `passed`, `failed`, `not-run`, or `execution-failed`,
+  with the observed result and where its evidence is; never convert absence or an
+  environment failure into a pass. Report what each changed path is for and which
+  allocated id it serves. A closed `implementation-evidence-result` JSON object is
+  welcome but not required: the relay transcribes bookkeeping from a clear report,
+  and your report is kept verbatim in the durable record either way. Justify every actual candidate path against an allocated H/L or preservation
   ID. The relay supplies actor and candidate identity; do not forge durable
   verification/review/acceptance records.
 

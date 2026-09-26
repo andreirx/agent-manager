@@ -718,6 +718,8 @@ while another live run holds it.
 - When to address: before the next assured item on any target.
 - Status: OPEN
 
+**Update 2026-09-26 (bookkeeping transcription, human decision):** the shape gate is no longer on the agents. An off-shape builder or reviewer report is transcribed into the closed object by a narrow read-only bookkeeper call (contract v2, "Bookkeeping transcription"); the agent's report is kept verbatim in the record. Manager interpretation remains only as the fallback after two failed transcriptions. Remaining: measure how often the fallback still fires on real slices.
+
 ## TD-021 — A superseded approved baseline strands its in-flight work item (2026-09-13)
 
 - What was done: TRUST-MODULE-EDGES-1's implementation item was admitted under INPUT-2; cycle 0 STOPPED correctly

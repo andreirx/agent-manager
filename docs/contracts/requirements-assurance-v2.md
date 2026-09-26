@@ -914,6 +914,28 @@ The compact header has members in this order: `origin`, `root` (file only),
 source body to contain either marker without ambiguity. The common frames are
 followed by role-specific frames. No whitespace is trimmed or normalized.
 
+#### Bookkeeping transcription (amendment 2026-09-26, human decision)
+
+Agent-to-agent output is not schema-policed (human ruling 2026-09-13). A builder's
+or reviewer's report is judged by the other agent as prose; the closed result
+objects (`implementation-evidence-result`, `implementation-review-result`,
+`requirements-review-result`) are bookkeeping for the durable records, and only
+the reviewer's verdict word routes the relay. When a report is not that object,
+the relay runs a narrow, read-only **bookkeeper** role (`prompts/roles/bookkeeper.md`;
+provider/model from `--bookkeeper` / `--bookkeeper-model`, default Codex
+`gpt-6-luna` at low effort) whose task is transcription only: it receives the
+exact object shape with every identity already filled in by the runtime (paths,
+digests, obligation, check and path ids), the closed rules, and the report
+verbatim, and returns one object. The same strict parser judges the transcription.
+Two attempts are made, the second carrying the first's parse errors; then the
+manager-interpretation path applies as before. Every attempt is a run record
+(`runs/bookkeep-<role>-<iteration>-<attempt>.json`) and the trail is
+`<role>-<iteration>-bookkeeping.json` in the slice directory, with the source
+report's digest. The transcription's `report` field carries the agent's complete
+output verbatim, so the durable record still contains what the agent said, not
+only what the bookkeeper derived. A report that is already the closed object is
+used as is. `--bookkeeper none` disables transcription.
+
 #### Reference frames (amendment 2026-09-20, human decision "A and B")
 
 A frame may carry its input's identity without its bytes. Its header has two

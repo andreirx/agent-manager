@@ -15,6 +15,8 @@
  *                              operator picks by slice complexity, e.g. claude-fable-5;
  *                              REQUIRED for copilot to pin a model — its default is empty)
  *   --supervisor-model <id>    override supervisor model
+ *   --bookkeeper <provider>    provider for the read-only bookkeeping transcription (default codex)
+ *   --bookkeeper-model <id>    its model (default gpt-6-luna, effort low); `--bookkeeper none` disables transcription
  *   --supervisor claude|codex|copilot  provider that selects+reviews (default: codex)
  *   --shared-prompt <path>      shared system-prompt file
  *                               (default: /Users/apple/CLAUDE-SYSTEM.txt)
@@ -272,6 +274,8 @@ interface Args {
   target: string;
   builder: TargetActor;
   supervisor: TargetActor;
+  bookkeeper: TargetActor | 'none';
+  bookkeeperModel: string;
   sharedPrompt: string;
   maxIter: number;
   /** Per-provider-run timeout in ms (opus --effort max routinely exceeds 5 min). */
@@ -317,6 +321,9 @@ function parseArgs(argv: string[]): Args {
   let builder: TargetActor = 'claude';
   let supervisor: TargetActor = 'codex';
   let sharedPrompt = DEFAULT_SHARED_PROMPT;
+  // Bookkeeping transcription defaults (human decision 2026-09-26; both smoke-verified 2026-09-26).
+  let bookkeeper: TargetActor | 'none' = 'codex';
+  let bookkeeperModel = 'gpt-6-luna';
   let maxIter = 10;
   let timeoutMs = 20 * 60_000; // 20 min default; opus --effort max exceeds 5 min
   let reviewerWrite = false;
@@ -373,6 +380,16 @@ function parseArgs(argv: string[]): Args {
       case '--supervisor-model':
         runtimeFlagExplicit = true;
         supervisorModel = value('--supervisor-model');
+        break;
+      case '--bookkeeper': {
+        runtimeFlagExplicit = true;
+        const raw = value('--bookkeeper');
+        bookkeeper = raw === 'none' ? 'none' : parseProvider(raw, '--bookkeeper');
+        break;
+      }
+      case '--bookkeeper-model':
+        runtimeFlagExplicit = true;
+        bookkeeperModel = value('--bookkeeper-model');
         break;
       case '--shared-prompt':
         runtimeFlagExplicit = true;
@@ -494,7 +511,7 @@ function parseArgs(argv: string[]): Args {
   }
 
   // exactOptionalPropertyTypes: include optionals only when present.
-  const base: Args = { target, builder, supervisor, sharedPrompt, maxIter, timeoutMs, reviewerWrite, reselect, dryRun };
+  const base: Args = { target, builder, supervisor, bookkeeper, bookkeeperModel, sharedPrompt, maxIter, timeoutMs, reviewerWrite, reselect, dryRun };
   const withSlice = slice !== undefined ? { ...base, slice } : base;
   const withUntil = until !== undefined ? { ...withSlice, until } : withSlice;
   const withBM = builderModel !== undefined ? { ...withUntil, builderModel } : withUntil;
@@ -654,7 +671,7 @@ async function printDryRun(
       console.log(`Manifest   : ${planned.manifest.path} ${planned.manifest.sha256}`);
       console.log(`Target root: ${targetDir}`);
       console.log(`Prompt root: ${promptRoot}`);
-      console.log(`Roles      : builder=${args.builder}/${builderDef.model}/${builderDef.effort}; reviewer=${args.supervisor}/${supervisorDef.model}/${supervisorDef.effort}`);
+      console.log(`Roles      : builder=${args.builder}/${builderDef.model}/${builderDef.effort}; reviewer=${args.supervisor}/${supervisorDef.model}/${supervisorDef.effort}; bookkeeper=${args.bookkeeper === 'none' ? 'none' : `${args.bookkeeper}/${args.bookkeeperModel}/low`}`);
       console.log(`Independence: ${args.builder === args.supervisor ? 'same-provider' : 'different-provider'}\n`);
       const reviewedPhases = [
         { label: 'implement' as const, adapter: builderRaw, provider: args.builder, role: 'builder', mode: 'edit' as const, permission: 'write' as const, model: builderDef.model, effort: builderDef.effort, delivery: planned.builder },
@@ -837,6 +854,7 @@ async function main(): Promise<void> {
   console.log(`Prompt root: ${promptRoot}`);
   console.log(`Builder    : ${args.builder}`);
   console.log(`Supervisor : ${args.supervisor}`);
+  console.log(`Bookkeeper : ${args.bookkeeper === 'none' ? 'none (off-shape reports go to manager interpretation)' : `${args.bookkeeper}/${args.bookkeeperModel}/low (transcription only)`}`);
   console.log(`Shared     : ${sharedInstructionPath ?? '(none)'}`);
   if (!args.dryRun && args.baseline !== undefined) {
     console.log(
@@ -856,6 +874,11 @@ async function main(): Promise<void> {
 
   const builderRaw = makeAdapter(args.builder, adapterConfig, store, clock);
   const supervisorRaw = makeAdapter(args.supervisor, adapterConfig, store, clock);
+  // Bookkeeping transcription: a third, read-only, cheap runner; 'none' disables it.
+  const bookkeeperRaw = args.bookkeeper === 'none' ? undefined : makeAdapter(args.bookkeeper, adapterConfig, store, clock);
+  const bookkeeperInput = args.bookkeeper === 'none'
+    ? undefined
+    : { provider: args.bookkeeper, model: args.bookkeeperModel, effort: 'low', promptPaths: ['prompts/roles/bookkeeper.md'] };
   const clarificationRunners = new Map<Exclude<TargetActor, 'human'>, RawAdapter>();
   clarificationRunners.set(args.builder as Exclude<TargetActor, 'human'>, builderRaw);
   clarificationRunners.set(args.supervisor as Exclude<TargetActor, 'human'>, supervisorRaw);
@@ -897,6 +920,7 @@ async function main(): Promise<void> {
     builderEffort: builderDef.effort,
     supervisorModel: supervisorDef.model,
     supervisorEffort: supervisorDef.effort,
+    ...(bookkeeperInput ? { bookkeeper: bookkeeperInput } : {}),
     maxIterations: args.maxIter,
     reselect: args.reselect,
     reviewerPermission: args.reviewerWrite ? 'write' : 'read-only',
@@ -913,6 +937,7 @@ async function main(): Promise<void> {
       clock,
       builder: builderRaw,
       supervisor: supervisorRaw,
+      ...(bookkeeperRaw ? { bookkeeper: bookkeeperRaw } : {}),
       computeDigest,
       changedPaths: gitChangedPaths,
       artifactStore: store,

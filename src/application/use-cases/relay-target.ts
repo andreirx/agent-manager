@@ -47,6 +47,8 @@ import {
   persistedAssurance,
   renderAssuranceError,
   validateBaselineAdmission,
+  type AssuranceError,
+  type ParsedRecord,
   type AssuranceFileSnapshot,
   type AssuranceSnapshot,
   type BaselineAdmissionResult,
@@ -218,6 +220,13 @@ export interface TargetRelayInput {
   builderEffort: string;
   supervisorModel: string;
   supervisorEffort: string;
+  /**
+   * Bookkeeping transcription (human decision 2026-09-26): the narrow role that
+   * transcribes a builder's or reviewer's prose report into the closed result
+   * object the durable records need. Absent = no transcription; an off-shape
+   * report goes straight to manager interpretation as before.
+   */
+  bookkeeper?: { provider: TargetActor; model: string; effort: string; promptPaths: readonly string[] };
   /** Max build/review CYCLES (each cycle = one implement + one review). */
   maxIterations?: number;
   /**
@@ -248,6 +257,8 @@ export interface TargetRelayDeps {
   clock: ClockPort;
   builder: ProviderRunnerPort;
   supervisor: ProviderRunnerPort;
+  /** Runner for `input.bookkeeper` (read-only transcription); absent = no transcription. */
+  bookkeeper?: ProviderRunnerPort;
   computeDigest: (content: string) => string;
   /**
    * The target working tree's UNCOMMITTED changed-file set (target-relative
@@ -1536,6 +1547,186 @@ export async function finalizeReviewedDelivery(request: RunRequest, sliceDir: st
   return { ...request, delivery: withReferenceDelivery(request.delivery, delivered) };
 }
 
+type BookkeepingKind = 'implementation-evidence-result' | 'implementation-review-result' | 'requirements-review-result';
+
+const BOOKKEEPING_ATTEMPTS = 2;
+
+function quoteList(items: readonly string[]): string {
+  return items.length ? items.map((item) => `"${item}"`).join(', ') : '(none)';
+}
+
+/** Exact object shape + rules for transcribing a builder's report into implementation evidence. */
+export function evidenceBookkeepingSkeleton(allocation: ImplementationAllocation, allocationRef: ContentRef, checkpoint: CandidateCheckpoint): { skeleton: string; rules: string[] } {
+  const authorized = [...allocation.implements, ...allocation.preserves, ...allocation.changes, ...allocation.preservationObligationIds];
+  const skeleton = {
+    formatVersion: 3,
+    kind: 'implementation-evidence-result',
+    allocation: { path: allocationRef.path, sha256: allocationRef.sha256 },
+    checks: allocation.checks.map((check) => ({ checkId: check.checkId, outcome: '<one outcome object, see rules>' })),
+    changeJustifications: checkpoint.entries.map((entry) => ({ path: entry.path, obligationIds: ['<one or more of the authorized ids>'], summary: '<why this path changed, from the report>' })),
+    limitations: ['<each limitation the report states; [] if none>'],
+    report: '<the complete report verbatim>',
+  };
+  return {
+    skeleton: JSON.stringify(skeleton, null, 2),
+    rules: [
+      'Exactly the seven top-level fields shown; `allocation` copied exactly.',
+      `\`checks\` has exactly one entry per planned check id, in this order: ${quoteList(allocation.checks.map((c) => c.checkId))}. No other ids.`,
+      'An outcome object is one of: {"kind":"passed","actual":"<observed result>","supportingEvidence":["<where the evidence is>", ...]}; {"kind":"failed","actual":"...","supportingEvidence":[...]}; {"kind":"not-run","reason":"..."}; {"kind":"execution-failed","failure":"..."}. `supportingEvidence` is non-empty for passed/failed.',
+      'A check the report does not mention at all is {"kind":"not-run","reason":"not reported by the builder"}. Never turn silence into passed.',
+      `\`changeJustifications\` has exactly one entry per candidate path, in this order: ${quoteList(checkpoint.entries.map((e) => e.path))}. No other paths.`,
+      `Each \`obligationIds\` array is non-empty and uses only these authorized ids: ${quoteList(authorized)}. If the report does not tie a path to an obligation, use the obligation the report's context makes most plausible and say "not stated by the builder" in the summary.`,
+      '`limitations` is an array of non-empty strings ([] allowed): every limitation the report states, and every statement that a criterion, obligation or proof is unverified, deferred to the operator, not reproduced, or only partially shown. `report` is non-empty.',
+    ],
+  };
+}
+
+/** Exact object shape + rules for transcribing a reviewer's report into an implementation review. */
+export function implementationReviewBookkeepingSkeleton(allocation: ImplementationAllocation, checkpoint: CandidateCheckpoint, verificationSha256: string, evidence: ImplementationEvidenceResult): { skeleton: string; rules: string[] } {
+  const obligations = [...allocation.implements, ...allocation.preserves, ...allocation.changes, ...allocation.preservationObligationIds];
+  const skeleton = {
+    formatVersion: 3,
+    kind: 'implementation-review-result',
+    subject: { candidateSha256: checkpoint.sha256, verificationSha256 },
+    result: '<accepted | refinement-required | decision-required>',
+    obligationAssessments: obligations.map((obligationId) => ({ obligationId, result: '<accepted | refinement-required | decision-required>', findingIds: [], decisionIds: [] })),
+    checkAssessments: allocation.checks.map((check) => ({ checkId: check.checkId, result: '<accepted | refinement-required | decision-required>', findingIds: [], verification: '<{"kind":"reproduced","outcome":{...}} or {"kind":"relied-on-builder-evidence","limitation":"..."}>' })),
+    changedPathAssessments: checkpoint.entries.map((entry) => ({ path: entry.path, result: '<accepted | refinement-required | decision-required>', findingIds: [], decisionIds: [] })),
+    findings: [{ findingId: '<id>', obligationIds: ['<allocated id>'], locations: ['<file or file:line>'], category: '<correctness | preservation | evidence | integration | scope | naming | architecture | traceability>', evidence: '...', consequence: '...', requiredAction: '...' }],
+    decisions: [{ decisionId: '<id>', obligationIds: ['<allocated id>'], question: '...', options: [{ option: '...', reward: '...', risk: '...' }], recommendation: '<one option text>', blockingReason: '...' }],
+    report: '<the complete report verbatim>',
+  };
+  const builderOutcomes = evidence.checks.map((check) => `${check.checkId}=${check.outcome.kind}`);
+  return {
+    skeleton: JSON.stringify(skeleton, null, 2),
+    rules: [
+      'Exactly the ten top-level fields shown; `subject` copied exactly.',
+      '`result` is the reviewer\'s overall verdict. It must equal the worst per-item result: decision-required if any item is decision-required, else refinement-required if any item is refinement-required, else accepted.',
+      `\`obligationAssessments\` covers exactly these ids once each: ${quoteList(obligations)}. \`checkAssessments\` covers exactly: ${quoteList(allocation.checks.map((c) => c.checkId))}. \`changedPathAssessments\` covers exactly: ${quoteList(checkpoint.entries.map((e) => e.path))}.`,
+      'An item the report does not name is accepted when the overall verdict is accepted, otherwise refinement-required with a finding whose evidence says "not addressed in the reviewer\'s report".',
+      'An accepted item has empty findingIds and decisionIds. A refinement-required item has at least one findingId and no decisionIds. A decision-required item has at least one decisionId.',
+      `A check may be accepted only if the builder's evidence for it was passed (builder outcomes: ${builderOutcomes.join(', ') || '(none)'}). A reproduced verification for an accepted check needs a passed outcome ({"kind":"passed","actual":"...","supportingEvidence":[...]}). If the report does not say the reviewer re-ran a check, use {"kind":"relied-on-builder-evidence","limitation":"<what the reviewer relied on, from the report>"}.`,
+      'Every finding is referenced by at least one item and every referenced finding exists; the same for decisions. `findings` and `decisions` are [] when there are none. Finding and decision ids: letters, digits, dots, underscores, hyphens, up to 80 characters. `recommendation` repeats one option\'s text exactly.',
+      '`report` is non-empty.',
+    ],
+  };
+}
+
+/** Exact object shape + rules for transcribing a reviewer's report into a requirements review. */
+export function requirementsReviewBookkeepingSkeleton(manifestRef: ContentRef, expectedIds: readonly string[]): { skeleton: string; rules: string[] } {
+  const skeleton = {
+    formatVersion: 2,
+    kind: 'requirements-review-result',
+    subject: { path: manifestRef.path, sha256: manifestRef.sha256 },
+    result: '<accepted | refinement-required | decision-required>',
+    assessments: expectedIds.map((obligationId) => ({ obligationId, result: '<accepted | refinement-required | decision-required>', findingIds: [], decisionIds: [] })),
+    findings: [{ findingId: '<id>', obligationId: '<one submitted id>', category: '<correctness | specificity | completeness | consistency | feasibility | verifiability | necessity | traceability | naming | architecture>', evidence: '...', consequence: '...', requiredAction: '...' }],
+    decisions: [{ decisionId: '<id>', obligationIds: ['<submitted id>'], question: '...', options: [{ option: '...', reward: '...', risk: '...' }], recommendation: '<one option text>', blockingReason: '...' }],
+    report: '<the complete report verbatim>',
+  };
+  return {
+    skeleton: JSON.stringify(skeleton, null, 2),
+    rules: [
+      'Exactly the eight top-level fields shown; `subject` copied exactly.',
+      `\`assessments\` covers exactly these ids once each: ${quoteList(expectedIds)}. No other ids.`,
+      '`result` equals the worst per-item result (decision-required > refinement-required > accepted).',
+      'An item the report does not name is accepted when the overall verdict is accepted, otherwise refinement-required with a finding whose evidence says "not addressed in the reviewer\'s report".',
+      'An accepted item has empty findingIds and decisionIds. A refinement-required item has at least one findingId and no decisionIds. A decision-required item has at least one decisionId.',
+      'Every finding is referenced by at least one item and every referenced finding exists; the same for decisions. `findings` and `decisions` are [] when there are none. If a category in the report does not match the list, choose the closest listed one.',
+      '`report` is non-empty.',
+    ],
+  };
+}
+
+export function renderBookkeepingDirective(args: { kind: BookkeepingKind; sourceRole: 'builder' | 'reviewer'; sourceRaw: string; skeleton: string; rules: readonly string[]; priorErrors: readonly string[]; attempt: number }): string {
+  return [
+    `# Bookkeeping transcription (attempt ${args.attempt} of ${BOOKKEEPING_ATTEMPTS})`,
+    '',
+    `Transcribe the ${args.sourceRole}'s report below into ONE JSON object of kind \`${args.kind}\`. Output only that object.`,
+    '',
+    '## Object shape (identities already filled in; copy them exactly)',
+    '',
+    args.skeleton,
+    '',
+    '## Rules',
+    '',
+    ...args.rules.map((rule) => `- ${rule}`),
+    ...(args.priorErrors.length ? ['', '## Parse errors from the previous attempt (fix exactly these)', '', ...args.priorErrors.map((line) => `- ${line}`)] : []),
+    '',
+    `## The ${args.sourceRole}'s report (verbatim; this is your only source)`,
+    '',
+    args.sourceRaw,
+  ].join('\n');
+}
+
+/**
+ * Bookkeeping transcription (human decision 2026-09-26). Agent-to-agent output
+ * is not schema-policed: when a builder's or reviewer's report is not the
+ * closed result object the durable records need, a narrow read-only
+ * "bookkeeper" call transcribes the report into exactly that object, and the
+ * same strict parser judges the transcription. The agent's report stays the
+ * record of what was said; the transcription fills the bookkeeping fields and
+ * carries the report verbatim. Up to two attempts (the second with the first's
+ * parse errors); then the existing manager-interpretation path.
+ */
+async function bookkeep<T>(args: {
+  input: TargetRelayInput;
+  deps: TargetRelayDeps;
+  sliceDir: string;
+  status: TargetRelayStatus;
+  phase: TargetPhase;
+  sourceRole: 'builder' | 'reviewer';
+  kind: BookkeepingKind;
+  sourceRaw: string;
+  skeleton: string;
+  rules: readonly string[];
+  initialErrors: readonly AssuranceError[];
+  parse: (json: string) => ParsedRecord<T>;
+}): Promise<{ ok: true; value: T } | { ok: false; errors: readonly AssuranceError[] }> {
+  const runner = args.deps.bookkeeper;
+  const config = args.input.bookkeeper;
+  if (!runner || !config) return { ok: false, errors: args.initialErrors };
+  const prompts = await loadPrompts(args.input.promptRoot, config.promptPaths, args.deps.computeDigest);
+  // The agent's own parse errors describe prose, not a transcription; the first
+  // attempt starts clean and only a failed transcription feeds the next one.
+  let errors: readonly AssuranceError[] = [];
+  const attempts: unknown[] = [];
+  const trailPath = join(args.sliceDir, `${args.sourceRole}-${args.status.iteration}-bookkeeping.json`);
+  const writeTrail = () => writeFile(trailPath, JSON.stringify({ kind: args.kind, sourceSha256: args.deps.computeDigest(args.sourceRaw), attempts }, null, 2), 'utf-8');
+  for (let attempt = 1; attempt <= BOOKKEEPING_ATTEMPTS; attempt += 1) {
+    const request: RunRequest = {
+      runId: `bookkeep-${args.sourceRole}-${args.status.sliceId}-${args.status.iteration}-${attempt}`,
+      sliceId: args.status.sliceId,
+      role: 'bookkeeper',
+      mode: 'review',
+      permission: 'read-only',
+      workingDir: args.input.targetDir,
+      model: config.model,
+      effort: config.effort,
+      delivery: { kind: 'legacy-live-inputs', prompts, contextText: renderBookkeepingDirective({ kind: args.kind, sourceRole: args.sourceRole, sourceRaw: args.sourceRaw, skeleton: args.skeleton, rules: args.rules, priorErrors: errors.map(renderAssuranceError), attempt }) },
+      inputArtifacts: [],
+    };
+    const result = await runner.run(request);
+    await writeRunRecord(args.sliceDir, `bookkeep-${args.sourceRole}-${args.status.iteration}-${attempt}`, makeRunRecord(args.phase, config.provider, request, result, args.input.targetDir, args.input.promptRoot, args.status.assurance?.manifest));
+    if (result.status !== RunStatus.COMPLETED) {
+      errors = [{ code: 'invalid-field', recordPath: 'bookkeeping', location: '/', detail: `bookkeeper run ${result.status}: ${result.error ?? 'no output'}` }];
+      attempts.push({ attempt, runId: request.runId, status: result.status, errors });
+      await writeTrail();
+      continue;
+    }
+    const output = captureCompletedProviderOutput(result);
+    const parsed = args.parse(extractProviderResultJson(output.raw));
+    attempts.push({ attempt, runId: request.runId, raw: output.raw, ...(parsed.ok ? { ok: true } : { errors: parsed.errors }) });
+    await writeTrail();
+    if (parsed.ok) {
+      console.log(`  [bookkeeping] ${args.kind} transcribed from the ${args.sourceRole}'s report by ${config.provider}/${config.model} (attempt ${attempt}; trail ${trailPath})`);
+      return { ok: true, value: parsed.value };
+    }
+    errors = parsed.errors;
+  }
+  return { ok: false, errors: errors.length ? errors : args.initialErrors };
+}
+
 async function writeRunRecord(
   sliceDir: string,
   name: string,
@@ -1976,8 +2167,12 @@ async function runImplement(
       });
     }
     // Framing around the object is not an error (TD-020); the extracted object meets the identical strict parse.
-    const raw = extractProviderResultJson(completedOutput.raw);
-    const parsed = parseImplementationEvidenceResult({ snapshot: { status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(raw), sha256: deps.computeDigest(raw) }, allocation: stage3.allocation, allocationRef: stage3.allocationRef, checkpoint });
+    const parseEvidence = (json: string) => parseImplementationEvidenceResult({ snapshot: { status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(json), sha256: deps.computeDigest(json) }, allocation: stage3.allocation, allocationRef: stage3.allocationRef, checkpoint });
+    let parsed: { ok: true; value: ImplementationEvidenceResult } | { ok: false; errors: readonly AssuranceError[] } = parseEvidence(extractProviderResultJson(completedOutput.raw));
+    if (!parsed.ok) {
+      // The report is not the closed object: transcribe it (bookkeeping), never police it.
+      parsed = await bookkeep({ input, deps, sliceDir, status, phase: 'implement', sourceRole: 'builder', kind: 'implementation-evidence-result', sourceRaw: completedOutput.raw, ...evidenceBookkeepingSkeleton(stage3.allocation, stage3.allocationRef, checkpoint), initialErrors: parsed.errors, parse: parseEvidence });
+    }
     if (!parsed.ok) {
       return awaitManagerInterpretation(sliceDir, status, deps.clock, {
         contract: 'requirements-assurance/v3-implementation-evidence',
@@ -2318,8 +2513,11 @@ async function runReview(
       });
     }
     // Framing around the object is not an error (TD-020); `raw` stays in the trail, the extracted object is what is parsed.
-    const resultJson = extractProviderResultJson(raw);
-    const parsed = parseImplementationReviewResult({ snapshot: { status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(resultJson), sha256: deps.computeDigest(resultJson) }, allocation: stage3.allocation, checkpoint: stage3Evidence.checkpoint, verificationSha256: stage3Evidence.verificationSha256, evidence: stage3Evidence.evidence });
+    const parseReview = (json: string) => parseImplementationReviewResult({ snapshot: { status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(json), sha256: deps.computeDigest(json) }, allocation: stage3.allocation, checkpoint: stage3Evidence.checkpoint, verificationSha256: stage3Evidence.verificationSha256, evidence: stage3Evidence.evidence });
+    let parsed: { ok: true; value: ImplementationReviewResult } | { ok: false; errors: readonly AssuranceError[] } = parseReview(extractProviderResultJson(raw));
+    if (!parsed.ok) {
+      parsed = await bookkeep({ input, deps, sliceDir, status, phase: 'review-impl', sourceRole: 'reviewer', kind: 'implementation-review-result', sourceRaw: raw, ...implementationReviewBookkeepingSkeleton(stage3.allocation, stage3Evidence.checkpoint, stage3Evidence.verificationSha256, stage3Evidence.evidence), initialErrors: parsed.errors, parse: parseReview });
+    }
     await writeFile(join(sliceDir, `review-${status.iteration}.json`), JSON.stringify({ iteration: status.iteration, raw, parsed: parsed.ok ? parsed.value : { errors: parsed.errors } }, null, 2), 'utf-8');
     if (!parsed.ok) {
       return awaitManagerInterpretation(sliceDir, status, deps.clock, {
@@ -2361,8 +2559,11 @@ async function runReview(
         clarifications: [],
       });
     }
-    const resultJson = extractProviderResultJson(raw);
-    const parsed = parseRequirementsReviewResult({ status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(resultJson), sha256: deps.computeDigest(resultJson) }, candidate.manifestRef, posture.reviewObligationIds);
+    const parseDocumentReview = (json: string) => parseRequirementsReviewResult({ status: 'ok', path: 'provider-result', bytes: new TextEncoder().encode(json), sha256: deps.computeDigest(json) }, candidate.manifestRef, posture.reviewObligationIds);
+    let parsed: { ok: true; value: RequirementsReviewResult } | { ok: false; errors: readonly AssuranceError[] } = parseDocumentReview(extractProviderResultJson(raw));
+    if (!parsed.ok) {
+      parsed = await bookkeep({ input, deps, sliceDir, status, phase: 'review-impl', sourceRole: 'reviewer', kind: 'requirements-review-result', sourceRaw: raw, ...requirementsReviewBookkeepingSkeleton(candidate.manifestRef, posture.reviewObligationIds), initialErrors: parsed.errors, parse: parseDocumentReview });
+    }
     await writeFile(join(sliceDir, `review-${status.iteration}.json`), JSON.stringify({ iteration: status.iteration, raw, parsed: parsed.ok ? parsed.value : { errors: parsed.errors } }, null, 2), 'utf-8');
     if (!parsed.ok) {
       return awaitManagerInterpretation(sliceDir, status, deps.clock, {

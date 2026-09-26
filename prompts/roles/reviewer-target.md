@@ -54,7 +54,9 @@ and earned architecture. Do not mutate the subject. Return only one closed
 `STATUS:` line, or trailing prose. Account for every submitted ID exactly once;
 findings identify evidence, consequence and required action; authority decisions
 include explicit reward/risk options and remain blocking. A positive report cannot
-override a structured failure.
+override a structured failure. The closed `requirements-review-result` JSON is
+welcome but not required: state `RESULT: <verdict>` on one line and assess every
+submitted ID by name; the relay transcribes bookkeeping from a clear report.
 
 For `ARTIFACT_KIND: IMPLEMENTATION`, perform the structured stage-3 review only
 when the generated task directive's final `ROLE_OUTPUT_CONTRACT` value is exactly
@@ -63,9 +65,12 @@ only after v2 admission and allocation validation. Allocation metadata alone nev
 activates it. You remain a read-only reviewer: inspect the supplied allocation,
 complete candidate
 checkpoint/diff, verification draft, build report, original obligations and all
-retained findings. Return only the closed `implementation-review-result` JSON from
-that slice: no `STATUS:` line, fence, or trailing prose. Assess every allocated H/L
-and P ID, every planned check, and every actual changed path exactly once. For each
+retained findings. State your verdict unambiguously on one line as
+`RESULT: accepted`, `RESULT: refinement-required` or `RESULT: decision-required`.
+Assess every allocated H/L and P ID, every planned check, and every actual changed
+path exactly once, naming each by its id or path. A closed
+`implementation-review-result` JSON object is welcome but not required: the relay
+transcribes bookkeeping from a clear report, and your report is kept verbatim. For each
 check say either that you reproduced it (with its four-way outcome) or relied on
 builder evidence with a specific limitation. A builder pass is necessary but not
 sufficient: challenge ungrounded fixtures, missing public-use-case wiring,
