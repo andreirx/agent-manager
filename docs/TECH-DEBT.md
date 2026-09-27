@@ -807,6 +807,8 @@ while another live run holds it.
 
 **Update 2026-09-20 (reference delivery, human decision "A and B"):** on a resumed native session, every input the conversation already received as content is now delivered as an identity-only reference frame, and `source` dependencies are references from the first turn (contract v2 section 8.4, "Reference frames"). Prior reviews already in the conversation are therefore no longer re-sent, which removes the growth this entry describes for resumed sessions. Still open: a FRESH reviewer session on a long slice still receives every prior review as content; the provider's input cap is still retried as transient.
 
+**Update 2026-09-27 (diff by command):** the reviewer no longer receives the diff text, a second allocation copy, or the verification draft inline (contract section 8.3 amendment); it reproduces the diff from `candidate-diff-command-<n>` and reads the draft by reference. Over-cap refusals fail fast instead of being retried as transient. PYTHON-RECEIVER-BINDING-1's 1.36 M-character review input drops to roughly 0.5 M. Still open: a FRESH reviewer session on a long slice receives every prior review as content.
+
 ## TD-025 — the requirements-document AUTHOR task directive names the reviewer's output contract
 
 - Date: 2026-09-18

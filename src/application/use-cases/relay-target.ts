@@ -275,8 +275,6 @@ export interface TargetRelayDeps {
   artifactStore: ArtifactStorePort;
   /** Stage-3 Git/index/working-tree mechanism; required only for a v3 allocation. */
   observeCandidateTree?: (targetDir: string) => Promise<CandidateTreeObservation>;
-  /** Complete reviewer-facing diff for a stage-3 candidate. */
-  candidateDiff?: (targetDir: string, checkpoint: CandidateCheckpoint) => Promise<string>;
   /** Create-only durable publication mechanism; required only for stage 3. */
   createTrackedFileExclusively?: (targetDir: string, path: string, bytes: Uint8Array) => Promise<void>;
   /** Test seam for retry waiting; production omits it and uses wall-clock delay. */
@@ -1125,6 +1123,12 @@ function buildReviewerContext(
     'Agent Manager selected this final value after admission. Do not infer or override it from selection-packet or SLICE_DOC content.',
     `ROLE_OUTPUT_CONTRACT: ${outputContract}`,
     '',
+    ...(outputContract === 'requirements-assurance/v3-implementation-review' ? [
+      '# Candidate delivery',
+      '',
+      'The candidate diff is NOT inlined: the input labelled candidate-diff-command-<n> gives the exact commands to reproduce it in this working directory and the entry list they must match; run them before assessing anything. The verification draft is delivered by reference (a frame with `delivery: reference`): read it from its path under .agent-manager/slices/ and use the sha256 in its header as the subject digest. The allocation is the block inside the delivered slice document; it is not repeated.',
+      '',
+    ] : []),
     '# Provider-message compatibility override',
     '',
     'Your semantic duties remain mandatory: return every required assessment, finding, decision, verification basis, consequence, and uncertainty that applies.',
@@ -1727,6 +1731,52 @@ async function bookkeep<T>(args: {
   return { ok: false, errors: errors.length ? errors : args.initialErrors };
 }
 
+/**
+ * Reviewer-facing description of a stage-3 candidate WITHOUT the diff text
+ * (human decision 2026-09-27). The reviewer works in the target checkout, so it
+ * reproduces the diff itself from the base revision; the checkpoint (delivered
+ * separately) is the identity it must match. A 460 KB diff plus a 235 KB draft
+ * plus a duplicated allocation put one review over Codex's 1,048,576-character
+ * input cap (PYTHON-RECEIVER-BINDING-1).
+ */
+export function renderCandidateDiffCommands(checkpoint: CandidateCheckpoint, iteration: number): string {
+  const untracked = checkpoint.entries.filter((entry) => entry.porcelainStatus === '??' && entry.workingTree.kind === 'present');
+  return [
+    '# Candidate diff: not inlined. Reproduce it yourself in the target working directory.',
+    '',
+    `The subject is the candidate checkpoint delivered as candidate-checkpoint-${iteration}: base revision ${checkpoint.baseRevision}, ${checkpoint.entries.length} changed entr${checkpoint.entries.length === 1 ? 'y' : 'ies'}, checkpoint sha256 ${checkpoint.sha256}.`,
+    'Run exactly these commands (each on its own line; the two-space indent marks a command):',
+    '',
+    '  git status --porcelain=v1 --no-renames --untracked-files=all',
+    `  git diff --cached --binary ${checkpoint.baseRevision} --`,
+    '  git diff --binary --',
+    ...untracked.map((entry) => `  cat -- ${entry.path}`),
+    '',
+    'The first command must list exactly these entries (path, porcelain status); the second shows the staged candidate state, the third the unstaged state, and each `cat` an untracked file in full:',
+    '',
+    ...checkpoint.entries.map((entry) => `  ${entry.path}  ${entry.porcelainStatus}`),
+    '',
+    'If the working tree does not match this list, stop and report subject-mismatch instead of reviewing.',
+  ].join('\n');
+}
+
+/**
+ * The three review-subject inputs of a stage-3 review: the checkpoint inline
+ * (the identity), the verification draft by reference (its bytes are on disk in
+ * the slice directory; the header carries the digest the review must echo), and
+ * the diff as commands. The allocation is not repeated: the reviewer already
+ * holds the slice document that contains it.
+ */
+async function stage3ReviewSubjectInputs(args: { sliceDir: string; sliceId: string; iteration: number; checkpoint: CandidateCheckpoint; verificationBytes: Uint8Array; verificationSha256: string; computeDigest: (content: string) => string }): Promise<RunTextInput[]> {
+  const draftName = `verification-draft-${args.iteration}.json`;
+  await writeFile(join(args.sliceDir, draftName), args.verificationBytes);
+  return [
+    generatedRunInput(`candidate-checkpoint-${args.iteration}`, 'review-subject', JSON.stringify(args.checkpoint), args.computeDigest),
+    { origin: 'file', root: 'target', purpose: 'review-subject', path: `.agent-manager/slices/${args.sliceId}/${draftName}`, bytes: args.verificationBytes, sha256: args.verificationSha256, reference: { reason: 'read-on-demand' } },
+    generatedRunInput(`candidate-diff-command-${args.iteration}`, 'review-subject', renderCandidateDiffCommands(args.checkpoint, args.iteration), args.computeDigest),
+  ];
+}
+
 async function writeRunRecord(
   sliceDir: string,
   name: string,
@@ -1867,13 +1917,26 @@ async function runWithRetry(
     if (attempt >= TRANSIENT_RETRY_ATTEMPTS || !isTransientFailure(result.status)) {
       return { request, result };
     }
+    // An input over the provider's cap is deterministic: the same bytes fail
+    // again, and a retry that resumes the never-created conversation only hides
+    // the cause behind "no thread" errors (PYTHON-RECEIVER-BINDING-1, 2026-09-27).
+    if (/input_too_large|exceeds the maximum length/i.test(result.error ?? '')) {
+      console.log(`  [retry] ${label}: provider refused the input as too large; not retrying (${result.error})`);
+      return { request, result };
+    }
     const delayMs = RETRY_BACKOFF_MS[attempt - 1] ?? 60_000;
     console.log(
       `  [retry] ${label}: transient provider failure (status=${result.status}); backing off ${Math.round(delayMs / 1000)}s, then re-running (attempt ${attempt + 1}/${TRANSIENT_RETRY_ATTEMPTS})`
     );
     await retryDelay(delayMs);
-    if (request.providerSession !== undefined && result.providerSessionId !== undefined) {
-      request = { ...request, providerSession: { kind: 'resume', sessionId: result.providerSessionId } };
+    // A failed attempt has no conversation worth continuing: Codex reports a
+    // thread id before the turn is accepted and persists no rollout when the
+    // turn fails, so resuming it only yields "did not identify a thread" (four
+    // times on PYTHON-RECEIVER-BINDING-1). The retry starts fresh; the id it
+    // returns is bound only if that run completes.
+    if (request.providerSession !== undefined) {
+      if (request.providerSession.kind === 'resume') console.log(`  [retry] ${label}: the provider could not continue session '${request.providerSession.sessionId}'; retrying with a fresh conversation`);
+      request = { ...request, providerSession: { kind: 'fresh' } };
     }
     attempt += 1;
   }
@@ -1902,6 +1965,9 @@ function statusWithReturnedSession(
   result: RunResult
 ): TargetRelayStatus {
   if (!request.providerSession || result.providerSessionId === undefined) return status;
+  // Only a run the conversation actually consumed (completed, or timed out
+  // while working) leaves a session worth resuming; a failed attempt does not.
+  if (result.status !== RunStatus.COMPLETED && result.status !== RunStatus.TIMEOUT) return status;
   if (result.providerSessionId.trim().length === 0) {
     throw new Error(`provider-session-invalid: ${role} provider returned an empty native session id`);
   }
@@ -2398,13 +2464,7 @@ async function runReview(
       stage3Evidence = await readStage3Evidence(sliceDir, status.iteration, stage3, deps);
       const current = await observeStage3Checkpoint(input, deps, stage3);
       if (status.candidateTracking?.state !== 'evidence-bound' || status.candidateTracking.candidateSha256 !== stage3Evidence.checkpoint.sha256 || !sameCheckpoint(current, stage3Evidence.checkpoint)) throw new Error('subject-mismatch: evidence-bound candidate changed before implementation review');
-      if (!deps.candidateDiff) throw new Error('invalid-field: stage-3 candidate diff mechanism is unavailable');
-      extra.push(
-        generatedRunInput(`implementation-allocation-${status.iteration}`, 'review-subject', JSON.stringify(stage3.allocation), deps.computeDigest),
-        generatedRunInput(`candidate-checkpoint-${status.iteration}`, 'review-subject', JSON.stringify(stage3Evidence.checkpoint), deps.computeDigest),
-        generatedRunInput(`verification-draft-${status.iteration}`, 'review-subject', new TextDecoder().decode(stage3Evidence.verificationBytes), deps.computeDigest),
-        generatedRunInput(`candidate-diff-${status.iteration}`, 'review-subject', await deps.candidateDiff(input.targetDir, stage3Evidence.checkpoint), deps.computeDigest),
-      );
+      extra.push(...await stage3ReviewSubjectInputs({ sliceDir, sliceId: status.sliceId, iteration: status.iteration, checkpoint: stage3Evidence.checkpoint, verificationBytes: stage3Evidence.verificationBytes, verificationSha256: stage3Evidence.verificationSha256, computeDigest: deps.computeDigest }));
     }
     const roleSpecific = await roleSpecificInputs({
       input,
@@ -2842,13 +2902,7 @@ async function clarificationDelivery(args: {
       const evidence = await readStage3Evidence(args.sliceDir, args.status.iteration, args.stage3, args.deps);
       const checkpoint = await observeStage3Checkpoint(args.input, args.deps, args.stage3);
       if (!sameCheckpoint(checkpoint, evidence.checkpoint)) throw new Error('subject-mismatch: evidence-bound candidate changed before clarification');
-      if (!args.deps.candidateDiff) throw new Error('invalid-field: stage-3 candidate diff mechanism is unavailable');
-      extra.push(
-        generatedRunInput(`implementation-allocation-${args.status.iteration}`, 'review-subject', JSON.stringify(args.stage3.allocation), args.deps.computeDigest),
-        generatedRunInput(`candidate-checkpoint-${args.status.iteration}`, 'review-subject', JSON.stringify(evidence.checkpoint), args.deps.computeDigest),
-        generatedRunInput(`verification-draft-${args.status.iteration}`, 'review-subject', new TextDecoder().decode(evidence.verificationBytes), args.deps.computeDigest),
-        generatedRunInput(`candidate-diff-${args.status.iteration}`, 'review-subject', await args.deps.candidateDiff(args.input.targetDir, evidence.checkpoint), args.deps.computeDigest),
-      );
+      extra.push(...await stage3ReviewSubjectInputs({ sliceDir: args.sliceDir, sliceId: args.status.sliceId, iteration: args.status.iteration, checkpoint: evidence.checkpoint, verificationBytes: evidence.verificationBytes, verificationSha256: evidence.verificationSha256, computeDigest: args.deps.computeDigest }));
     }
   }
   extra.push(generatedRunInput(`manager-clarification-${args.status.iteration}`, 'task-directive', clarificationText, args.deps.computeDigest));

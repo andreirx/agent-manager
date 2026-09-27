@@ -881,7 +881,21 @@ additional governance merely from a filename or Markdown prose.
 
 `roleSpecific` contains, in order, that role's snapshotted instruction files,
 the selection packet, relevant prior review/build evidence, and the generated
-task directive. For a requirements-document review, the newly authored v2
+task directive.
+
+For a stage-3 implementation review the review-subject inputs are (amendment
+2026-09-27, human decision): the candidate checkpoint inline (the identity the
+review must echo); the verification draft as a reference frame whose bytes are
+written to `.agent-manager/slices/<id>/verification-draft-<n>.json` and whose
+header carries `verificationSha256`; and `candidate-diff-command-<n>`, a short
+generated input naming the base revision, the exact `git status`/`git diff`/
+`cat` commands that reproduce the candidate in the working directory, and the
+entry list they must match. The diff text itself and a second copy of the
+allocation are no longer delivered: a 460 KB diff, a 235 KB draft and a 147 KB
+allocation copy put one review over Codex's 1,048,576-character input cap
+(PYTHON-RECEIVER-BINDING-1). An input the provider refuses as too large is not
+retried: the same bytes would fail again, and a retry that resumes the
+never-created conversation only hides the cause. For a requirements-document review, the newly authored v2
 candidate manifest and its upstream closure are `review-subject` inputs to the
 reviewer: they cannot be common inputs because they did not exist in that form
 before the builder edited them. `inputProvenance.baseline` and the common array

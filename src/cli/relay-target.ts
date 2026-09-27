@@ -220,26 +220,6 @@ async function observeCandidateTree(targetDir: string): Promise<CandidateTreeObs
   return { baseRevision: head, entries };
 }
 
-async function candidateDiff(targetDir: string, checkpoint: CandidateCheckpoint): Promise<string> {
-  const headToIndex = (await execFileBuffer('git', ['-C', targetDir, 'diff', '--cached', '--binary', 'HEAD', '--'])).toString('utf8');
-  const indexToWorkingTree = (await execFileBuffer('git', ['-C', targetDir, 'diff', '--binary', '--'])).toString('utf8');
-  const untracked: string[] = [];
-  for (const entry of checkpoint.entries) {
-    if (entry.porcelainStatus === '??' && entry.workingTree.kind === 'present') {
-      const bytes = await readFile(join(targetDir, entry.path));
-      untracked.push(`\n--- /dev/null\n+++ b/${entry.path}\n# untracked raw bytes (base64)\n${bytes.toString('base64')}\n`);
-    }
-  }
-  return [
-    '=== HEAD-to-index diff (staged candidate state) ===',
-    headToIndex,
-    '=== Index-to-working-tree diff (unstaged candidate state) ===',
-    indexToWorkingTree,
-    '=== Untracked working-tree files (raw bytes as base64) ===',
-    untracked.join(''),
-  ].join('\n');
-}
-
 async function createTrackedFileExclusively(targetDir: string, path: string, bytes: Uint8Array): Promise<void> {
   const absolute = join(targetDir, path);
   await mkdir(dirname(absolute), { recursive: true });
@@ -942,7 +922,6 @@ async function main(): Promise<void> {
       changedPaths: gitChangedPaths,
       artifactStore: store,
       observeCandidateTree,
-      candidateDiff,
       createTrackedFileExclusively,
       clarificationRunner,
     });

@@ -381,10 +381,14 @@ docs (e.g. `docs/slices/*.md` with their ratification sections) + the operator's
 deliverable + the commit messages. Run records (`runs/*.json` → log path) restore per-call
 traceability **locally** (`runId`, provider, model, effort, mode, permission, status, timestamps,
 the target-relative `logPath`, pinned prompt digests, and requested/returned native session ids).
-Each managed attempt is recorded before an in-loop retry; an id returned by a failed
-attempt is persisted before the retry and becomes that retry's explicit resume id.
-An explicit resume returning a different id blocks rather than silently starting a
-replacement conversation.
+Each managed attempt is recorded before an in-loop retry. A session id is bound in
+`status.json` only from a run the conversation actually consumed (completed, or timed
+out while working); an id returned by a failed attempt is recorded in that attempt's run
+record but never bound, and the retry starts a fresh conversation (amendment 2026-09-27:
+Codex reports a thread id before accepting the turn and persists no rollout for a failed
+first turn, so resuming it fails with "did not identify a thread"). A provider that
+refuses an input as too large is not retried. An explicit resume returning a different
+id blocks rather than silently starting a replacement conversation.
 
 The scaffold (`.gitignore`, `README.md`) is provisioned by the relay on first run for **whatever
 target** is passed; no repository is pre-seeded or hardcoded. A newly generated scaffold ignores
