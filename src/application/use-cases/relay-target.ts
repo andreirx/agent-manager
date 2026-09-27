@@ -4373,6 +4373,17 @@ export async function targetRelayLoop(
       const builtThisIteration = await fileExists(
         join(sliceDir, 'runs', `build-${status.iteration}.json`)
       );
+      // Review-only resume (2026-09-27): the cycle was built, its evidence is
+      // bound to the candidate, and the review produced no result (a provider
+      // failure blocked it before `review-<i>.json` was written). Re-running the
+      // builder would spend a cycle and discard the binding for nothing; the
+      // reviewer re-checks the tree against the bound checkpoint itself.
+      const reviewResultMissing = !(await fileExists(join(sliceDir, `review-${status.iteration}.json`)));
+      if (stage3 && builtThisIteration && reviewResultMissing && status.candidateTracking?.state === 'evidence-bound') {
+        status = { ...status, phase: 'review-impl', updatedAt: deps.clock.now(), lastActor: 'human' };
+        await writeStatus(sliceDir, status);
+        console.log(`  [resume] unblocked slice ${sliceId}; cycle ${status.iteration + 1} is built and evidence-bound but unreviewed: retrying the review only`);
+      } else {
       const nextIteration = builtThisIteration
         ? status.iteration + 1
         : status.iteration;
@@ -4390,6 +4401,7 @@ export async function targetRelayLoop(
       console.log(
         `  [resume] unblocked slice ${sliceId}; retrying at cycle ${nextIteration + 1}`
       );
+      }
     }
   }
 

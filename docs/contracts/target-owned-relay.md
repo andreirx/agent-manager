@@ -539,11 +539,16 @@ path create-only; invokes no provider; and performs no commit.
    and matrix, and invokes no builder until a later authorized resolution
    mechanism exists. Malformed or unreadable retained stage-3 review state also
    refuses rather than guessing that the block is retryable. Other blocked
-   states unblock and retry: they advance to a **new** cycle when the blocked
-   cycle already has build/review records (builder-failed / invalid review), or
-   **retry the same index** when the block was the cycle cap (a never-built
-   cycle). The decision is made from the run records on disk, so no build-/review-
-   holes are created. Raise `--max-iter` if the block was the cap. If `done`,
+   states unblock and retry: when the blocked cycle is built (`runs/build-<i>.json`
+   exists), its candidate is evidence-bound, and no review result exists for it
+   (`review-<i>.json` absent: the review failed on the provider before producing
+   one), the resume **retries the review of the same cycle** with the binding
+   intact and no builder call (amendment 2026-09-27; before it, such a block spent
+   a builder cycle and discarded the binding); otherwise they advance to a **new**
+   cycle when the blocked cycle already has build/review records (builder-failed /
+   invalid review), or **retry the same index** when the block was the cycle cap
+   (a never-built cycle). The decision is made from the run records on disk, so no
+   build-/review- holes are created. Raise `--max-iter` if the block was the cap. If `done`,
    reports done;
 2. else, unless `--reselect`, resumes the in-flight slice named by
    `current.json` (phase not `done`/`blocked`); a `blocked` active slice stops

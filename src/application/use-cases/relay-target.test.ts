@@ -5066,3 +5066,41 @@ describe('bookkeeping transcription (human decision 2026-09-26: agent output is 
     expect(rules.join('\n')).toContain('not reported by the builder');
   });
 });
+
+
+describe('review-only resume (2026-09-27): a built, evidence-bound cycle whose review failed on the provider retries the review, not the builder', () => {
+  let target = '';
+  afterEach(async () => { if (target) await rm(target, { recursive: true, force: true }); target = ''; });
+
+  it('resumes at the review with the bound evidence intact and no builder call', async () => {
+    target = await mkdtemp('/private/tmp/REVIEW-ONLY-RESUME-');
+    const seeded = await seedStage3Implementation(target);
+    const builder = new StubRunner(() => json(evidenceResult(seeded.allocationRef)));
+    const failingReviewer = new NativeSessionStub(() => ({ status: RunStatus.FAILED, content: '', sessionId: 'never-persisted', error: 'Codex session output did not identify a thread.' }));
+    const observations = () => [observation(), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()]), observation([candidateEntry()])];
+    const first = await targetRelayLoop(seeded.input, { ...stage3Deps(builder, failingReviewer, observations()), retryDelay: async () => {} });
+    expect(first.phase).toBe('blocked');
+    const sliceDir = join(target, '.agent-manager/slices/S2');
+    expect(await readFile(join(sliceDir, 'notes-for-human.md'), 'utf-8')).toContain('Reviewer run did not complete');
+    const blocked = JSON.parse(await readFile(join(sliceDir, 'status.json'), 'utf-8')) as { candidateTracking: { state: string }; iteration: number; providerSessions?: unknown };
+    expect(blocked.candidateTracking.state).toBe('evidence-bound');
+    expect(blocked.iteration).toBe(0);
+    expect(blocked.providerSessions).toBeUndefined();
+    expect(await exists(join(sliceDir, 'runs/build-0.json'))).toBe(true);
+    expect(await exists(join(sliceDir, 'review-0.json'))).toBe(false);
+
+    const secondBuilder = new StubRunner(() => 'must not run');
+    const reviewer = new StubRunner((request) => {
+      const checkpointInput = generatedInput(request, 'candidate-checkpoint-0');
+      const verification = deliveredSubject(request, 'verification-draft-0');
+      return json(implementationReview(JSON.parse(new TextDecoder().decode(checkpointInput.bytes)) as CandidateCheckpoint, verification.sha256));
+    });
+    // On a real resume the candidate is still in the tree: every observation sees it.
+    const candidateStillThere = Array.from({ length: 6 }, () => observation([candidateEntry()]));
+    const second = await targetRelayLoop({ ...seeded.input, sliceId: 'S2' }, stage3Deps(secondBuilder, reviewer, candidateStillThere));
+    expect(second.phase).toBe('done');
+    expect(secondBuilder.calls).toHaveLength(0);
+    expect(reviewer.calls).toHaveLength(1);
+    expect(await exists(join(target, 'docs/assurance/S2/implementation-review.json'))).toBe(true);
+  });
+});
