@@ -2,7 +2,8 @@
 # Operator release-cut checklist for ../repo-graph (tracked; run STEP BY STEP, never chained after an unverified gate).
 # Usage: scripts/repo-graph-release-cut.sh <step>   steps: 1 cut | 2 push | 3 install | 4 restart | 5 relocate | 6 warm
 # Preconditions for step 1: the last slice is COMMITTED on a green gate (scripts/repo-graph-gates.sh log asserted),
-# the release gates named in step 1 (D-PSI-RELEASE-GATE-1: TEST-EDGE-SCOPE-1B accepted at HEAD) hold,
+# the release gates named in step 1 (D-PSI-RELEASE-GATE-1: TEST-EDGE-SCOPE-1B accepted at HEAD, or met by a committed human
+# ruling — D-TESB-SHIP-1) hold,
 # no relay running (pgrep -fl "relay-target|codex exec|claude.*stream-json" empty), tree clean.
 set -u
 RG="/Users/apple/Documents/APLICATII BIJUTERIE/repo-graph"
@@ -11,10 +12,20 @@ case "${1:-}" in
   1) cd "$RG" && git status --short | grep -q . && { echo "tree not clean — stop"; exit 10; }
      # D-PSI-RELEASE-GATE-1 (operator, 2026-09-24): no release while an INFERRED import family is persisted but the
      # IMPORTS readers (cycles/path/map/boundary/trust) are not partitioned — TEST-EDGE-SCOPE-1B must be accepted at HEAD.
-     for gate in TEST-EDGE-SCOPE-1B; do
-       git -C "$RG" cat-file -e "HEAD:docs/assurance/$gate/implementation-review.json" 2>/dev/null \
-         && git -C "$RG" show "HEAD:docs/assurance/$gate/implementation-review.json" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('result')=='accepted' else 1)" \
-         || { echo "release gate $gate not accepted at HEAD (D-PSI-RELEASE-GATE-1) — stop"; exit 11; }
+     # A gate is met by the runtime's accepted implementation review at HEAD, OR by a HUMAN ruling committed at HEAD
+     # that names the gate met (TEST-EDGE-SCOPE-1B: D-TESB-SHIP-1, human 2026-09-30 "Ship as is + follow-ups" — the
+     # implementation review stayed decision-required; the ruling, not a review, meets the gate).
+     for gate in "TEST-EDGE-SCOPE-1B:docs/assurance/RG-BOOTSTRAP/decisions/D-TESB-SHIP-1.md"; do
+       g=${gate%%:*}; waiver=${gate#*:}
+       if git -C "$RG" cat-file -e "HEAD:docs/assurance/$g/implementation-review.json" 2>/dev/null \
+          && git -C "$RG" show "HEAD:docs/assurance/$g/implementation-review.json" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('result')=='accepted' else 1)"; then
+         echo "release gate $g: accepted implementation review at HEAD"
+       elif git -C "$RG" show "HEAD:$waiver" 2>/dev/null | grep -q "^Resolved: .* by the HUMAN" \
+          && git -C "$RG" show "HEAD:$waiver" | grep -q "treat the release gate D-PSI-RELEASE-GATE-1 as met"; then
+         echo "release gate $g: met by the human ruling $waiver at HEAD (the review stayed decision-required)"
+       else
+         echo "release gate $g not met at HEAD: no accepted review and no human ruling $waiver (D-PSI-RELEASE-GATE-1) — stop"; exit 11
+       fi
      done
      ./scripts/cut_release_minor.sh; echo "cut-exit=$?" ;;
   2) cd "$RG" && git push && git push --tags; echo "push-exit=$?" ;;
