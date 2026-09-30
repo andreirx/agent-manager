@@ -1,6 +1,6 @@
 # Engineering discipline for supervised agent work
 
-Maturity: PROTOTYPE. Approved for explicit shared-prompt adoption; activation requires the runner to load this file.
+Write simple, clear English, use ASD-STE 100.
 Purpose: deliver useful, traceable changes without regressions or unnecessary structure.
 This is a risk-scaled engineering protocol inspired by requirements-based assurance,
 not a claim of DO-178C compliance, certification, or proof of defect freedom.
