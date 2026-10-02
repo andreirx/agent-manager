@@ -71,7 +71,7 @@ def dump(c, snap, ignore):
     out["unresolved"] = {}
     for r in c.execute("select s.stable_key, u.target_key, u.type, u.line_start, u.col_start, u.line_end, u.col_end, u.category, u.classification, u.basis_code, u.metadata_json, u.extractor "
                        "from unresolved_edges u join nodes s on s.node_uid=u.source_node_uid where u.snapshot_uid=?", (snap,)):
-        key = (sk(r[0]),) + tuple(r[1:7]); val = (r[7], r[8], r[9], norm_md(r[10], ignore), family(r[11]))
+        key = (sk(r[0]), sk(r[1])) + tuple(r[2:7]); val = (r[7], r[8], r[9], norm_md(r[10], ignore), family(r[11]))  # target_key may embed the repo uid (FILE targets) — normalize like every other key
         out["unresolved"].setdefault(key, []).append(val)
     for t in ("edges", "unresolved"):
         out[t] = {k: tuple(sorted(v, key=lambda x: json.dumps(x, default=str))) for k, v in out[t].items()}
