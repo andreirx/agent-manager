@@ -30,9 +30,13 @@ case "${1:-}" in
      ./scripts/cut_release_minor.sh; echo "cut-exit=$?" ;;
   2) cd "$RG" && git push && git push --tags; echo "push-exit=$?" ;;
   3) cd "$RG" && ./scripts/dev-install-local.sh; echo "install-exit=$?" ;;
-  4) launchctl bootout gui/501 com.repo-graph.rmapd 2>/dev/null; sleep 2
-     launchctl bootstrap gui/501 "$HOME/Library/LaunchAgents/com.repo-graph.rmapd.plist"; sleep 3
-     pgrep -fl rmapd | cut -c1-60; rmap doctor 2>&1 | grep -iE "version|healthy|storage:" | head -4 ;;
+  4) # Idempotent restart: the local install (step 3) already restarts the service, so bootout+bootstrap errored
+     # "Input/output error 5" on an already-bootstrapped service (v0.20.0 cut, 2026-10-03). kickstart -k kills and
+     # restarts it whether or not it is running; the read-back names the pid, its start time and the binary version.
+     launchctl kickstart -k gui/501/com.repo-graph.rmapd; sleep 3
+     launchctl print gui/501/com.repo-graph.rmapd 2>&1 | grep -E "state =|pid =" | head -2
+     for p in $(pgrep -x rmapd); do ps -o pid=,lstart=,command= -p "$p" | cut -c1-100; done
+     cd "$RG" && "$HOME/.local/bin/rmap" doctor 2>&1 | grep -E "rmap:|rmapd:|rgistr:|daemon_service|daemon_socket" | head -6 ;;
   5) mkdir -p "$RET_DST"
      for r in /private/tmp/repo-graph-tests/audit-v0.17.0 /private/tmp/HT1-retained; do
        [ -d "$r" ] && { echo "moving $r → $RET_DST/"; mv "$r" "$RET_DST/"; }
