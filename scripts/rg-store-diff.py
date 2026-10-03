@@ -32,20 +32,28 @@ def latest_snapshot(c):
     if not row: sys.exit("rg-store-diff: no ready snapshot")
     return row[0]
 
+import re
+_REPO = re.compile(r"^repo_[a-z0-9]+:")
+def sk(k):
+    """stable key without the per-index repo uid prefix (the same corpus re-indexed gets a new uid; the key is otherwise stable)."""
+    return None if k is None else _REPO.sub("", k)
+
+def _strip_uids(v):
+    """Apply sk() to every string inside a decoded metadata value: `candidates` lists carry FILE
+    stable keys (`<repo_uid>:<path>:FILE`), so two indexes of one tree differ only by the uid there
+    (TS-ALIAS-RESOLUTION-1 INPUT-6 review, F-TSA6-02). Paths are kept and still compared."""
+    if isinstance(v, str): return sk(v)
+    if isinstance(v, list): return [_strip_uids(x) for x in v]
+    if isinstance(v, dict): return {k: _strip_uids(x) for k, x in v.items()}
+    return v
+
 def norm_md(s, ignore):
     if s is None: return None
     try: d = json.loads(s)
     except Exception: return s
     if isinstance(d, dict):
         for k in ignore: d.pop(k, None)
-        return json.dumps(d, sort_keys=True)
-    return json.dumps(d, sort_keys=True)
-
-import re
-_REPO = re.compile(r"^repo_[a-z0-9]+:")
-def sk(k):
-    """stable key without the per-index repo uid prefix (the same corpus re-indexed gets a new uid; the key is otherwise stable)."""
-    return None if k is None else _REPO.sub("", k)
+    return json.dumps(_strip_uids(d), sort_keys=True)
 
 def family(extractor):
     return None if extractor is None else extractor.split(":")[0]
