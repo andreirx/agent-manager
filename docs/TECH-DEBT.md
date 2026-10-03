@@ -844,3 +844,21 @@ while another live run holds it.
   evidence of a check is the evidence of the check's OWNER), with the contract document naming both arms.
 - When to address: with TD-020/024/025 in the human's runtime session.
 - Status: OPEN (operator fix in place; ratification pending).
+
+## TD-027 — a manager interpretation's findings route the relay but never reach the next builder packet
+- Date: 2026-10-03
+- What was done: after IMPORTS-UNRESOLVED-REMAINDER-1's cycle-2 review (reviewer: accepted), the manager applied an
+  interpretation that kept the reviewer's content and ADDED one verified finding (F-M-001, the operator gate's
+  consolidation-witness failure) with result refinement-required. `--apply-manager-interpretation` validated it,
+  wrote the interpretation audit and routed the item to `implement` — but `review-<n>.json` kept its raw/errors
+  snapshot, so the cycle-3 builder packet carried the reviewer's raw "accepted" report and no finding; the builder
+  changed nothing ("no code change; the relay record step needs a decision"), the reviewer re-accepted the unchanged
+  candidate, and the item reached `done` with a gate-red candidate. The operator carried the finding by hand in the
+  slice's selection.md RESUME NOTE and re-admitted the item at the next iteration.
+- Why acceptable: interpretation-added findings are rare (manager judgment on an operator-gate result); the brief is
+  a delivered input and carries them for now.
+- Proper solution: persist the interpreted result as the cycle's review snapshot (or deliver the interpretation
+  audit's content to the next builder packet) so routing and packet content come from one record; a test that a
+  refinement route after interpretation delivers the interpretation's findings.
+- When to address: with TD-020/024/025/026 in the human's runtime session.
+- Status: OPEN.
