@@ -39,7 +39,8 @@ cap "$L/grpc-java"   dgc-grpc-deps-list         deps list
 # TEST-EDGE-SCOPE-1A (df98b655): poco stats test files 796; explain CppUnit/include/CppUnit/Test.h → "test status: can't determine — open it and look inside"; complexity "2 of 97 ranked files"
 cap "$L/poco"        tesa-poco-stats            stats
 cap "$L/poco"        tesa-poco-explain-test-h   explain CppUnit/include/CppUnit/Test.h
-cap "$L/poco"        tesa-poco-complexity       complexity
+cap "$L/poco"        tesa-poco-hotspots         hotspots
+cap "$L/poco"        tesa-poco-hotspots-exclude-tests hotspots --exclude-tests
 cap "$L/leveldb"     tesa-leveldb-explain-testutil explain util/testutil.cc
 # TEST-EDGE-SCOPE-1B (f0693e28): poco Foundation→CppUnit leaves default modules deps (remainder stated); leveldb cycles omits db→table→db (named excluded), --include-tests restores; kafka trust zero-connectivity 34/65
 cap "$L/poco"        tesb-poco-modules-deps     modules deps Foundation
@@ -65,5 +66,5 @@ cap "$B/amodx"       twr-amodx-imports-toolbar  imports admin/src/components/edi
 cap "$L/storybook"   twr-storybook-imports-button imports code/frameworks/ember/template/cli/Button.stories.js --include-inferred
 # README-vs-product probe (human direction 2026-09-23): every command/flag the README shows must exist in the binary under audit
 cap "$B/repo-graph"  readme-help                --help
-cap "$B/repo-graph"  readme-contracts           contracts --json
+cap "$B/repo-graph"  readme-contracts-usages    contracts usages
 echo "captures: $(ls "$OUT" | wc -l | tr -d ' ') in $OUT"
