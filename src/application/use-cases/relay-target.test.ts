@@ -2961,6 +2961,36 @@ describe('ASSURANCE-3 pure allocation, evidence and review policy', () => {
     expect(rejected.ok ? [] : rejected.errors.map((item) => item.code)).toEqual(expect.arrayContaining(['review-coverage-unknown', 'review-coverage-missing']));
   });
 
+  it('TD-026: an accepted REVIEWER-owned inspection check rests on the reviewer\'s reproduced pass, not on builder evidence; builder-owned checks keep the rule', () => {
+    const inspection = { checkId: 'A3-C04', obligationIds: ['EX-REQ-001-L01', 'EX-REQ-002-L01', 'P-A3-01'], owner: 'reviewer', method: { kind: 'inspection', subject: 'git diff HEAD -- src/a.ts', criterion: 'no swallowing form on the new path', inputs: 'the candidate diff' }, expected: 'the reviewer records agreement or a finding' };
+    const { allocation, ref } = parsedAllocation({ checks: [inspection] });
+    const checkpoint = makeCandidateCheckpoint({ observation: observation([candidateEntry()]), allocation, computeDigest });
+    expect(checkpoint.ok).toBe(true);
+    if (!checkpoint.ok) return;
+    const evidence = parseImplementationEvidenceResult({ snapshot: snapshot('provider-result', json(evidenceResult(ref, 'src/a.ts', 'not-run'))), allocation, allocationRef: ref, checkpoint: checkpoint.value });
+    expect(evidence.ok).toBe(true);
+    if (!evidence.ok) return;
+    const verificationSha = computeDigest('verification');
+    const review = (verification: Record<string, unknown>) => {
+      const value = { ...implementationReview(checkpoint.value, verificationSha), checkAssessments: [{ checkId: 'A3-C04', result: 'accepted', findingIds: [], verification }] } as Record<string, unknown>;
+      return parseImplementationReviewResult({ snapshot: snapshot('review-result', json(value)), allocation, checkpoint: checkpoint.value, verificationSha256: verificationSha, evidence: evidence.value });
+    };
+    // reviewer-owned + the reviewer reproduced it with a pass → binds although the builder recorded not-run
+    const reproduced = review({ kind: 'reproduced', outcome: { kind: 'passed', actual: 'inspected the diff; criterion holds', supportingEvidence: ['git diff HEAD -- src/a.ts'] } });
+    expect(reproduced.ok ? [] : reproduced.errors.map((item) => `${item.code} ${item.location}: ${item.detail}`)).toEqual([]);
+    // reviewer-owned but the reviewer only relied on builder evidence → refused (there is none to rely on)
+    const relied = review({ kind: 'relied-on-builder-evidence', limitation: 'did not inspect' });
+    expect(relied.ok ? [] : relied.errors.map((item) => item.detail)).toEqual(expect.arrayContaining([expect.stringContaining('reviewer-owned check requires')]));
+    // builder-owned (the default fixture) + not-run builder evidence → the original rule still refuses
+    const builderOwned = parsedAllocation();
+    const bCheckpoint = makeCandidateCheckpoint({ observation: observation([candidateEntry()]), allocation: builderOwned.allocation, computeDigest });
+    if (!bCheckpoint.ok) throw new Error('checkpoint');
+    const bEvidence = parseImplementationEvidenceResult({ snapshot: snapshot('provider-result', json(evidenceResult(builderOwned.ref, 'src/a.ts', 'not-run'))), allocation: builderOwned.allocation, allocationRef: builderOwned.ref, checkpoint: bCheckpoint.value });
+    if (!bEvidence.ok) throw new Error('evidence');
+    const refused = parseImplementationReviewResult({ snapshot: snapshot('review-result', json(implementationReview(bCheckpoint.value, verificationSha))), allocation: builderOwned.allocation, checkpoint: bCheckpoint.value, verificationSha256: verificationSha, evidence: bEvidence.value });
+    expect(refused.ok ? [] : refused.errors.map((item) => item.detail)).toContain('accepted check requires passed builder evidence');
+  });
+
   it('admits explicit preservation-only no-change allocation without a minimum-diff rule', () => {
     const parsed = parseImplementationAllocation({ snapshot: snapshot('docs/slices/S2.md', allocationText({ implements: [], preserves: ['EX-REQ-001-L01', 'EX-REQ-002-L01'] })), expectedWorkItemId: 'S2', expectedBaselinePath: 'docs/requirements/baselines/B2.json', expectedPacketObligationIds: ['EX-REQ-001-L01', 'EX-REQ-002-L01'], reviewedObligationIds: ['EX-REQ-001', 'EX-REQ-001-L01', 'EX-REQ-002', 'EX-REQ-002-L01'] });
     expect(parsed.ok).toBe(true);

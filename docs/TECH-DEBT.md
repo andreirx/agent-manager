@@ -824,3 +824,23 @@ while another live run holds it.
   deliverables + a report), or omits `ROLE_OUTPUT_CONTRACT`; the reviewer directive keeps `v2-requirements-review`.
 - When to address: with TD-020/024 in the human's runtime session.
 - Status: OPEN.
+
+## TD-026 — the review binder refused an accepted REVIEWER-owned inspection check for lacking builder evidence
+- Date: 2026-10-03
+- What was done: the implementation-allocation grammar admits `owner: 'reviewer'` checks of `kind: inspection` (the
+  reviewer reads a diff against a criterion; the builder records the check `not-run`, reason "reviewer-owned"), but
+  `parseImplementationReviewResult` (`src/core/assurance.ts`, the "accepted check requires passed builder evidence"
+  rule) applied the builder-evidence rule to every check. IMPORTS-UNRESOLVED-REMAINDER-1's cycle-2 review (codex
+  gpt-6-sol, `accepted`, zero findings) could not bind on IUR-C07, the slice's one inspection check; both bookkeeper
+  attempts failed on the same rule; the relay halted at `awaiting-manager-interpretation`. Operator change, additive:
+  for a check whose allocation owner is `reviewer`, an accepted assessment requires the reviewer's own `reproduced`
+  verification with a passed outcome and tolerates `not-run` builder evidence; every builder-owned check keeps the
+  original rule. A unit test covers both arms. Gated on typecheck, the jest suite and a `relay-target --dry-run`
+  parity check before the interpretation that relies on it was applied.
+- Why acceptable: the grammar already promised reviewer-owned checks; the binder contradicted it. The relaxation is
+  scoped to that owner and still demands the reviewer's reproduced pass. Made outside the assured agent-manager
+  self-build path (as TD-020's `extractProviderResultJson` was), recorded here for the human to ratify or redo.
+- Proper solution: ratify through the agent-manager assured path (AM-REQ for the review contract: the acceptance
+  evidence of a check is the evidence of the check's OWNER), with the contract document naming both arms.
+- When to address: with TD-020/024/025 in the human's runtime session.
+- Status: OPEN (operator fix in place; ratification pending).

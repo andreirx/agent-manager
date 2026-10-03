@@ -2103,7 +2103,14 @@ export function parseImplementationReviewResult(args: { snapshot: AssuranceFileS
       const findingIds = parseIdArray(item.findingIds, args.snapshot.path, `${at}/findingIds`, errors, true);
       const verification = parseReviewVerification(item.verification, args.snapshot.path, `${at}/verification`, errors);
       const evidence = args.evidence.checks.find((check) => check.checkId === item.checkId);
-      if (item.result === 'accepted' && evidence?.outcome.kind !== 'passed') errors.push(error('review-result-mismatch', args.snapshot.path, at, 'accepted check requires passed builder evidence'));
+      // TD-026 (2026-10-03): a check the allocation assigns to the REVIEWER (`owner: 'reviewer'`, an inspection)
+      // has no builder evidence by design — the builder records it `not-run`. Its acceptance rests on the
+      // reviewer's own `reproduced` verification with a passed outcome. Every builder-owned check keeps the
+      // original rule: accepted only on passed builder evidence.
+      const allocatedCheck = args.allocation.checks.find((check) => check.checkId === item.checkId);
+      const reviewerOwned = allocatedCheck?.owner === 'reviewer';
+      if (item.result === 'accepted' && !reviewerOwned && evidence?.outcome.kind !== 'passed') errors.push(error('review-result-mismatch', args.snapshot.path, at, 'accepted check requires passed builder evidence'));
+      if (item.result === 'accepted' && reviewerOwned && !(verification?.kind === 'reproduced' && verification.outcome.kind === 'passed')) errors.push(error('review-result-mismatch', args.snapshot.path, at, 'accepted reviewer-owned check requires the reviewer\'s reproduced verification with a passed outcome'));
       if (item.result === 'accepted' && verification?.kind === 'reproduced' && verification.outcome.kind !== 'passed') errors.push(error('review-result-mismatch', args.snapshot.path, at, 'accepted reproduced check requires a passed outcome'));
       if (idOk && resultOk && verification) checkAssessments.push({ checkId: item.checkId as string, result: item.result as ReviewOutcome, findingIds, verification });
     });
