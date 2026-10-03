@@ -862,3 +862,21 @@ while another live run holds it.
   refinement route after interpretation delivers the interpretation's findings.
 - When to address: with TD-020/024/025/026 in the human's runtime session.
 - Status: OPEN.
+
+## TD-028 — no operator command invalidates an evidence-bound candidate; a one-finding fix costs a full re-admission
+- Date: 2026-10-03
+- What was done: after IMPORTS-UNRESOLVED-REMAINDER-1's candidate was evidence-bound and review-accepted (cycle 3)
+  while the operator gate was red on one witness (TD-027 had kept the finding out of the builder packet), resetting
+  the item to `implement` was refused by the guard at `relay-target.ts` (`subject-mismatch: evidence-bound candidate
+  cannot re-enter the builder without explicit evidence invalidation`; `candidateTracking.state !== 'building'`).
+  The CLI has no operation that performs that invalidation. The operator used the TD-021 recipe instead: reverse
+  the candidate to a clean tree, archive the admission, fresh status at iteration 0, and a RESUME NOTE that makes the
+  builder re-apply the preserved patch before the one-line fix — a whole builder cycle and every check re-run to
+  change one test.
+- Why acceptable: the guard protects the evidence/review binding (the right default); the recipe is proven and keeps
+  the records consistent.
+- Proper solution: an explicit `--invalidate-evidence <reason>` operator operation that records an audit (who, why,
+  which gate), sets `candidateTracking.state` back to `building` with the evidence files retired to the admission
+  archive, and lets the next builder cycle start from the bound candidate instead of a clean tree.
+- When to address: with TD-020/024–027 in the human's runtime session.
+- Status: OPEN.
