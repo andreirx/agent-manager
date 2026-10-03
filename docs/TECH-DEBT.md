@@ -880,3 +880,22 @@ while another live run holds it.
   archive, and lets the next builder cycle start from the bound candidate instead of a clean tree.
 - When to address: with TD-020/024–027 in the human's runtime session.
 - Status: OPEN.
+
+## TD-029 — a document item relaunched under a NEW bootstrap baseline needs two hand edits (status.json and current.json) or admission refuses it
+- Date: 2026-10-03
+- What was done: DEPS-GRADLE-CATALOG-1B-PREP ran cycle 0 under RG-BOOTSTRAP-INPUT-13; the review raised a catalog
+  correction (CC-22) that changed a pinned requirement file, so the next cycle had to run under INPUT-14. Relaunching
+  with `--baseline …INPUT-14.json` was refused twice before any provider call: first `subject-mismatch:
+  …/status.json /assurance/manifest: persisted assurance conflicts with --baseline`, then — after repointing
+  status.json by hand (the TD-021 recipe) — `Assurance state mismatch between current.json and status.json`, because
+  `.agent-manager/current.json` had also persisted the INPUT-13 manifest. Both files were edited by hand (manifest
+  path + sha256), the dry-run passed, the relaunch ran.
+- Why acceptable: the guard is right to refuse a silent baseline change; the two edits are mechanical and the dry-run
+  proves them before a provider runs. A superseded bootstrap baseline is a routine event (every shipped slice that
+  touches a pinned contract or requirement file forces one).
+- Proper solution: `--baseline <new>` on an item whose persisted manifest differs is accepted when the new baseline's
+  approval record exists at HEAD and names the old baseline's successor (or an explicit `--rebase-baseline` operator
+  flag records the supersession on the item), updating status.json and current.json together with an audit line.
+- When to address: with TD-021 (the same supersession class) in the Stage-4 proportionality discussion.
+- Status: OPEN (mitigated by the recipe: repoint `assurance.manifest` in status.json AND current.json, drop
+  providerSessions/candidateTracking, `--dry-run` before relaunch).
