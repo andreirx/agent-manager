@@ -939,3 +939,11 @@ while another live run holds it.
   (baseline supersession class).
 - Status: OPEN (mitigated: the cycle-3 brief tells the author to report a false sentence instead of editing;
   the operator adopts the author's edits and regenerates before the next launch).
+
+## TD-032 — the operator's re-pin records generator carried a template `report` sentence from INPUT-16 into INPUT-17..20's published review records
+- Date: 2026-10-04
+- What was done: `rgb1N/records.py` (the operator's scratchpad script that assembles `docs/assurance/RG-BOOTSTRAP-INPUT-<N>/{requirements-review,baseline-approval}.json` after a standalone codex re-pin review) was cloned by `sed` from INPUT-16's copy; its `report` field was a hard-coded sentence ("Subject = INPUT-<N-1> + the re-pin of docs/cli/rmap-contracts.md …, prompt /private/tmp/rgbootstrap16/review.txt") and its `approvalId` repeated INPUT-16's. Four published records (INPUT-17..20) therefore misdescribed what the reviewer assessed (three of them re-pinned RG-REQ-006-L14 revisions, not the CLI contract). Found by the RUST-SELF-RESOLUTION-1 INPUT-2 document review (cycle 10, RR-5): "the review text does not substantiate acceptance of the changed requirement".
+- Why acceptable: the digests, the approval decision and the resolved decisions in those records are correct; the defect is narrative. Append-only correction records (`*-correction-1.json`) now state each review as it happened, with the changed pins and the reviewer's verdict verbatim; the originals stand.
+- Proper solution: the re-pin records are produced by a tracked script (`scripts/repo-graph-bootstrap-repin.py`) that derives the subject from the manifest diff (changed pins) and embeds the reviewer's verdict verbatim; no free text is typed into a durable record. Better still, the runtime performs the bootstrap re-pin review as a document item (TD-030's fragment pin would make most re-pins unnecessary).
+- When to address: with TD-030 (bootstrap pin granularity) at the Stage-4 proportionality discussion.
+- Status: OPEN (mitigated: `rgb-correct.py` in the operator's scratchpad writes correction pairs; future re-pins must use it or a derived-text generator).
