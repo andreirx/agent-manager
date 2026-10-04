@@ -899,3 +899,22 @@ while another live run holds it.
 - When to address: with TD-021 (the same supersession class) in the Stage-4 proportionality discussion.
 - Status: OPEN (mitigated by the recipe: repoint `assurance.manifest` in status.json AND current.json, drop
   providerSessions/candidateTracking, `--dry-run` before relaunch).
+
+## TD-030 — the bootstrap baseline pins `docs/cli/rmap-contracts.md` as one file, so every shipped slice that extends the contract forces a bootstrap re-pin review before the next document item can be admitted
+- Date: 2026-10-04
+- What was done: three consecutive slices on repo-graph (IMPORTS-UNRESOLVED-REMAINDER-1 → RG-BOOTSTRAP-INPUT-12,
+  TS-ALIAS-RESOLUTION-1 → INPUT-13, DEPS-GRADLE-CATALOG-1B → INPUT-15; INPUT-14 was a requirement correction) each
+  added a section to the CLI contract that the requirements catalog cites as a source. The baseline manifest
+  (`requirements-baseline-manifest` v2) pins the whole file's sha256, so the next document item's admission failed
+  with `digest-mismatch: docs/cli/rmap-contracts.md` until the operator produced INPUT-N+1 and ran a standalone
+  read-only review of the diff (one or two codex passes, 10–20 minutes each) and wrote its records by hand.
+- Why acceptable: the re-pin review has paid for itself every time — INPUT-13 pass 1 found two unratified limits in
+  the shipped TSA contract (D-TSA-STATED-LIMITS-1); the whole-file pin is what makes an unreviewed contract change
+  impossible to admit silently.
+- Proper solution: the requirement's `sources` already name `document-section` fragments; let the manifest pin the
+  cited fragment's digest (the section between its heading and the next heading of the same level) instead of the
+  whole file, so a new section elsewhere in the contract does not invalidate the pin, while a change inside a cited
+  section still does. The shipped slice's own implementation review remains the review of the new section.
+- When to address: Stage-4 proportionality, with TD-021/TD-029 (baseline supersession class).
+- Status: OPEN (mitigated by the recipe: copy INPUT-N → INPUT-N+1, re-digest, standalone codex review with the diff
+  inlined, records script, commit; rgb1N/records.py in the operator's scratchpad).
