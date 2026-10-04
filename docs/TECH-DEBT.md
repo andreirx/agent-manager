@@ -918,3 +918,24 @@ while another live run holds it.
 - When to address: Stage-4 proportionality, with TD-021/TD-029 (baseline supersession class).
 - Status: OPEN (mitigated by the recipe: copy INPUT-N → INPUT-N+1, re-digest, standalone codex review with the diff
   inlined, records script, commit; rgb1N/records.py in the operator's scratchpad).
+
+## TD-031 — a document item's review baseline pins the allocation under review, so any author edit blocks the relay with `digest-mismatch` before the reviewer runs
+- Date: 2026-10-04
+- What was done: RUST-SELF-RESOLUTION-1's document item (PREP) ran under the bootstrap baseline with
+  `REVIEW_BASELINE: …/RUST-SELF-RESOLUTION-1-INPUT-1.json`, whose `allocation` dependency pins the slice document's
+  sha256. In cycles 1 and 2 the author (claude-opus-5-5) corrected the document (six real defects each time) and
+  handed off; the runtime then compared the review baseline's pins, found the edited document, and blocked
+  (`digest-mismatch: docs/slices/rust-self-resolution-1.md`) without calling the reviewer. The author's work was
+  kept by hand (adopted into the staging copy, manifest regenerated, relaunch), at one relay cycle each. Earlier
+  document items (DGC-ATTRIBUTION-PRECISE-1 cycles 4–10) did not hit this because the operator applied the findings
+  himself between launches and the author made no edits.
+- Why acceptable: the pin is what stops a reviewer from approving a document other than the one the manifest
+  names; the loss is one builder call per author edit, and the author's hand-off survives in `build-<n>.md`.
+- Proper solution: when the author edits the allocation, the runtime regenerates the review baseline's allocation
+  pin (the digest of the document the reviewer is about to read) and records the old and new digests in the run
+  record, so the reviewer judges what the author handed off; or the document item's review baseline pins the
+  requirements and governance only and the allocation digest is taken at review time.
+- When to address: Stage-4 proportionality, with TD-022 (document review cannot execute) and TD-029/TD-030
+  (baseline supersession class).
+- Status: OPEN (mitigated: the cycle-3 brief tells the author to report a false sentence instead of editing;
+  the operator adopts the author's edits and regenerates before the next launch).
