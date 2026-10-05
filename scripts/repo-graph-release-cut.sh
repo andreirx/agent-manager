@@ -15,7 +15,9 @@ case "${1:-}" in
      # A gate is met by the runtime's accepted implementation review at HEAD, OR by a HUMAN ruling committed at HEAD
      # that names the gate met (TEST-EDGE-SCOPE-1B: D-TESB-SHIP-1, human 2026-09-30 "Ship as is + follow-ups" — the
      # implementation review stayed decision-required; the ruling, not a review, meets the gate).
-     for gate in "TEST-EDGE-SCOPE-1B:docs/assurance/RG-BOOTSTRAP/decisions/D-TESB-SHIP-1.md"; do
+     # v0.21.0 (2026-10-05): the last slice before the cut, JAVA-SYMBOL-AMBIGUITY-HINT-1, is a gate too — its accepted
+     # implementation review must be at HEAD (no human waiver record exists for it; the second path never applies).
+     for gate in "TEST-EDGE-SCOPE-1B:docs/assurance/RG-BOOTSTRAP/decisions/D-TESB-SHIP-1.md" "JAVA-SYMBOL-AMBIGUITY-HINT-1:docs/assurance/RG-BOOTSTRAP/decisions/NO-WAIVER-RECORD.md"; do
        g=${gate%%:*}; waiver=${gate#*:}
        if git -C "$RG" cat-file -e "HEAD:docs/assurance/$g/implementation-review.json" 2>/dev/null \
           && git -C "$RG" show "HEAD:docs/assurance/$g/implementation-review.json" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('result')=='accepted' else 1)"; then
