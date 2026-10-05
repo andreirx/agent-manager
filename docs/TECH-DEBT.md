@@ -743,6 +743,7 @@ while another live run holds it.
 - When to address: with the Stage-4 proportionality discussion — this is the second case (with TD-020) where the
   runtime's rigidity on a correct correction cost manager time without adding assurance.
 - Status: OPEN, NARROWED 2026-09-14 — with the ratified oracle-correction path (TD-022) text-only corrections no longer
+- Addendum 2026-10-05 (DOCTOR-FALLBACK-STATE-ROOT-1 re-admission 2): the "tracking" block to drop is `candidateTracking` {contract, state, baseRevision, candidateSha256}; left in place it fails admission with `subject-mismatch: candidate HEAD changed from the persisted implementation base` (relay-target.ts:2106). Also drop `providerSessions`.
   need supersession; a supersession verb remains the proper solution for non-text baseline changes.
 
 ## TD-022 — A stale oracle token costs a full re-baseline because document review cannot execute (2026-09-13)
@@ -917,6 +918,7 @@ while another live run holds it.
   section still does. The shipped slice's own implementation review remains the review of the new section.
 - When to address: Stage-4 proportionality, with TD-021/TD-029 (baseline supersession class).
 - Status: OPEN (mitigated by the recipe: copy INPUT-N → INPUT-N+1, re-digest, standalone codex review with the diff
+- Addendum 2026-10-05 (DOCTOR-FALLBACK-STATE-ROOT-1, RG-BOOTSTRAP-INPUT-29): the cost has a reward — because the CLI contract is pinned, a slice that extends `docs/cli/rmap-contracts.md` gets a SECOND independent read of the shipped subsection at the re-pin review; INPUT-29 took three passes and corrected five wording overclaims (verdict rule, a capture count stated as a rule, a missing service-state form, a no-pid explanation, post-connection probes absent on early return) that the implementation review had accepted. Keep this read when the pin granularity changes.
   inlined, records script, commit; rgb1N/records.py in the operator's scratchpad).
 
 ## TD-031 — a document item's review baseline pins the allocation under review, so any author edit blocks the relay with `digest-mismatch` before the reviewer runs
