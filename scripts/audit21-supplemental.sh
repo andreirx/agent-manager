@@ -33,9 +33,9 @@ cap "$L/kafka"       dgc-kafka-deps-list-clients deps list clients
 cap "$L/grpc-java"   dgc-grpc-deps-list-core     deps list core
 
 # MODULES-DEPS-SUMMARY-SCOPE-1 (b5c67086): leveldb `modules deps table` → `Summary (module table, all directions):` 46 / 19 / 0 above four edges summing to 46;
-#   `--direction outbound` 41 = sum of outbound edges; poco `modules deps Foundation` 1653 / 1751 / 27 above 24 edges; unscoped `modules deps` unchanged; JSON `diagnostics_scope`.
+#   `--outbound` 41 = sum of outbound edges (the ROADMAP ship block's `--direction outbound` is stale wording; the spec §432 and the binary say `--outbound`); poco `modules deps Foundation` 1653 / 1751 / 27 above 24 edges; unscoped `modules deps` unchanged; JSON `diagnostics_scope`.
 cap "$L/leveldb"     mds-leveldb-modules-deps-table modules deps table
-cap "$L/leveldb"     mds-leveldb-modules-deps-table-out modules deps table --direction outbound
+cap "$L/leveldb"     mds-leveldb-modules-deps-table-out modules deps table --outbound
 cap "$L/leveldb"     mds-leveldb-modules-deps-table-json modules deps table --json
 cap "$L/poco"        mds-poco-modules-deps-foundation modules deps Foundation
 cap "$L/leveldb"     mds-leveldb-modules-deps    modules deps
