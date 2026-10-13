@@ -250,6 +250,10 @@ target's own CLAUDE.md, not here.
   two substantive revise rounds; the review record names the model. Any other model, provider or
   effort change is the human's: surface strain and the option, do not switch.
 - agent-manager self-build: see the overhaul assignment at the top of this file.
+- amodx slices (human 2026-10-13): builder `--builder-model claude-opus-5-5` (claude, effort high),
+  reviewer `--supervisor-model gpt-6-sol` (codex). Both smoke-verified with the relay's CLI shapes
+  the same day. Supersedes the baked defaults (claude-opus-4-8 / gpt-5.6-terra) for amodx; the
+  baked defaults themselves are unchanged.
 - Reviewer model: `gpt-6-sol` is permitted alongside `gpt-5.6-terra` (human 2026-09-23, after the
   Codex CLI upgrade to 0.156.0; smoke-verified). The review record names the model used.
 - Reviewer model from 2026-10-05 (human): `gpt-6.1-sol` (`--supervisor codex --supervisor-model
