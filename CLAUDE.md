@@ -254,6 +254,11 @@ target's own CLAUDE.md, not here.
   reviewer `--supervisor-model gpt-6-sol` (codex). Both smoke-verified with the relay's CLI shapes
   the same day. Supersedes the baked defaults (claude-opus-4-8 / gpt-5.6-terra) for amodx; the
   baked defaults themselves are unchanged.
+- amodx slices from 2026-10-16 (human): builder `--builder-model claude-opus-5-5` (claude), reviewer
+  `--supervisor-model gpt-6.1-sol` (codex). On a provider capacity/503 failure "just let it retry": the
+  relay's own retries, then a later relaunch of the same model — the operator does not switch models.
+  Reason: on 2026-10-16 `gpt-6-sol` reported capacity for hours and the operator swapped reviewers
+  mid-slice; the human prefers one named reviewer and patience over a fallback chain.
 - Reviewer model: `gpt-6-sol` is permitted alongside `gpt-5.6-terra` (human 2026-09-23, after the
   Codex CLI upgrade to 0.156.0; smoke-verified). The review record names the model used.
 - Reviewer model from 2026-10-05 (human): `gpt-6.1-sol` (`--supervisor codex --supervisor-model
