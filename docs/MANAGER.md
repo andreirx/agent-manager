@@ -90,7 +90,7 @@ checkpoint, or a meaningful failure/decision event, inspect:
 A growing log is progress evidence, not correctness. A quiet log is not proof of a
 dead process. An exit code is not proof that the requirements or mandatory checks
 were satisfied. Prefer event/process waiting over repeated unchanged polling.
-Notify the human of meaningful outcomes, failures, and decisions, not unchanged logs.
+Notify the human of meaningful outcomes, failures, and decisions, not unchanged logs. Use two registers: glossary and Agent Manager terms toward builder and reviewer; the target's VISION and plain human terms toward the human, with every question and decision self-contained and carrying its implications (human directive, 2026-10-18; see the manager prompt).
 
 Within one slice, `status.json` also carries independent native builder and reviewer
 conversation ids when their adapters support explicit resume, including when those
