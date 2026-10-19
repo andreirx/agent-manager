@@ -190,13 +190,26 @@ Roles are stable; providers are volatile and chosen per session:
 - **supervisor** — selects the slice (planner) and reviews the result (reviewer).
 
 Either role may be played by any provider:
-`--builder claude|codex|copilot`, `--supervisor claude|codex|copilot`
+`--builder claude|codex|copilot|antigravity`, `--supervisor claude|codex|copilot|antigravity`
 (defaults `claude`/`codex`). `copilot` (GitHub Copilot CLI, batch mode) is
 PROTOTYPE: its default model is empty (pin one with `--builder-model` /
 `--supervisor-model`), `--effort` is dropped (no Copilot effort flag), and the
 read-only reviewer posture is `--deny-tool write` only (weaker than Codex's
 `--sandbox read-only`; shell stays open for `git diff`). The Copilot argv mapping
 is doc-grounded, not yet probed against an installed CLI — see TECH-DEBT TD-016.
+
+`antigravity` (Google Antigravity CLI, `agy`, headless stream-json mode) is
+PROTOTYPE, probed live against agy 1.4.0 on 2026-10-18. The prompt is one
+stream-json user turn on stdin (no argv size cap); the shared instruction is the
+first frame of that turn (`agy` has no system-prompt flag; receipt mechanism
+`antigravity-stdin-frame`); `--model <base> --effort <level>` resolves to the
+tiered catalog id (`gemini-4-argon-high`); conversations continue through
+`--conversation <id>`, and a resumed run fails unless the returned
+`conversation_id` equals the requested one (an unknown id only warns and starts a
+new conversation). Headless `agy` auto-denies any tool that would prompt and ends
+the turn with an empty response, so both postures pass
+`--dangerously-skip-permissions`; the read-only reviewer adds `--mode plan`, whose
+edit-blocking under that approval is unverified — see TECH-DEBT TD-035.
 
 `RunRequest` carries provider-neutral policy fields; adapters map them to flags:
 

@@ -38,7 +38,7 @@ The default target-owned binding is:
 | Builder | Claude | `claude-opus-4-8` | `max` |
 | Supervisor/reviewer | Codex | `gpt-5.5` | `high` |
 
-Both roles can be rebound to `claude`, `codex`, or `copilot`:
+Both roles can be rebound to `claude`, `codex`, `copilot`, or `antigravity`:
 
 ```bash
 npm run relay-target -- <target-path> --builder claude --supervisor codex
@@ -48,6 +48,9 @@ npm run relay-target -- <target-path> --builder codex --supervisor claude
 # GitHub Copilot CLI (batch mode) as either role — PROTOTYPE, see note below:
 npm run relay-target -- <target-path> --builder copilot --builder-model <id>
 npm run relay-target -- <target-path> --supervisor copilot
+# Google Antigravity CLI (agy, headless stream-json) as either role — PROTOTYPE:
+npm run relay-target -- <target-path> --builder antigravity --builder-model gemini-4-argon
+npm run relay-target -- <target-path> --supervisor antigravity --supervisor-model gemini-3.8-flash
 ```
 
 > **Copilot (PROTOTYPE).** The Copilot adapter runs the `copilot` CLI in batch
@@ -58,6 +61,15 @@ npm run relay-target -- <target-path> --supervisor copilot
 > `git diff`). The argv mapping is grounded in GitHub's docs, not yet probed
 > against an installed binary — run one live smoke test per role before trusting
 > it in a loop. See `docs/TECH-DEBT.md` **TD-016**.
+
+> **Antigravity (PROTOTYPE).** The Antigravity adapter runs `agy` in headless
+> stream-json mode: the whole prompt is one NDJSON user turn on stdin, the shared
+> system prompt is its first frame (`agy` has no system-prompt flag), and
+> conversations resume with `--conversation <id>`. Default model `gemini-4-argon`
+> at effort `high` (`agy models` lists the tiers; `gemini-3.8-flash` is the cheap
+> one). The CLI must be signed in once interactively (`agy`); headless runs use
+> the cached account credentials. See `docs/TECH-DEBT.md` **TD-035** for the
+> read-only posture caveat.
 
 ### Shared system prompt
 

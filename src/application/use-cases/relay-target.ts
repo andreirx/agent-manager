@@ -92,7 +92,7 @@ export type TargetPhase =
   | 'done';
 
 /** Actor identity (provider playing a role, or a human). */
-export type TargetActor = 'claude' | 'codex' | 'copilot' | 'human';
+export type TargetActor = 'claude' | 'codex' | 'copilot' | 'antigravity' | 'human';
 
 interface ProviderSessionBinding {
   provider: TargetActor;
@@ -1240,6 +1240,7 @@ const TARGET_ACTOR_VALUES: Readonly<Record<TargetActor, true>> = {
   claude: true,
   codex: true,
   copilot: true,
+  antigravity: true,
   human: true,
 };
 

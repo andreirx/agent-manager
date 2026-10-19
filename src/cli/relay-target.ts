@@ -10,14 +10,14 @@
  *   npm run relay-target -- <target-path> [options]
  *
  * Options:
- *   --builder    claude|codex|copilot  provider that implements (default: claude)
+ *   --builder    claude|codex|copilot|antigravity  provider that implements (default: claude)
  *   --builder-model <id>       override builder model         (default: per provider;
  *                              operator picks by slice complexity, e.g. claude-fable-5;
  *                              REQUIRED for copilot to pin a model — its default is empty)
  *   --supervisor-model <id>    override supervisor model
  *   --bookkeeper <provider>    provider for the read-only bookkeeping transcription (default codex)
  *   --bookkeeper-model <id>    its model (default gpt-6-luna, effort low); `--bookkeeper none` disables transcription
- *   --supervisor claude|codex|copilot  provider that selects+reviews (default: codex)
+ *   --supervisor claude|codex|copilot|antigravity  provider that selects+reviews (default: codex)
  *   --shared-prompt <path>      shared system-prompt file
  *                               (default: /Users/apple/CLAUDE-SYSTEM.txt)
  *   --max-iter <n>             max build/review CYCLES         (default: 10)
@@ -46,6 +46,7 @@ import { FilesystemArtifactStore } from '../adapters/filesystem/index.js';
 import { ClaudeAdapter } from '../adapters/providers/claude-code/index.js';
 import { CodexAdapter } from '../adapters/providers/codex/index.js';
 import { CopilotAdapter } from '../adapters/providers/copilot/index.js';
+import { AntigravityAdapter } from '../adapters/providers/antigravity/index.js';
 import {
   targetRelayLoop,
   admitBaseline,
@@ -80,6 +81,10 @@ function providerDefaults(name: TargetActor): { model: string; effort: string } 
       // operator selects one per run via --builder-model / --supervisor-model.
       // Effort is ignored by the Copilot adapter (no effort flag exists).
       return { model: '', effort: 'high' };
+    case 'antigravity':
+      // Antigravity CLI tiers the catalog by name (gemini-4-argon-{low,medium,high});
+      // the base name plus --effort resolves to the tier (CLI log verified 2026-10-18).
+      return { model: 'gemini-4-argon', effort: 'high' };
     case 'codex':
     case 'human':
     default:
@@ -226,7 +231,7 @@ async function createTrackedFileExclusively(targetDir: string, path: string, byt
   await writeFile(absolute, bytes, { flag: 'wx' });
 }
 
-type RawAdapter = ClaudeAdapter | CodexAdapter | CopilotAdapter;
+type RawAdapter = ClaudeAdapter | CodexAdapter | CopilotAdapter | AntigravityAdapter;
 
 function makeAdapter(
   name: TargetActor,
@@ -244,6 +249,8 @@ function makeAdapter(
       return new ClaudeAdapter(config, store, clock);
     case 'copilot':
       return new CopilotAdapter(config, store, clock);
+    case 'antigravity':
+      return new AntigravityAdapter(config, store, clock);
     default:
       // 'codex' (and 'human', which is never selected as builder/supervisor).
       return new CodexAdapter(config, store, clock);
@@ -289,8 +296,8 @@ interface Args {
 }
 
 function parseProvider(value: string, flag: string): TargetActor {
-  if (value !== 'claude' && value !== 'codex' && value !== 'copilot') {
-    console.error(`Invalid ${flag}: '${value}'. Expected 'claude', 'codex', or 'copilot'.`);
+  if (value !== 'claude' && value !== 'codex' && value !== 'copilot' && value !== 'antigravity') {
+    console.error(`Invalid ${flag}: '${value}'. Expected 'claude', 'codex', 'copilot', or 'antigravity'.`);
     process.exit(1);
   }
   return value;
