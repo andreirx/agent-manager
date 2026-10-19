@@ -92,6 +92,8 @@ dead process. An exit code is not proof that the requirements or mandatory check
 were satisfied. Prefer event/process waiting over repeated unchanged polling.
 Notify the human of meaningful outcomes, failures, and decisions, not unchanged logs. Use two registers: glossary and Agent Manager terms toward builder and reviewer; the target's VISION and plain human terms toward the human, with every question and decision self-contained and carrying its implications (human directive, 2026-10-18; see the manager prompt).
 
+Architecture tasks (human directive, 2026-10-19): a slice that is mainly a bigger planning slice or a refactor (a new crate or module boundary, a cross-cutting rename or re-wiring, a design spanning more than one layer) is built by `--builder antigravity --builder-model gemini-4-argon`; a one-mechanic, one-content or one-screen slice keeps the default builder. The manager classifies each slice in its ticket header; the builder stays fixed for the life of a slice (see the manager prompt).
+
 Within one slice, `status.json` also carries independent native builder and reviewer
 conversation ids when their adapters support explicit resume, including when those
 roles author and review a requirements document. Inspect the matching run records when diagnosing continuation: each attempt
