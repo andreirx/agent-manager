@@ -94,6 +94,8 @@ Notify the human of meaningful outcomes, failures, and decisions, not unchanged 
 
 Architecture tasks (human directive, 2026-10-19): when a big architectural change is coming (a new layer or crate, a moved boundary, a re-wiring across layers — an amendment plus several slices), the manager opens a planning slice whose deliverables are the amendment draft and the slice tickets, built by `--builder antigravity --builder-model gemini-4-argon` and reviewed by the usual reviewer; the human ratifies the amendment; the produced slices are built by the same builder with the same reviewer. Everyday one-mechanic, one-content or one-screen slices keep the default builder. The planning slice uses the ordinary slice route, not the v2 requirements-document path. The builder is stated in each ticket header and stays fixed for the life of a slice (see the manager prompt).
 
+After each accepted slice (human directive, 2026-10-19): run `scripts/clean-slice-debug.sh <target> <slice-id> --yes [--scratch <dir>]` (keeps the slice's records — `build-*.md`, `review-*.json`, notes, selection, status, `runs/`, patches — and removes the logs, dumps, binaries, snapshots and the providers' native transcripts for that slice; dry run without `--yes`), then pause one hour (`ScheduleWakeup` 3600 s) before writing or launching the next slice.
+
 Within one slice, `status.json` also carries independent native builder and reviewer
 conversation ids when their adapters support explicit resume, including when those
 roles author and review a requirements document. Inspect the matching run records when diagnosing continuation: each attempt
