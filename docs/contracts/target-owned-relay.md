@@ -401,7 +401,15 @@ record but never bound, and the retry starts a fresh conversation (amendment 202
 Codex reports a thread id before accepting the turn and persists no rollout for a failed
 first turn, so resuming it fails with "did not identify a thread"). A provider that
 refuses an input as too large is not retried. An explicit resume returning a different
-id blocks rather than silently starting a replacement conversation.
+id blocks rather than silently starting a replacement conversation. A builder run
+whose slice already has a `build-progress.md` (written only by an earlier builder run
+of that slice: a failed or interrupted attempt, a resume after a block, a previous
+iteration) receives a continuation note in its task context — read the note, `git
+status`, continue from the work, do not start over; for a legacy delivery the note is
+re-evaluated before every retry attempt, because the failed attempt may have written
+it (amendment 2026-10-20: two complete HODA-G2 builds lost their final message to
+provider errors and were re-run from the same bytes). A reviewed delivery keeps its
+admitted bytes across retries, so its note reflects the first attempt only.
 
 The scaffold (`.gitignore`, `README.md`) is provisioned by the relay on first run for **whatever
 target** is passed; no repository is pre-seeded or hardcoded. A newly generated scaffold ignores

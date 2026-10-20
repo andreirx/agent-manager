@@ -1034,11 +1034,35 @@ function cwdHeader(targetDir: string): string {
   ].join('\n');
 }
 
+/** The builder's progress note: written by every builder run of a slice, never by the relay. */
+function buildProgressPath(sliceDir: string): string {
+  return join(sliceDir, 'build-progress.md');
+}
+
+/**
+ * The continuation note a builder receives when an earlier run of the same
+ * slice left work behind: a failed or interrupted attempt, a resume after a
+ * block, or a previous revision iteration. The relay's retry re-sends the same
+ * request in a fresh conversation, so without this note a second attempt knows
+ * about the first only if it happens to run `git status` (HODA-G2, 2026-10-20:
+ * two complete builds lost their final message to provider errors and were
+ * re-run from the same bytes).
+ */
+function continuationNote(sliceId: string): string {
+  return [
+    '# Earlier work on this slice is in the working tree',
+    '',
+    `An earlier run of this slice (a failed or interrupted attempt, or a previous iteration) left its work uncommitted in the working tree and its progress note at .agent-manager/slices/${sliceId}/build-progress.md.`,
+    'Read that note first, then `git status`. Continue from that work: re-verify it, correct it, complete it. Do not start over, do not delete or rewrite files that are already right, and do not reset the tree.',
+  ].join('\n');
+}
+
 function buildBuilderContext(
   targetDir: string,
   packetRaw: string,
   iteration: number,
-  outputContract: RoleOutputContract
+  outputContract: RoleOutputContract,
+  continuation?: string
 ): string {
   const parts = [
     cwdHeader(targetDir),
@@ -1060,6 +1084,7 @@ function buildBuilderContext(
       `This is revision iteration ${iteration}. Address the prior reviewer feedback recorded under .agent-manager/slices/<id>/review-*.json before changing anything else.`
     );
   }
+  if (continuation !== undefined) parts.push('', continuation);
   parts.push(
     '',
     '# Runtime-selected output contract',
@@ -1908,7 +1933,9 @@ async function runWithRetry(
   initialRequest: RunRequest,
   label: string,
   onAttempt?: (attempt: { request: RunRequest; result: RunResult; number: number }) => Promise<void>,
-  retryDelay: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+  retryDelay: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  /** Rebuilds the request before a retry, so it can carry what the failed attempt left behind. */
+  refresh?: (request: RunRequest) => Promise<RunRequest>
 ): Promise<{ request: RunRequest; result: RunResult }> {
   let request = initialRequest;
   let attempt = 1;
@@ -1939,6 +1966,7 @@ async function runWithRetry(
       if (request.providerSession.kind === 'resume') console.log(`  [retry] ${label}: the provider could not continue session '${request.providerSession.sessionId}'; retrying with a fresh conversation`);
       request = { ...request, providerSession: { kind: 'fresh' } };
     }
+    if (refresh) request = await refresh(request);
     attempt += 1;
   }
 }
@@ -2110,6 +2138,9 @@ async function runImplement(
   }
   let delivery: RunRequest['delivery'];
   const useSnapshots = status.assurance !== undefined && (status.assurance.contract === 'requirements-assurance/v2-stage2' || posture.kind === 'requirements-document');
+  // Read on every attempt, not once: attempt 1 may write the note and then fail.
+  const continuation = async (): Promise<string | undefined> =>
+    (await fileExists(buildProgressPath(sliceDir))) ? continuationNote(status.sliceId) : undefined;
   if (useSnapshots && status.assurance) {
     if (!dispatchCapture) throw new Error('invalid-field: reviewed builder dispatch has no admitted input capture');
     const capture = dispatchCapture;
@@ -2139,6 +2170,8 @@ async function runImplement(
       packetRaw,
       promptPaths: input.builderPromptPaths,
       directiveLabel: posture.kind === 'requirements-document' ? 'requirements-author-task' : 'implementation-builder-task',
+      // Reviewed deliveries are digested at admission, so a retry re-sends the
+      // same bytes: the note reflects the state at the first attempt only.
       directive: buildBuilderContext(
         input.targetDir,
         packetRaw,
@@ -2147,7 +2180,8 @@ async function runImplement(
           ? 'requirements-assurance/v2-requirements-review'
           : stage3
             ? 'requirements-assurance/v3-implementation-evidence'
-            : 'legacy-implementation-report'
+            : 'legacy-implementation-report',
+        await continuation()
       ),
       extra: prior,
       capture,
@@ -2158,9 +2192,18 @@ async function runImplement(
     delivery = {
       kind: 'legacy-live-inputs',
       prompts,
-      contextText: buildBuilderContext(input.targetDir, packetRaw, status.iteration, 'legacy-implementation-report'),
+      contextText: buildBuilderContext(input.targetDir, packetRaw, status.iteration, 'legacy-implementation-report', await continuation()),
     };
   }
+  // A legacy delivery is rebuilt before each retry so the note reflects what
+  // the failed attempt left behind.
+  const refreshLegacyDelivery = async (request: RunRequest): Promise<RunRequest> => {
+    if (request.delivery.kind !== 'legacy-live-inputs') return request;
+    return {
+      ...request,
+      delivery: { ...request.delivery, contextText: buildBuilderContext(input.targetDir, packetRaw, status.iteration, 'legacy-implementation-report', await continuation()) },
+    };
+  };
   const providerSession = sessionRequestFor(status, 'builder', input.builderProvider, deps.builder);
   const request: RunRequest = {
     runId: `build-${status.sliceId}-${status.iteration}`,
@@ -2192,7 +2235,8 @@ async function runImplement(
     await finalizeReviewedDelivery(request, sliceDir),
     `build ${status.sliceId} iter ${status.iteration}`,
     recordAttempt,
-    deps.retryDelay
+    deps.retryDelay,
+    refreshLegacyDelivery
   );
   const { request: terminalRequest, result } = terminal;
   assertCompletedManagedSession(terminalRequest, result, 'builder');

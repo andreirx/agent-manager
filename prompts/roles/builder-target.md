@@ -130,6 +130,13 @@ create unsolicited report files. Preserve incremental results so a timeout does 
 erase executed-gate evidence. Your final message is the report the relay stores as
 `build-<n>.md`.
 
+When the task context says that earlier work on this slice is in the working tree
+(an attempt that failed or was interrupted, a resumed slice, a previous iteration),
+read `build-progress.md` first, then `git status`, and CONTINUE from that work:
+re-verify it, correct it, complete it. Do not start over, do not delete or rewrite
+files that are already right, and do not reset the tree. A progress note is a claim,
+not evidence: re-run the checks it says passed before you report them as passed.
+
 ## Hard constraints
 
 - Delete every isolated state root, worktree, and proof directory you created before you

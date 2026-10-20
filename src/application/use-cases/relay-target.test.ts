@@ -2360,6 +2360,33 @@ describe('SLICE-PROVIDER-SESSIONS-1 role conversation lifecycle', () => {
     expect((status.providerSessions as Record<string, unknown>).builder).toEqual({ provider: 'codex', sessionId: 'retry-builder' });
   });
 
+  it('tells a retry about the work a failed attempt left behind, by its progress note (2026-10-20)', async () => {
+    target = await mkdtemp('/private/tmp/SLICE-PROVIDER-SESSIONS-1-continue-');
+    const sliceDir = await seedImplementationSessionSlice(target, 'CONTINUE');
+    const heading = '# Earlier work on this slice is in the working tree';
+    let builderAttempts = 0;
+    const runner = new NativeSessionStub(async (request) => {
+      if (request.role === 'builder') {
+        builderAttempts += 1;
+        if (builderAttempts === 1) {
+          // The first attempt writes its progress note, then the provider fails.
+          await writeFile(join(sliceDir, 'build-progress.md'), '- Status: IN PROGRESS\n', 'utf-8');
+          return { status: RunStatus.FAILED, content: '', sessionId: 'lost-thread', error: 'transient' };
+        }
+        return { content: 'built after retry', sessionId: 'continue-builder' };
+      }
+      return { content: 'STATUS: approved', sessionId: 'continue-reviewer' };
+    });
+    const deps = { ...makeDeps(runner, runner), retryDelay: async () => {} };
+    expect((await targetRelayLoop({ ...makeInput(target), sliceId: 'CONTINUE', builderProvider: 'codex', supervisorProvider: 'codex' }, deps)).phase).toBe('done');
+    const contextOf = (call: RunRequest | undefined): string => (call?.delivery.kind === 'legacy-live-inputs' ? call.delivery.contextText ?? '' : '');
+    // No note existed when the first attempt was assembled; the retry carries it.
+    expect(contextOf(runner.calls[0])).not.toContain(heading);
+    expect(contextOf(runner.calls[1])).toContain(heading);
+    expect(contextOf(runner.calls[1])).toContain('.agent-manager/slices/CONTINUE/build-progress.md');
+    expect(runner.calls[1]?.providerSession).toEqual({ kind: 'fresh' });
+  });
+
   it('does not retry an input the provider refused as too large, and binds no session from it', async () => {
     target = await mkdtemp('/private/tmp/SLICE-PROVIDER-SESSIONS-1-toolarge-');
     const sliceDir = await seedImplementationSessionSlice(target, 'TOOLARGE');
