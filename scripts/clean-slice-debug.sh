@@ -12,7 +12,9 @@
 # Per slice:
 #   KEEPS  .agent-manager/slices/<id>/{build-*.md, review-*.json,
 #          notes-for-human.md, selection.json, selection.md, status.json,
-#          build-progress.md, runs/, *.patch, *.sh}        — the record
+#          build-progress.md, runs/, *.patch, *.sh,
+#          decision-challenge.md, decision-rebuttal.md,
+#          ratification-packet.md}                          — the record
 #   REMOVES every other file and directory there (logs, event dumps, copied
 #          binaries, baseline/after snapshots, test output)
 #   REMOVES .agent-manager/logs/*__slice-<id>.txt — the providers' native
@@ -57,6 +59,7 @@ for id in $slices; do
       [ -e "$p" ] || continue
       case "$(basename "$p")" in
         build-*.md|review-*.json|notes-for-human.md|selection.json|selection.md|status.json|build-progress.md|runs|*.patch|*.sh) ;;
+        decision-challenge.md|decision-rebuttal.md|ratification-packet.md) ;;  # the decision review's record (2026-10-21: the list above predated it and the HODA-G2 copies were removed)
         *) remove "$p" ;;
       esac
     done
