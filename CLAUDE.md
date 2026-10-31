@@ -261,6 +261,9 @@ target's own CLAUDE.md, not here.
   relay's own retries, then a later relaunch of the same model — the operator does not switch models.
   Reason: on 2026-10-16 `gpt-6-sol` reported capacity for hours and the operator swapped reviewers
   mid-slice; the human prefers one named reviewer and patience over a fallback chain.
+- glamCRM slices from 2026-10-31 (human, during PL-TOOLS-2): builder `--builder-model claude-opus-5-5` (claude),
+  reviewer `--supervisor codex --supervisor-model gpt-6.1-sol`. Launch with `RELAY_STALL_MINUTES=35` while TD-036 is open
+  (pl-tools image-verification joins run 15–27 minutes with no builder output).
 - Reviewer model: `gpt-6-sol` is permitted alongside `gpt-5.6-terra` (human 2026-09-23, after the
   Codex CLI upgrade to 0.156.0; smoke-verified). The review record names the model used.
 - Reviewer model from 2026-10-05 (human): `gpt-6.1-sol` (`--supervisor codex --supervisor-model

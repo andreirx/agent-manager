@@ -974,3 +974,11 @@ while another live run holds it.
 - When to address: before the first Antigravity-reviewed slice closes out.
 - Status: OPEN
 
+
+## TD-036 — the output-liveness watchdog kills a builder that is legitimately waiting on a long local job
+- Date: 2026-10-31
+- What was done: nothing in the runtime. Observed on glamCRM PL-TOOLS-2 cycle 3: the Claude builder had finished its code and tests and was waiting for a 27-minute `node run.mjs join kuberit` it had started as a background task (image verification at ≤ 2 req/s), relying on the task-completion notification. Waiting on a notification streams zero bytes, so the `claude-code` adapter's stall watchdog (`src/adapters/providers/claude-code/adapter.ts`, `RELAY_STALL_MINUTES`, default 15) killed the process group at 15 minutes: the job died with it, the cycle was recorded `timeout`, and the build report was never written although the work was complete on disk. The watchdog exists for a real hang class (2026-07-05: no log file, 0 % CPU for 25 minutes); here the builder was healthy and the long job was the slice's own proof.
+- Why acceptable: two mitigations exist today — the operator sets `RELAY_STALL_MINUTES` above the longest expected proof when launching a slice whose runs are long, and the packet tells the builder to poll a background job with a visible command every ≤ 4 minutes (cycle 1 of the same slice survived a 10-minute scrape that way). The operator practice "on a builder timeout read `build-progress.md` first, keep the partial work, relaunch" recovered the cycle.
+- Proper solution: liveness should include the builder's own child processes — a stall is "no output AND no live descendant doing work", measured on the process group (CPU time advancing or an open network socket), not on stream bytes alone. Short of that, `relay-target --dry-run` and the CLI help should print the effective stall window, and the builder role prompt should carry the polling rule so no packet has to repeat it.
+- When to address: before the next slice whose proofs run longer than the stall window (pl-tools joins, repo-graph corpus proofs).
+- Status: OPEN
