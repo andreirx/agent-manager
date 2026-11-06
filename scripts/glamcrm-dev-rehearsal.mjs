@@ -44,12 +44,19 @@ async function ensureCategory(name) {
   return (CAT[name] = c.id);
 }
 const results = fs.existsSync(resultsJson) ? JSON.parse(fs.readFileSync(resultsJson, 'utf8')) : [];
+// Every outcome (absent file, failed upload, import response) is written to the results file and
+// echoed, so a silent run cannot hide a failure (2026-11-06: an expired token produced 401 on
+// upload and the run printed nothing).
+function record(rec) {
+  results.push(rec); fs.writeFileSync(resultsJson, JSON.stringify(results, null, 2));
+  if (rec.skipped || rec.step) console.log(`${rec.status ?? '-'} ${rec.file.padEnd(40)} ${rec.skipped ? 'SKIPPED absent' : `FAILED at ${rec.step}: ${rec.body}`}`);
+}
 for (const [file, producer, cat, vat] of plan) {
   if (only && !file.includes(only)) continue;
-  const p = path.join(outDir, file); if (!fs.existsSync(p)) { results.push({ file, skipped: 'absent' }); continue; }
+  const p = path.join(outDir, file); if (!fs.existsSync(p)) { record({ file, skipped: 'absent' }); continue; }
   const t0 = Date.now();
   const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': file }, body: fs.readFileSync(p) });
-  const upj = await up.json(); if (!up.ok) { results.push({ file, step: 'upload', status: up.status, body: JSON.stringify(upj).slice(0, 300) }); continue; }
+  const upj = await up.json(); if (!up.ok) { record({ file, step: 'upload', status: up.status, body: JSON.stringify(upj).slice(0, 300) }); continue; }
   const categoryId = await ensureCategory(cat);
   const body = { producerName: producer, categoryId, applicableVatId: vat, fileName: upj.key, introducedAt: new Date().toISOString(), active: true, replacesId: null };
   const cr = await fetch(`${api}/api/v2/pricelists`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -59,7 +66,7 @@ for (const [file, producer, cat, vat] of plan) {
   const rec = { file, producer, category: cat, vat: vat === VAT0 ? '0' : '19', status: cr.status, seconds: Math.round((Date.now() - t0) / 100) / 10,
     pricelistId: j?.id, publicId: j?.publicId, added: ir?.added, replaced: ir?.replaced, removed: ir?.removed, items: items.length,
     importResultNull: j ? ir === null : undefined, error: cr.ok ? undefined : text.slice(0, 300), firstItems: items.slice(0, 2).map((i) => ({ name: i.name, code: i.producerCode, format: i.format, collection: i.collectionName })) };
-  results.push(rec); fs.writeFileSync(resultsJson, JSON.stringify(results, null, 2));
+  record(rec);
   console.log(`${cr.status} ${file.padEnd(40)} added ${rec.added ?? '-'} replaced ${rec.replaced ?? '-'} ${rec.importResultNull ? 'IMPORT RESULT NULL (refused?)' : ''} ${rec.seconds}s`);
 }
 console.log('results →', resultsJson);
