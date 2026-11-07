@@ -84,8 +84,8 @@ const QUOTES = [
   ['C6 Tuscania stone rows', /TUSCANIA/, /TUSCANIA 2026/, /30x30|MIXED SIZE|15X30|La Leccese\/Colosseo/i, 8],
   ['C7 LANO quality rows (sample)', /LANO/, null, /^(Basalt|Boheme|Zen|Granit)/i, 4],
   ['C14 LANO red/green rows: colour is formatting — see sheet', /LANO/, null, /^$/, 0],
-  ['C21 Mural Ultra Design (roll, cut tax *)', /GERFLOR 2023\.xlsx/, /^GERFLOR 2023$/, /Mural Ultra Design$/i, 1],
-  ['C21 Mipolam Affinity (roll, cut tax *)', /GERFLOR 2023\.xlsx/, /^GERFLOR 2023$/, /Mipolam Affinity$/i, 1],
+  ['C21 Mural Ultra Design (roll, cut tax *)', /GERFLOR 2023\.xlsx/, /^GERFLOR 2023$/, /\| Mural Ultra Design \|/i, 1],
+  ['C21 Mipolam Affinity (roll, cut tax *)', /GERFLOR 2023\.xlsx/, /^GERFLOR 2023$/, /\| Mipolam Affinity \|/i, 1],
   ['C21 weld rod (per coil)', /GERFLOR 2023\.xlsx/, /Access/i, /WELD ROD .*CR40$/i, 1],
   ['C22 ALPOD plank row (no box content)', /ALPOD/, null, /^$/, 0],
 ];
