@@ -5,68 +5,84 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Relay Viewer</title>
 <!--
-  VIEW-1..3 (PROTOTYPE): one page, three columns, read-only.
-  Left: how to read the page, the candidate's changed files in affinity order,
-  the active slice, the agent's activity, the bridge pickers.
-  Middle: the selected file's diff hunks, or a whole file opened at a line.
-  Right: pointers — for a changed file its code / tests / docs neighbors; for
-  an identifier the `where` results (definitions first); for two directories
-  the bridge.
-  Every identifier in the middle column is a link (VIEW-3): hover underlines
-  it; left click jumps to its best location (a likely definition, else the
-  top-ranked file) and lists every location on the right; right click opens a
-  menu of all its locations. The header's search box does the same for a typed
-  identifier. The breadcrumb records the hops.
-  Syntax colors: highlight.js from cdnjs colors a whole file (or a whole hunk)
-  at once so multi-line comments and strings keep their state; the theme is
-  inline so the page needs no stylesheet from the network. Without the script
-  the text renders plain and everything still works. No build step, no framework.
+  VIEW-4 (PROTOTYPE): a fixed orientation frame around a workspace of opened files.
+    Focus band (top)    the identifier in focus — its concept key, its likely
+                        definition, all its locations — and the file in focus.
+    Tree (left)         the repository, collapsed; opening a file expands its
+                        ancestors and marks it; changed files carry a dot;
+                        below it the list of open files with the line reached.
+    Workspace (middle)  tabs, one active; a second tab can be pinned beside it
+                        (human ruling 2026-11-07: tabs + one split).
+    Related (right)     for the active tab: code / tests / docs pointers, and the
+                        bridge picker. Never changes because of a focus change.
+    Session (bottom)    the slice trail, the candidate diff in affinity order,
+                        the agent run — each block says what it is and where it
+                        comes from.
+  Every identifier in the code is a link: hover underlines; left click puts it
+  in focus and jumps to its likely definition (a tab is reused if the file is
+  open); right click lists all its locations. Read-only; no build step.
 -->
 <style>
-  :root { --bg:#fff; --fg:#1b1b1b; --muted:#666; --line:#e3e3e3; --add:#e6ffed; --del:#ffeef0; --ctx:transparent; --accent:#0b57d0; --panel:#f7f7f8; --mark:#fff3bf;
+  :root { --bg:#fff; --fg:#1b1b1b; --muted:#666; --line:#e3e3e3; --add:#e6ffed; --del:#ffeef0; --accent:#0b57d0; --panel:#f7f7f8; --mark:#fff3bf;
           --c-comment:#6a737d; --c-kw:#d73a49; --c-str:#032f62; --c-num:#005cc5; --c-title:#6f42c1; --c-type:#22863a; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#121314; --fg:#e8e8e8; --muted:#9a9a9a; --line:#2b2d30; --add:#12361f; --del:#3d1a1f; --accent:#8ab4f8; --panel:#1b1d1f; --mark:#4a3f12;
           --c-comment:#8b949e; --c-kw:#ff7b72; --c-str:#a5d6ff; --c-num:#79c0ff; --c-title:#d2a8ff; --c-type:#7ee787; } }
   :root[data-theme="dark"] { --bg:#121314; --fg:#e8e8e8; --muted:#9a9a9a; --line:#2b2d30; --add:#12361f; --del:#3d1a1f; --accent:#8ab4f8; --panel:#1b1d1f; --mark:#4a3f12;
           --c-comment:#8b949e; --c-kw:#ff7b72; --c-str:#a5d6ff; --c-num:#79c0ff; --c-title:#d2a8ff; --c-type:#7ee787; }
-  html, body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  header { padding:8px 16px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:baseline; flex-wrap:wrap; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  body { display:grid; grid-template-rows:auto auto 1fr auto; height:100vh; }
+  header { padding:6px 16px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:baseline; flex-wrap:wrap; }
   header b { font-size:14px; }
-  header input { font:inherit; padding:2px 6px; border:1px solid var(--line); border-radius:4px; background:var(--panel); color:var(--fg); width:16em; }
-  header .muted, .muted { color:var(--muted); }
-  #crumbs a { color:var(--accent); cursor:pointer; text-decoration:none; }
-  main { display:grid; grid-template-columns: 300px 1fr 380px; gap:0; height:calc(100vh - 42px); }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; height:auto; } section { max-height:60vh; } }
-  section { overflow:auto; border-right:1px solid var(--line); padding:8px 16px; }
-  section:last-child { border-right:0; }
-  h2 { font-size:12px; letter-spacing:.04em; color:var(--muted); margin:12px 0 6px; overflow-wrap:anywhere; }
+  header input { font:inherit; padding:2px 6px; border:1px solid var(--line); border-radius:4px; background:var(--panel); color:var(--fg); width:18em; }
+  .muted { color:var(--muted); }
+  #focus { padding:6px 16px; border-bottom:1px solid var(--line); background:var(--panel); display:flex; gap:14px; align-items:baseline; flex-wrap:wrap; min-height:1.5em; }
+  #focus b { color:var(--accent); }
+  #focus details { display:inline; } #focus summary { display:inline; cursor:pointer; color:var(--muted); }
+  #focus .locs { position:absolute; z-index:5; background:var(--bg); border:1px solid var(--line); border-radius:4px; box-shadow:0 4px 16px rgba(0,0,0,.25); padding:6px 10px; max-height:50vh; max-width:60em; overflow:auto; margin-top:4px; }
+  main { display:grid; grid-template-columns:280px 1fr 360px; min-height:0; }
+  @media (max-width: 1000px) { main { grid-template-columns:1fr; } }
+  main > section { overflow:auto; border-right:1px solid var(--line); padding:8px 12px; min-height:0; }
+  main > section:last-child { border-right:0; }
+  h2 { font-size:12px; letter-spacing:.04em; color:var(--muted); margin:10px 0 6px; overflow-wrap:anywhere; }
   h2 .path { color:var(--fg); letter-spacing:0; }
-  ul { list-style:none; margin:0; padding:0; }
-  li { padding:3px 0; }
-  .file { cursor:pointer; color:var(--accent); overflow-wrap:anywhere; }
-  .file.active { font-weight:600; }
-  .link { color:var(--muted); font-size:12px; margin-left:12px; }
-  pre { margin:0; white-space:pre; tab-size:4; }
-  .hunk { margin:10px 0; border:1px solid var(--line); border-radius:4px; overflow:hidden; }
-  .hunk .hd { background:var(--panel); color:var(--muted); padding:2px 8px; }
-  .ln { display:grid; grid-template-columns: 4em 4em 1fr; }
-  .ln > span:nth-child(-n+2) { color:var(--muted); text-align:right; padding-right:8px; user-select:none; }
-  .ln.add { background:var(--add); } .ln.del { background:var(--del); }
-  .ln.mark { outline:2px solid var(--accent); }
-  code { cursor:text; }
-  .id:hover { text-decoration:underline; cursor:pointer; }
-  .ptr { padding:2px 0; } .ptr .s { color:var(--muted); display:inline-block; width:4em; text-align:right; margin-right:8px; }
+  .note { color:var(--muted); font-size:12px; margin:2px 0 8px; }
+  .file, .occ, a.lnk { cursor:pointer; color:var(--accent); overflow-wrap:anywhere; }
   .tag { font-size:11px; color:var(--muted); margin-left:6px; }
-  .where-file { margin:6px 0 2px; }
-  .occ { color:var(--accent); cursor:pointer; margin-right:8px; }
-  .note { color:var(--muted); font-size:12px; margin:4px 0 10px; }
-  details summary { cursor:pointer; color:var(--muted); }
-  details pre { white-space:pre-wrap; background:var(--panel); padding:8px; border-radius:4px; }
-  #help { font-size:12px; } #help dl { margin:4px 0 0; } #help dt { font-weight:600; margin-top:6px; } #help dd { margin:0 0 0 12px; color:var(--muted); }
+  /* tree */
+  #tree ul { list-style:none; margin:0; padding-left:14px; } #tree > ul { padding-left:0; }
+  #tree li { padding:1px 0; white-space:nowrap; }
+  #tree .dir { cursor:pointer; } #tree .dir::before { content:'▸ '; color:var(--muted); } #tree .dir.open::before { content:'▾ '; }
+  #tree .leaf { cursor:pointer; } #tree .leaf:hover { text-decoration:underline; }
+  #tree .leaf.opened { color:var(--accent); font-weight:600; } #tree .leaf.changed::after { content:' ●'; color:#d9822b; font-size:10px; }
+  #open-list div { padding:1px 0; overflow-wrap:anywhere; } #open-list .cur { font-weight:600; }
+  /* workspace */
+  #workspace { display:flex; flex-direction:column; padding:0; }
+  #tabs { display:flex; flex-wrap:wrap; gap:2px; padding:4px 8px 0; border-bottom:1px solid var(--line); background:var(--panel); }
+  .tab { padding:3px 8px; border:1px solid var(--line); border-bottom:0; border-radius:4px 4px 0 0; cursor:pointer; color:var(--muted); background:var(--bg); max-width:22em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tab.active { color:var(--fg); font-weight:600; } .tab.pinned { border-color:var(--accent); }
+  .tab .x, .tab .pin { margin-left:6px; color:var(--muted); } .tab .x:hover, .tab .pin:hover { color:var(--fg); }
+  #panes { display:flex; flex:1; min-height:0; }
+  .pane { flex:1; overflow:auto; padding:6px 10px; min-width:0; border-right:1px solid var(--line); } .pane:last-child { border-right:0; }
+  .pane h2 { margin-top:2px; }
+  pre { margin:0; white-space:pre; tab-size:4; }
+  .hunk { margin:8px 0; border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+  .hunk .hd { background:var(--panel); color:var(--muted); padding:2px 8px; }
+  .ln { display:grid; grid-template-columns:4em 4em 1fr; }
+  .ln > span:nth-child(-n+2) { color:var(--muted); text-align:right; padding-right:8px; user-select:none; }
+  .ln.add { background:var(--add); } .ln.del { background:var(--del); } .ln.mark { outline:2px solid var(--accent); }
+  code { cursor:text; } .id:hover { text-decoration:underline; cursor:pointer; }
+  .ptr { padding:2px 0; } .ptr .s { color:var(--muted); display:inline-block; width:4em; text-align:right; margin-right:8px; }
+  .link { color:var(--muted); font-size:12px; margin-left:12px; }
+  .where-file { margin:4px 0 2px; } .occ { margin-right:8px; }
+  /* session drawer */
+  #session { border-top:1px solid var(--line); max-height:45vh; overflow:auto; background:var(--bg); }
+  #session > summary { padding:6px 16px; cursor:pointer; background:var(--panel); position:sticky; top:0; }
+  #session .blocks { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:16px; padding:8px 16px 12px; }
+  #session details pre { white-space:pre-wrap; background:var(--panel); padding:8px; border-radius:4px; max-height:30vh; overflow:auto; }
+  #session summary.sub { cursor:pointer; color:var(--muted); }
   #menu { position:fixed; display:none; z-index:10; background:var(--bg); border:1px solid var(--line); border-radius:4px; box-shadow:0 4px 16px rgba(0,0,0,.25); padding:4px 0; max-width:40em; max-height:60vh; overflow:auto; }
-  #menu .mi { padding:3px 10px; cursor:pointer; overflow-wrap:anywhere; } #menu .mi:hover { background:var(--panel); }
-  #menu .mh { padding:3px 10px; color:var(--muted); font-size:12px; }
-  /* highlight.js theme (inline; no stylesheet from the network) */
+  #menu .mi { padding:3px 10px; cursor:pointer; overflow-wrap:anywhere; } #menu .mi:hover { background:var(--panel); } #menu .mh { padding:3px 10px; color:var(--muted); font-size:12px; }
+  /* highlight.js theme (inline) */
   .hljs-comment, .hljs-quote { color:var(--c-comment); font-style:italic; }
   .hljs-keyword, .hljs-selector-tag, .hljs-meta, .hljs-doctag, .hljs-template-tag { color:var(--c-kw); }
   .hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta .hljs-string { color:var(--c-str); }
@@ -82,42 +98,50 @@
   <span id="target" class="muted"></span>
   <span id="identity" class="muted"></span>
   <input id="find" type="search" placeholder="find identifier… (Enter)" spellcheck="false">
-  <span id="crumbs"></span>
+  <span class="muted">left click an identifier = focus + jump to its definition · right click = all locations</span>
 </header>
+<div id="focus"><span class="muted">No identifier in focus — click one in the code or type one above.</span></div>
 <main>
   <section id="left">
-    <details id="help"><summary>How to read this page</summary>
-      <dl>
-        <dt>Middle column</dt><dd>The diff of the selected changed file (green added, red removed, line numbers old | new), or a whole file opened at a line. Every identifier is a link.</dd>
-        <dt>Left click an identifier</dt><dd>Jumps to its best location — a likely definition if the index saw one (a <code>class</code>/<code>function</code>/<code>def</code>… keyword before it), else the top-ranked file — and lists every location on the right (* marks likely definitions).</dd>
-        <dt>Right click an identifier</dt><dd>A menu of all its locations; pick one to open it there.</dd>
-        <dt>Right column</dt><dd>Pointers for the file in the middle: code to open, tests that use the same names, docs that mention them. Score = sum of the rarity of the identifiers the two files share; the names shown are the rarest shared ones. Hints, not facts — a shared rare name is a lexical match, never a resolved reference.</dd>
-        <dt>Changed files, in affinity order</dt><dd>The candidate (working tree vs HEAD). Each file is placed after the earlier file it shares the most rare identifiers with, so related edits sit together.</dd>
-        <dt>Agent activity</dt><dd>What the newest relay run read, edited, ran and searched (live while it runs); below it, the code neighbors of the candidate the run never opened.</dd>
-        <dt>Bridges</dt><dd>Pick two directories: the identifiers both contain, rarest first — the names that cross a module or language boundary. Click a name for its locations.</dd>
-        <dt>Breadcrumb (header)</dt><dd>Your hops; click one to go back to it.</dd>
-      </dl>
-    </details>
-    <h2>Changed files, in affinity order</h2>
-    <div id="order-note" class="note"></div>
-    <ul id="order"></ul>
-    <h2>Slice</h2>
-    <div id="slice" class="muted">loading…</div>
-    <h2>Agent activity <span id="activity-live" class="tag"></span></h2>
-    <div id="activity" class="muted">loading…</div>
-    <h2>Bridges between modules</h2>
-    <div class="note">Which identifiers two directories share — the names that cross a module or language boundary.</div>
-    <div><select id="bridge-a"></select> ↔ <select id="bridge-b"></select> <button id="bridge-go">show</button></div>
+    <h2>Repository <span id="tree-count" class="tag"></span></h2>
+    <div id="tree" class="muted">loading…</div>
+    <h2>Open files</h2>
+    <div id="open-list" class="muted">none</div>
   </section>
-  <section id="middle">
-    <h2 id="middle-title">Diff</h2>
-    <div id="code" class="muted">Select a changed file on the left, or type an identifier in the header. Click any identifier in the code to go where it is defined.</div>
+  <section id="workspace">
+    <div id="tabs"></div>
+    <div id="panes"><div class="pane muted" id="empty">Open a file from the tree, a changed file from the session drawer below, or type an identifier in the header.</div></div>
   </section>
   <section id="right">
-    <h2 id="right-title">Pointers</h2>
-    <div id="pointers" class="muted">Hints, not facts: a shared rare identifier is a lexical match, never a resolved reference.</div>
+    <h2 id="right-title">Related</h2>
+    <div class="note">For the active tab: files that share rare identifiers with it — code to open, tests that use the same names, docs that mention them. Score = Σ rarity of the shared names (names the file defines count twice). Hints, not facts.</div>
+    <div id="pointers" class="muted">nothing open</div>
+    <h2>Bridges between modules</h2>
+    <div class="note">The identifiers two directories both contain, rarest first — the names that cross a module or language boundary. Click a name to put it in focus.</div>
+    <div><select id="bridge-a"></select> ↔ <select id="bridge-b"></select> <button id="bridge-go">show</button></div>
+    <div id="bridge"></div>
   </section>
 </main>
+<details id="session">
+  <summary><span id="session-summary">Session — loading…</span></summary>
+  <div class="blocks">
+    <div>
+      <h2>Slice</h2>
+      <div class="note">The relay's current unit of work: <code>.agent-manager/current.json</code> names it; <code>status.json</code> gives the phase (implement → review-impl → … → done) and who acted last; the newest <code>build-n.md</code> is the builder's report, the newest <code>review-n.json</code> the reviewer's verdict.</div>
+      <div id="slice" class="muted">loading…</div>
+    </div>
+    <div>
+      <h2>Candidate — changed files, in affinity order</h2>
+      <div class="note">The working tree against HEAD (the diff a reviewer sees). Each file is placed after the earlier file it shares the most rare identifiers with, so related edits sit together. Click a file to open its diff as a tab.</div>
+      <div id="order" class="muted">loading…</div>
+    </div>
+    <div>
+      <h2>Agent run <span id="activity-live" class="tag"></span></h2>
+      <div class="note">What the newest provider run did, from <code>.agent-manager/activity/&lt;run&gt;.ndjson</code> (written live by the relay): files it read and edited, commands it ran, searches it made. "Uninspected" = code neighbors of the diff that the run never opened.</div>
+      <div id="activity" class="muted">loading…</div>
+    </div>
+  </div>
+</details>
 <div id="menu"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" crossorigin="anonymous"></script>
 <script>
@@ -125,17 +149,17 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const IDENT = /[A-Za-z_][A-Za-z0-9_]*/g;
-  let diff = null;
-  const crumbs = [];
-  let shown = { path: null, line: null }; // what the middle column shows now
-
   const api = async (path) => { const r = await fetch(path); return r.json(); };
+  const langOf = (path) => { const b = path.slice(path.lastIndexOf('/') + 1); const i = b.lastIndexOf('.'); return i > 0 ? b.slice(i + 1).toLowerCase() : b.toLowerCase(); };
 
-  function langOf(path) { const b = path.slice(path.lastIndexOf('/') + 1); const i = b.lastIndexOf('.'); return i > 0 ? b.slice(i + 1).toLowerCase() : b.toLowerCase(); }
+  // ---------------------------------------------------------------- state
+  let diff = null;                 // /api/diff
+  const tabs = [];                 // { id, kind: 'file'|'diff', path, line }
+  let activeId = null, pinnedId = null, nextId = 1;
+  const texts = new Map();         // path → { lang, text }
+  const changed = new Set();
 
-  // Highlight a whole text at once, then split the result into one HTML string
-  // per line: spans still open at a newline are closed there and reopened on
-  // the next line, so each line stands alone inside its own row element.
+  // ------------------------------------------------------- highlighting
   function highlightLines(text, lang) {
     const plain = () => text.split('\n').map(esc);
     if (!window.hljs || !lang || !hljs.getLanguage(lang)) return plain();
@@ -154,21 +178,13 @@
     lines.push(cur + '</span>'.repeat(open.length));
     return lines.length === text.split('\n').length ? lines : plain();
   }
-
-  // Wrap every identifier (3+ chars) inside the code rows in a span so it can
-  // be hovered, clicked and right-clicked like a link. Runs after highlighting
-  // on the DOM text nodes, so the color spans are kept.
   function linkIdentifiers(root) {
     root.querySelectorAll('code').forEach((codeEl) => {
       const walker = document.createTreeWalker(codeEl, NodeFilter.SHOW_TEXT);
-      const nodes = [];
-      while (walker.nextNode()) nodes.push(walker.currentNode);
+      const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
       for (const n of nodes) {
-        const text = n.nodeValue || '';
-        if (!/[A-Za-z_]/.test(text)) continue;
-        const frag = document.createDocumentFragment();
-        let last = 0; let m; let any = false;
-        IDENT.lastIndex = 0;
+        const text = n.nodeValue || ''; if (!/[A-Za-z_]/.test(text)) continue;
+        const frag = document.createDocumentFragment(); let last = 0, m, any = false; IDENT.lastIndex = 0;
         while ((m = IDENT.exec(text)) !== null) {
           if (m[0].length < 3) continue;
           if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
@@ -181,186 +197,188 @@
       }
     });
   }
+  const fileRows = (text, lang, mark, kind) => `<div class="hunk"><pre>${highlightLines(text, lang).map((h, i) => `<div class="ln${kind ? ' ' + kind : ''}${mark === i + 1 ? ' mark' : ''}" data-l="${i + 1}"><span></span><span>${i + 1}</span><span><code>${h}</code></span></div>`).join('')}</pre></div>`;
+  const hunkHtml = (h, lang) => { const c = highlightLines(h.lines.map((l) => l.text).join('\n'), lang); return `<div class="hunk"><div class="hd">${esc(h.header)}</div><pre>${h.lines.map((l, i) => `<div class="ln ${l.kind}"><span>${l.oldNo ?? ''}</span><span>${l.newNo ?? ''}</span><span><code>${c[i]}</code></span></div>`).join('')}</pre></div>`; };
 
-  function titleWithPath(el, label, path) { el.innerHTML = `${esc(label)} <span class="path">${esc(path)}</span>`; }
-
-  function renderSlice(s) {
-    const el = $('slice');
-    if (!s.current) { el.textContent = 'No active slice (.agent-manager/current.json absent).'; return; }
-    const st = s.status || {};
-    let html = `<div><b>${esc(s.current.sliceId)}</b> · ${esc(st.phase || '?')} · iteration ${esc(String(st.iteration ?? '?'))} · last actor ${esc(st.lastActor || '?')}</div>`;
-    if (s.latestBuild) html += `<details><summary>${esc(s.latestBuild.name)}</summary><pre>${esc(s.latestBuild.text)}</pre></details>`;
-    if (s.latestReview) html += `<details><summary>${esc(s.latestReview.name)}</summary><pre>${esc(s.latestReview.text)}</pre></details>`;
-    el.innerHTML = html;
+  // ------------------------------------------------------------- tree
+  const treeRoot = { dirs: new Map(), files: [] };
+  function buildTree(paths) {
+    for (const p of paths) {
+      const parts = p.split('/'); let node = treeRoot;
+      for (let i = 0; i < parts.length - 1; i += 1) { const d = parts[i]; if (!node.dirs.has(d)) node.dirs.set(d, { dirs: new Map(), files: [] }); node = node.dirs.get(d); }
+      node.files.push(parts[parts.length - 1]);
+    }
+  }
+  function renderDir(node, prefix) {
+    const ul = document.createElement('ul');
+    for (const [name, child] of [...node.dirs.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      const li = document.createElement('li'); const full = prefix ? `${prefix}/${name}` : name;
+      const label = document.createElement('span'); label.className = 'dir'; label.textContent = name; label.dataset.path = full;
+      label.addEventListener('click', () => toggleDir(li, label, child, full));
+      li.appendChild(label); ul.appendChild(li);
+    }
+    for (const name of node.files.slice().sort((a, b) => a.localeCompare(b))) {
+      const li = document.createElement('li'); const full = prefix ? `${prefix}/${name}` : name;
+      const leaf = document.createElement('span'); leaf.className = 'leaf' + (changed.has(full) ? ' changed' : '') + (tabs.some((t) => t.path === full) ? ' opened' : ''); leaf.textContent = name; leaf.dataset.path = full;
+      leaf.addEventListener('click', () => openFile(full));
+      li.appendChild(leaf); ul.appendChild(li);
+    }
+    return ul;
+  }
+  function toggleDir(li, label, child, full, force) {
+    const isOpen = label.classList.contains('open');
+    if (force === true && isOpen) return;
+    if (isOpen && force !== true) { label.classList.remove('open'); li.querySelector('ul')?.remove(); return; }
+    label.classList.add('open'); li.appendChild(renderDir(child, full));
+  }
+  function revealPath(path) {
+    const parts = path.split('/'); let node = treeRoot; let container = $('tree');
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const full = parts.slice(0, i + 1).join('/');
+      const label = container.querySelector(`:scope > ul > li > .dir[data-path="${CSS.escape(full)}"]`);
+      if (!label) return;
+      toggleDir(label.parentElement, label, node.dirs.get(parts[i]), full, true);
+      node = node.dirs.get(parts[i]); container = label.parentElement;
+    }
+    $('tree').querySelectorAll('.leaf.opened').forEach((l) => l.classList.toggle('opened', tabs.some((t) => t.path === l.dataset.path)));
+    const leaf = $('tree').querySelector(`.leaf[data-path="${CSS.escape(path)}"]`);
+    if (leaf) { leaf.classList.add('opened'); leaf.scrollIntoView({ block: 'nearest' }); }
   }
 
-  function renderOrder(d) {
-    $('order-note').textContent = d.order.length ? d.note : 'Working tree equals HEAD — nothing to diff. Open a file through the header search, a bridge, or the activity list.';
-    const ul = $('order');
-    ul.innerHTML = d.order.map((o, i) => {
-      const link = o.linkedBy.length ? `<div class="link">↳ shares ${esc(o.linkedBy.join(', '))} with ${esc(o.linkedTo)}</div>` : (i === 0 ? '' : '<div class="link">↳ no shared rare identifier (alphabetical)</div>');
-      return `<li><span class="file" data-path="${esc(o.path)}">${esc(o.path)}</span> <span class="tag">${o.rareTokens} rare</span>${link}</li>`;
-    }).join('');
-    ul.querySelectorAll('.file').forEach((a) => a.addEventListener('click', () => showChanged(a.dataset.path)));
+  // ------------------------------------------------------------ tabs
+  function findTab(kind, path) { return tabs.find((t) => t.kind === kind && t.path === path); }
+  async function openFile(path, line) {
+    let tab = findTab('file', path);
+    if (!tab) { tab = { id: nextId++, kind: 'file', path, line }; tabs.push(tab); }
+    else if (line) tab.line = line;
+    if (!texts.has(path)) { const f = await api('/api/file?path=' + encodeURIComponent(path)); texts.set(path, f.error ? { lang: '', text: f.error } : { lang: f.lang, text: f.text }); }
+    activate(tab.id);
+  }
+  function openDiff(path) {
+    let tab = findTab('diff', path);
+    if (!tab) { tab = { id: nextId++, kind: 'diff', path }; tabs.push(tab); }
+    activate(tab.id);
+  }
+  function closeTab(id) {
+    const i = tabs.findIndex((t) => t.id === id); if (i < 0) return;
+    tabs.splice(i, 1);
+    if (pinnedId === id) pinnedId = null;
+    if (activeId === id) activeId = tabs[Math.min(i, tabs.length - 1)]?.id ?? null;
+    render();
+  }
+  function activate(id) { activeId = id; render(); const t = tabs.find((x) => x.id === id); if (t) { revealPath(t.path); loadRelated(t); } }
+  function render() {
+    $('tabs').innerHTML = tabs.map((t) => `<span class="tab${t.id === activeId ? ' active' : ''}${t.id === pinnedId ? ' pinned' : ''}" data-id="${t.id}" title="${esc(t.path)}">${t.kind === 'diff' ? 'Δ ' : ''}${esc(t.path.slice(t.path.lastIndexOf('/') + 1))}${t.line ? ':' + t.line : ''}<span class="pin" title="pin beside the active tab">${t.id === pinnedId ? '⊟' : '⊞'}</span><span class="x" title="close">×</span></span>`).join('');
+    $('tabs').querySelectorAll('.tab').forEach((el) => {
+      const id = Number(el.dataset.id);
+      el.addEventListener('click', (ev) => {
+        if (ev.target.classList.contains('x')) closeTab(id);
+        else if (ev.target.classList.contains('pin')) { pinnedId = pinnedId === id ? null : id; render(); }
+        else activate(id);
+      });
+    });
+    const panes = $('panes'); panes.innerHTML = '';
+    const active = tabs.find((t) => t.id === activeId);
+    const pinned = tabs.find((t) => t.id === pinnedId && t.id !== activeId);
+    if (!active) { panes.innerHTML = '<div class="pane muted">Open a file from the tree, a changed file from the session drawer below, or type an identifier in the header.</div>'; }
+    for (const t of [active, pinned].filter(Boolean)) panes.appendChild(renderPane(t));
+    $('open-list').innerHTML = tabs.length ? tabs.map((t) => `<div class="${t.id === activeId ? 'cur' : ''}"><span class="file" data-id="${t.id}">${t.kind === 'diff' ? 'Δ ' : ''}${esc(t.path)}${t.line ? ':' + t.line : ''}</span></div>`).join('') : '<span class="muted">none</span>';
+    $('open-list').querySelectorAll('.file').forEach((el) => el.addEventListener('click', () => activate(Number(el.dataset.id))));
+    $('tree').querySelectorAll('.leaf').forEach((l) => l.classList.toggle('opened', tabs.some((t) => t.path === l.dataset.path)));
+  }
+  function renderPane(t) {
+    const pane = document.createElement('div'); pane.className = 'pane'; pane.dataset.id = t.id;
+    let body;
+    if (t.kind === 'diff') {
+      const f = diff?.files.find((x) => x.path === t.path); const u = diff?.untracked.find((x) => x.path === t.path);
+      body = f ? (f.binary ? '<div class="muted">binary</div>' : f.hunks.map((h) => hunkHtml(h, langOf(t.path))).join('') || '<div class="muted">no text hunks (rename or mode change)</div>')
+        : u ? `<div class="note">untracked file — every line is new</div>${fileRows(u.text, langOf(t.path), undefined, 'add')}` : '<div class="muted">not in the candidate any more</div>';
+    } else {
+      const f = texts.get(t.path); body = f ? fileRows(f.text, f.lang, t.line) : '<div class="muted">loading…</div>';
+    }
+    pane.innerHTML = `<h2>${t.kind === 'diff' ? 'Diff —' : 'File —'} <span class="path">${esc(t.path)}${t.line ? ':' + t.line : ''}</span>${t.id === pinnedId ? '<span class="tag">pinned</span>' : ''}</h2>${body}`;
+    linkIdentifiers(pane);
+    if (t.line) requestAnimationFrame(() => pane.querySelector(`.ln[data-l="${t.line}"]`)?.scrollIntoView({ block: 'center' }));
+    return pane;
   }
 
-  function hunkHtml(h, lang) {
-    const colored = highlightLines(h.lines.map((l) => l.text).join('\n'), lang);
-    const rows = h.lines.map((l, i) => `<div class="ln ${l.kind}"><span>${l.oldNo ?? ''}</span><span>${l.newNo ?? ''}</span><span><code>${colored[i]}</code></span></div>`).join('');
-    return `<div class="hunk"><div class="hd">${esc(h.header)}</div><pre>${rows}</pre></div>`;
-  }
-
-  function fileRows(text, lang, mark, kind) {
-    const colored = highlightLines(text, lang);
-    return `<div class="hunk"><pre>${colored.map((html, i) => `<div class="ln${kind ? ' ' + kind : ''}${mark === i + 1 ? ' mark' : ''}" id="L${i + 1}"><span></span><span>${i + 1}</span><span><code>${html}</code></span></div>`).join('')}</pre></div>`;
-  }
-
-  function showChanged(path) {
-    document.querySelectorAll('#order .file').forEach((a) => a.classList.toggle('active', a.dataset.path === path));
-    const f = diff.files.find((x) => x.path === path);
-    const u = diff.untracked.find((x) => x.path === path);
-    titleWithPath($('middle-title'), 'Diff —', path);
-    const code = $('code');
-    const lang = langOf(path);
-    if (f) {
-      code.innerHTML = f.binary ? '<div class="muted">binary</div>' : f.hunks.map((h) => hunkHtml(h, lang)).join('') || '<div class="muted">no text hunks (rename or mode change)</div>';
-    } else if (u) {
-      code.innerHTML = `<div class="note">untracked file — every line is new</div>${fileRows(u.text, lang, undefined, 'add')}`;
-    } else { code.textContent = 'not in the candidate'; }
-    linkIdentifiers(code);
-    shown = { path, line: null };
-    setCrumbs([{ label: path }]);
-    renderPointers(path, diff.pointers[path]);
-  }
-
-  function pointerRows(title, rows, empty) {
-    const body = rows.length ? rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span>${r.crossLanguage ? '<span class="tag">cross-language</span>' : ''}<div class="link">${esc(r.shared.join(', '))}${r.sharedCount > r.shared.length ? ' +' + (r.sharedCount - r.shared.length) : ''}</div></div>`).join('') : `<div class="muted">${empty}</div>`;
-    return `<h2>${title}</h2>${body}`;
-  }
-
-  function renderPointers(path, p) {
-    titleWithPath($('right-title'), 'Pointers for', path);
+  // ---------------------------------------------------------- related
+  const pointerRows = (title, rows, empty) => `<h2>${title}</h2>` + (rows.length ? rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span>${r.crossLanguage ? '<span class="tag">cross-language</span>' : ''}<div class="link">${esc(r.shared.join(', '))}${r.sharedCount > r.shared.length ? ' +' + (r.sharedCount - r.shared.length) : ''}</div></div>`).join('') : `<div class="muted">${empty}</div>`);
+  function showPointers(path, p) {
+    $('right-title').innerHTML = `Related to <span class="path">${esc(path)}</span>`;
     const el = $('pointers');
-    if (!p) { el.textContent = 'no pointers'; return; }
-    el.innerHTML = pointerRows('Code to open', p.code, 'no code file shares a rare identifier with the changed lines')
-      + pointerRows('Tests that exercise these identifiers', p.tests, 'none found')
-      + pointerRows('Documentation that mentions them (potential doc updates)', p.docs, 'none found');
-    el.querySelectorAll('.file').forEach((a) => a.addEventListener('click', () => openFile(a.dataset.path, undefined, path)));
+    el.innerHTML = p ? pointerRows('Code to open', p.code, 'no code file shares a rare identifier') + pointerRows('Tests that exercise these identifiers', p.tests, 'none found') + pointerRows('Documentation that mentions them', p.docs, 'none found') : '<span class="muted">no pointers</span>';
+    el.querySelectorAll('.file').forEach((a) => a.addEventListener('click', () => openFile(a.dataset.path)));
+  }
+  async function loadRelated(t) {
+    if (t.kind === 'diff' && diff) { showPointers(t.path, diff.pointers[t.path]); return; }
+    const n = await api('/api/neighbors?path=' + encodeURIComponent(t.path));
+    if (activeId === t.id) showPointers(t.path, n.result.status === 'found' ? n.result.rows : null);
   }
 
-  async function openFile(path, line, from) {
-    const f = await api('/api/file?path=' + encodeURIComponent(path));
-    titleWithPath($('middle-title'), 'File —', path + (line ? ':' + line : ''));
-    const code = $('code');
-    if (f.error) { code.textContent = f.error; return; }
-    code.innerHTML = fileRows(f.text, f.lang, line);
-    linkIdentifiers(code);
-    shown = { path, line: line ?? null };
-    if (from !== undefined) crumbs.push({ label: path + (line ? ':' + line : ''), path, line });
-    else setCrumbs([{ label: path + (line ? ':' + line : ''), path, line }]);
-    drawCrumbs();
-    if (line) document.getElementById('L' + line)?.scrollIntoView({ block: 'center' });
-    const n = await api('/api/neighbors?path=' + encodeURIComponent(path));
-    if (n.result.status === 'found' && $('right-title').textContent.startsWith('Pointers')) renderPointers(path, n.result.rows);
-  }
-
-  function setCrumbs(list) { crumbs.length = 0; list.forEach((c) => crumbs.push(c)); drawCrumbs(); }
-  function drawCrumbs() {
-    $('crumbs').innerHTML = crumbs.map((c, i) => `<a data-i="${i}">${esc(c.label)}</a>`).join(' › ');
-    $('crumbs').querySelectorAll('a').forEach((a) => a.addEventListener('click', () => {
-      const c = crumbs[Number(a.dataset.i)];
-      crumbs.splice(Number(a.dataset.i) + 1);
-      if (c.path) openFile(c.path, c.line); else showChanged(c.label);
-    }));
-  }
-
-  // The best location of an identifier: the first file with a likely
-  // definition (where() sorts code files with definitions first), at its first
-  // definition occurrence; else the top-ranked file at its first occurrence.
-  function bestOccurrence(r) {
-    const f = r.files.find((x) => x.definitions > 0) || r.files[0];
-    if (!f) return null;
-    const o = f.occurrences.find((x) => x.likelyDefinition) || f.occurrences[0];
-    return o ? { path: f.path, line: o.line } : null;
-  }
-
-  async function showWhere(token) {
-    const w = await api('/api/where?token=' + encodeURIComponent(token));
-    titleWithPath($('right-title'), 'where', token);
-    const el = $('pointers');
-    const r = w.result;
-    if (r.status === 'absent') { el.textContent = `${token}: not in the index.`; return r; }
-    if (r.status === 'common') { el.textContent = `${token}: common (${r.df} files) — dropped as noise; use grep.`; return r; }
-    el.innerHTML = `<div class="note">${r.files.length} files, rarity ${r.idf.toFixed(1)} — likely definitions marked *</div>` + r.files.map((f) => {
+  // ------------------------------------------------------------ focus
+  const bestOccurrence = (r) => { const f = r.files.find((x) => x.definitions > 0) || r.files[0]; if (!f) return null; const o = f.occurrences.find((x) => x.likelyDefinition) || f.occurrences[0]; return o ? { path: f.path, line: o.line } : null; };
+  function showFocus(token, r) {
+    const el = $('focus');
+    if (r.status === 'absent') { el.innerHTML = `<b>${esc(token)}</b> <span class="muted">not in the index.</span>`; return; }
+    if (r.status === 'common') { el.innerHTML = `<b>${esc(token)}</b> <span class="muted">common (${r.df} files) — dropped as noise; use grep.</span>`; return; }
+    const best = bestOccurrence(r);
+    const locs = r.files.map((f) => {
       const tag = f.definitions > 0 ? `definition×${f.definitions}` : f.pathClass === 'code' ? 'use' : f.pathClass;
       const occ = f.occurrences.slice(0, 12).map((o) => `<span class="occ" data-path="${esc(f.path)}" data-line="${o.line}">${o.line}:${o.col}${o.likelyDefinition ? '*' : ''}</span>`).join('');
-      const more = f.occurrences.length > 12 ? `<span class="muted">+${f.occurrences.length - 12}</span>` : '';
-      return `<div class="where-file"><span class="file" data-path="${esc(f.path)}">${esc(f.path)}</span><span class="tag">${tag}</span><div>${occ}${more}</div></div>`;
+      const spelled = f.surfaces.length === 1 && f.surfaces[0] === token ? '' : `<span class="tag">as ${esc(f.surfaces.join(', '))}</span>`;
+      return `<div class="where-file"><span class="file" data-path="${esc(f.path)}">${esc(f.path)}</span><span class="tag">${tag}</span>${spelled}<div>${occ}${f.occurrences.length > 12 ? `<span class="muted">+${f.occurrences.length - 12}</span>` : ''}</div></div>`;
     }).join('');
-    el.querySelectorAll('.occ').forEach((o) => o.addEventListener('click', () => openFile(o.dataset.path, Number(o.dataset.line), 'where')));
-    el.querySelectorAll('.file').forEach((a) => a.addEventListener('click', () => openFile(a.dataset.path, undefined, 'where')));
-    return r;
+    el.innerHTML = `<span class="muted">focus</span> <b>${esc(token)}</b>${r.key !== token ? `<span class="tag">key ${esc(r.key)}</span>` : ''} <span class="muted">${r.files.length} files · rarity ${r.idf.toFixed(1)}</span>`
+      + (best ? ` <span class="muted">${r.files[0].definitions > 0 ? 'likely definition' : 'top location'}</span> <span class="file" data-path="${esc(best.path)}" data-line="${best.line}">${esc(best.path)}:${best.line}</span>` : '')
+      + ` <details><summary>all locations ▾</summary><div class="locs">${locs}</div></details>`;
+    el.querySelectorAll('.file, .occ').forEach((x) => x.addEventListener('click', () => openFile(x.dataset.path, x.dataset.line ? Number(x.dataset.line) : undefined)));
   }
-
-  // Left click / Enter: list every location on the right and jump to the best
-  // one — unless the middle column already shows that very line.
-  async function goTo(token) {
-    const r = await showWhere(token);
-    if (!r || r.status !== 'found') return;
-    const best = bestOccurrence(r);
-    if (!best || (best.path === shown.path && best.line === shown.line)) return;
-    await openFile(best.path, best.line, 'where');
-  }
-
-  // Right click: a menu of all locations (first likely definition per file, else first occurrence).
-  const menu = $('menu');
-  function closeMenu() { menu.style.display = 'none'; menu.innerHTML = ''; }
-  async function openMenu(token, x, y) {
+  async function focusToken(token, jump) {
     const w = await api('/api/where?token=' + encodeURIComponent(token));
-    const r = w.result;
-    if (r.status !== 'found') {
-      menu.innerHTML = `<div class="mh">${esc(token)}: ${r.status === 'common' ? `common (${r.df} files) — dropped as noise` : 'not in the index'}</div>`;
-    } else {
-      const items = r.files.slice(0, 20).map((f) => {
-        const o = f.occurrences.find((q) => q.likelyDefinition) || f.occurrences[0];
-        const tag = f.definitions > 0 ? 'definition' : f.pathClass === 'code' ? 'use' : f.pathClass;
-        return `<div class="mi" data-path="${esc(f.path)}" data-line="${o.line}">${esc(f.path)}:${o.line}<span class="tag">${tag}${f.occurrences.length > 1 ? ` ×${f.occurrences.length}` : ''}</span></div>`;
-      }).join('');
-      const more = r.files.length > 20 ? `<div class="mh">+${r.files.length - 20} more on the right</div>` : '';
-      menu.innerHTML = `<div class="mh">${esc(token)} · ${r.files.length} files · rarity ${r.idf.toFixed(1)}</div>${items}${more}`;
-      menu.querySelectorAll('.mi').forEach((mi) => mi.addEventListener('click', async () => {
-        closeMenu();
-        await showWhere(token);
-        await openFile(mi.dataset.path, Number(mi.dataset.line), 'where');
-      }));
+    showFocus(token, w.result);
+    if (!jump || w.result.status !== 'found') return;
+    const best = bestOccurrence(w.result);
+    if (best) openFile(best.path, best.line);
+  }
+
+  // ------------------------------------------------------- context menu
+  const menu = $('menu');
+  const closeMenu = () => { menu.style.display = 'none'; menu.innerHTML = ''; };
+  async function openMenu(token, x, y) {
+    const r = (await api('/api/where?token=' + encodeURIComponent(token))).result;
+    if (r.status !== 'found') menu.innerHTML = `<div class="mh">${esc(token)}: ${r.status === 'common' ? `common (${r.df} files) — dropped as noise` : 'not in the index'}</div>`;
+    else {
+      menu.innerHTML = `<div class="mh">${esc(token)} · ${r.files.length} files · rarity ${r.idf.toFixed(1)}</div>` + r.files.slice(0, 20).map((f) => { const o = f.occurrences.find((q) => q.likelyDefinition) || f.occurrences[0]; return `<div class="mi" data-path="${esc(f.path)}" data-line="${o.line}">${esc(f.path)}:${o.line}<span class="tag">${f.definitions > 0 ? 'definition' : f.pathClass === 'code' ? 'use' : f.pathClass}${f.occurrences.length > 1 ? ` ×${f.occurrences.length}` : ''}</span></div>`; }).join('') + (r.files.length > 20 ? `<div class="mh">+${r.files.length - 20} more in the focus band</div>` : '');
+      menu.querySelectorAll('.mi').forEach((mi) => mi.addEventListener('click', () => { closeMenu(); showFocus(token, r); openFile(mi.dataset.path, Number(mi.dataset.line)); }));
     }
     menu.style.display = 'block';
-    const w2 = menu.offsetWidth, h2 = menu.offsetHeight;
-    menu.style.left = Math.min(x, window.innerWidth - w2 - 8) + 'px';
-    menu.style.top = Math.min(y, window.innerHeight - h2 - 8) + 'px';
+    menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 8) + 'px';
+    menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 8) + 'px';
   }
   document.addEventListener('click', (ev) => { if (!menu.contains(ev.target)) closeMenu(); });
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeMenu(); });
-  $('middle').addEventListener('scroll', closeMenu);
+  $('panes').addEventListener('scroll', closeMenu, true);
+  $('panes').addEventListener('click', (ev) => { const id = ev.target.closest('.id'); if (id) focusToken(id.textContent, true); });
+  $('panes').addEventListener('contextmenu', (ev) => { const id = ev.target.closest('.id'); if (!id) return; ev.preventDefault(); openMenu(id.textContent, ev.clientX, ev.clientY).catch(closeMenu); });
+  $('find').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { const t = $('find').value.trim(); if (t.length >= 3) focusToken(t, true); } });
 
-  $('middle').addEventListener('click', (ev) => {
-    const id = ev.target.closest('.id');
-    if (id) goTo(id.textContent);
-  });
-  $('middle').addEventListener('contextmenu', (ev) => {
-    const id = ev.target.closest('.id');
-    if (!id) return;
-    ev.preventDefault();
-    openMenu(id.textContent, ev.clientX, ev.clientY).catch(() => closeMenu());
-  });
-  $('find').addEventListener('keydown', (ev) => {
-    if (ev.key !== 'Enter') return;
-    const token = $('find').value.trim();
-    if (token.length >= 3) goTo(token);
-  });
-
-  // ACTIVITY-1: the newest run's events (polled every 5 s while it is live) and
-  // the uninspected neighbors — candidate code neighbors the agent never opened.
+  // --------------------------------------------------------- session
+  function renderSlice(s) {
+    const el = $('slice');
+    if (!s.current) { el.textContent = 'No active slice (.agent-manager/current.json absent).'; $('session-summary').textContent = 'Session — no active slice'; return; }
+    const st = s.status || {};
+    el.innerHTML = `<div><b>${esc(s.current.sliceId)}</b> · phase ${esc(st.phase || '?')} · iteration ${esc(String(st.iteration ?? '?'))} · last actor ${esc(st.lastActor || '?')}</div>`
+      + (s.latestBuild ? `<details><summary class="sub">${esc(s.latestBuild.name)} — the builder's report</summary><pre>${esc(s.latestBuild.text)}</pre></details>` : '<div class="muted">no build report yet</div>')
+      + (s.latestReview ? `<details><summary class="sub">${esc(s.latestReview.name)} — the reviewer's verdict</summary><pre>${esc(s.latestReview.text)}</pre></details>` : '<div class="muted">no review yet</div>');
+    $('session-summary').textContent = `Session — slice ${s.current.sliceId} · ${st.phase || '?'} · iteration ${st.iteration ?? '?'}`;
+  }
+  function renderOrder(d) {
+    const el = $('order');
+    if (!d.order.length) { el.textContent = 'Working tree equals HEAD — nothing to diff.'; return; }
+    el.innerHTML = d.order.map((o, i) => `<div><span class="file" data-path="${esc(o.path)}">${esc(o.path)}</span><span class="tag">${o.rareTokens} rare</span>${o.linkedBy.length ? `<div class="link">↳ shares ${esc(o.linkedBy.join(', '))} with ${esc(o.linkedTo)}</div>` : i === 0 ? '' : '<div class="link">↳ no shared rare identifier (alphabetical)</div>'}</div>`).join('');
+    el.querySelectorAll('.file').forEach((a) => a.addEventListener('click', () => openDiff(a.dataset.path)));
+  }
   let activityRun = null;
   async function loadActivity() {
     const a = await api('/api/activity' + (activityRun ? '?run=' + encodeURIComponent(activityRun) : ''));
@@ -369,23 +387,19 @@
     $('activity-live').textContent = a.run.live ? '● live' : '';
     const sel = a.runs.length > 1 ? `<select id="run-select">${a.runs.map((r) => `<option value="${esc(r.runId)}"${r.runId === a.run.runId ? ' selected' : ''}>${esc(r.runId)}</option>`).join('')}</select>` : `<b>${esc(a.run.runId)}</b>`;
     const counts = Object.entries(a.counts).filter(([k]) => !k.startsWith('run-')).map(([k, v]) => `${v} ${k}`).join(' · ') || 'no tool events';
-    const recent = a.events.filter((e) => !e.kind.startsWith('run-')).slice(-25).reverse();
-    const rows = recent.map((e) => {
-      const what = e.path ? `<span class="file" data-path="${esc(e.path)}">${esc(e.path)}</span>` : e.command ? `<span class="muted">${esc(e.command.slice(0, 60))}${e.command.length > 60 ? '…' : ''}</span>` : e.pattern ? `<span class="muted">/${esc(e.pattern)}/</span>` : `<span class="muted">${esc(e.tool || '')}</span>`;
+    const rows = a.events.filter((e) => !e.kind.startsWith('run-')).slice(-25).reverse().map((e) => {
+      const what = e.path ? `<span class="file" data-path="${esc(e.path)}">${esc(e.path)}</span>` : e.command ? `<span class="muted">${esc(e.command.slice(0, 70))}${e.command.length > 70 ? '…' : ''}</span>` : e.pattern ? `<span class="muted">/${esc(e.pattern)}/</span>` : `<span class="muted">${esc(e.tool || '')}</span>`;
       return `<div><span class="tag">${esc(e.kind)}</span> ${what}${e.detail ? `<span class="tag">${esc(e.detail)}</span>` : ''}</div>`;
     }).join('');
-    let un = '';
-    if (a.uninspected) {
-      un = `<h2>Uninspected neighbors</h2><div class="note">${esc(a.uninspected.basis)}</div>` + (a.uninspected.rows.length ? a.uninspected.rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span><div class="link">${esc(r.shared.join(', '))}</div></div>`).join('') : '<div class="muted">none — every code neighbor was opened</div>');
-    }
+    const un = a.uninspected ? `<h2>Uninspected neighbors</h2><div class="note">${esc(a.uninspected.basis)}</div>` + (a.uninspected.rows.length ? a.uninspected.rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span><div class="link">${esc(r.shared.join(', '))}</div></div>`).join('') : '<div class="muted">none — every code neighbor was opened</div>') : '';
     el.innerHTML = `<div>${sel} <span class="tag">${esc(a.run.role || '')} · ${esc(a.run.provider)} · ${esc(a.run.status || '')}</span></div><div class="note">${counts}${a.readsObservable ? '' : ' · reads not observable for this provider'}</div>${rows}${un}`;
-    el.querySelectorAll('.file').forEach((x) => x.addEventListener('click', () => openFile(x.dataset.path, undefined, 'activity')));
+    el.querySelectorAll('.file').forEach((x) => x.addEventListener('click', () => openFile(x.dataset.path)));
     const select = el.querySelector('#run-select');
     if (select) select.addEventListener('change', () => { activityRun = select.value; loadActivity(); });
     if (a.run.live) setTimeout(loadActivity, 5000);
   }
 
-  // VIEW-2: the bridge view — pick two directories, see the identifiers they share.
+  // ---------------------------------------------------------- bridges
   async function loadDirs() {
     const d = await api('/api/dirs');
     const opts = d.dirs.map((x) => `<option value="${esc(x.path)}">${esc(x.path)} (${x.files}; ${esc(x.langs.slice(0, 4).join(','))})</option>`).join('');
@@ -395,26 +409,29 @@
   async function showBridge() {
     const a = $('bridge-a').value, b = $('bridge-b').value;
     const r = await api('/api/bridge?a=' + encodeURIComponent(a) + '&b=' + encodeURIComponent(b));
-    titleWithPath($('right-title'), 'bridge', `${a} ↔ ${b}`);
-    const el = $('pointers');
+    const el = $('bridge');
     if (r.error) { el.textContent = r.error; return; }
-    const rows = r.result.rows;
-    el.innerHTML = `<div class="note">${esc(r.note)}</div>` + (rows.length ? rows.map((x) => `<div class="ptr"><span class="s">${x.weight.toFixed(1)}</span><span class="occ" data-token="${esc(x.token)}">${esc(x.token)}</span><span class="tag">${x.filesA.length}↔${x.filesB.length}</span><div class="link"><span class="file" data-path="${esc(x.filesA[0])}">${esc(x.filesA[0])}</span> ↔ <span class="file" data-path="${esc(x.filesB[0])}">${esc(x.filesB[0])}</span></div></div>`).join('') : '<div class="muted">no shared rare identifier</div>');
-    el.querySelectorAll('.occ').forEach((t) => t.addEventListener('click', () => goTo(t.dataset.token)));
-    el.querySelectorAll('.file').forEach((f) => f.addEventListener('click', () => openFile(f.dataset.path, undefined, 'bridge')));
+    el.innerHTML = r.result.rows.length ? r.result.rows.map((x) => `<div class="ptr"><span class="s">${x.weight.toFixed(1)}</span><span class="occ" data-token="${esc(x.token)}">${esc(x.token)}</span><span class="tag">${x.filesA.length}↔${x.filesB.length}</span><div class="link"><span class="file" data-path="${esc(x.filesA[0])}">${esc(x.filesA[0])}</span> ↔ <span class="file" data-path="${esc(x.filesB[0])}">${esc(x.filesB[0])}</span></div></div>`).join('') : '<div class="muted">no shared rare identifier</div>';
+    el.querySelectorAll('.occ').forEach((t) => t.addEventListener('click', () => focusToken(t.dataset.token, false)));
+    el.querySelectorAll('.file').forEach((f) => f.addEventListener('click', () => openFile(f.dataset.path)));
   }
-  $('bridge-go').addEventListener('click', () => showBridge().catch((e) => { $('pointers').textContent = 'bridge failed: ' + e.message; }));
+  $('bridge-go').addEventListener('click', () => showBridge().catch((e) => { $('bridge').textContent = 'bridge failed: ' + e.message; }));
 
+  // ------------------------------------------------------------- load
   async function load() {
     loadDirs().catch(() => {});
     loadActivity().catch((e) => { $('activity').textContent = 'activity failed: ' + e.message; });
-    const [s, d] = await Promise.all([api('/api/slice'), api('/api/diff')]);
-    diff = d;
+    const [s, d, files] = await Promise.all([api('/api/slice'), api('/api/diff'), api('/api/files')]);
+    diff = d; d.changedPaths.forEach((p) => changed.add(p));
     $('target').textContent = s.target;
     $('identity').textContent = `${d.identity} · index ${(d.indexAgeMs / 1000).toFixed(0)} s old · ${d.stats.files} files`;
-    renderSlice(s);
-    renderOrder(d);
-    if (d.order.length) showChanged(d.order[0].path);
+    // A viewer started before VIEW-4 has no /api/files: fall back to the changed paths and say so.
+    const paths = files.files ?? d.changedPaths;
+    buildTree(paths);
+    $('tree-count').textContent = files.files ? `${paths.length} files` : 'changed files only — restart `npm run view` for the whole tree';
+    $('tree').classList.remove('muted'); $('tree').innerHTML = ''; $('tree').appendChild(renderDir(treeRoot, ''));
+    renderSlice(s); renderOrder(d);
+    if (d.order.length) { $('session').open = true; openDiff(d.order[0].path); }
   }
   load().catch((e) => { $('slice').textContent = 'failed: ' + e.message; });
 })();

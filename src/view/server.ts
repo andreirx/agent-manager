@@ -17,6 +17,7 @@
  *   GET /api/file?path=    one file's text (inside the target only; .git refused)
  *   GET /api/where?token=  postings grouped by file, likely definitions first
  *   GET /api/dirs          directories (two levels) with file counts and languages
+ *   GET /api/files         every indexed path (the repo tree, VIEW-4)
  *   GET /api/bridge?a=&b=  identifiers two directories share, heaviest first (VIEW-2)
  *   GET /api/neighbors?path=  the three pointer lists for any file
  *
@@ -241,6 +242,12 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
       case '/api/dirs': {
         const { built, identity } = await index();
         json(res, 200, { identity, dirs: directories(built.map, 2) });
+        return;
+      }
+      case '/api/files': {
+        // VIEW-4: every indexed path, for the repo tree (the index already holds them; no extra I/O).
+        const { built, identity } = await index();
+        json(res, 200, { identity, files: built.map.files.map((f) => f.path) });
         return;
       }
       case '/api/bridge': {

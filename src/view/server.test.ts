@@ -131,6 +131,11 @@ describe('view server', () => {
     expect((await api('/api/bridge?a=src&b=src')).status).toBe(400);
   });
 
+  it('lists every indexed path for the repo tree (VIEW-4)', async () => {
+    const f = (await api('/api/files')).body as { files: string[] };
+    expect(f.files).toEqual(['.gitignore', 'docs/ledger.md', 'src/new.ts', 'src/orders.ts', 'src/schema.sql', 'src/users.ts']);
+  });
+
   it('answers where and neighbors, reads files only inside the target, and refuses writes', async () => {
     const w = await api('/api/where?token=order_ledger');
     const wb = w.body as { result: { status: string; files: { path: string }[] } };

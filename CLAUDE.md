@@ -135,6 +135,8 @@ and the uninspected neighbors. Unverified Codex/Antigravity shapes: TD-038.
 VIEW-2 (PROTOTYPE — `docs/slices/view-2.md`): the bridge view (identifiers two directories share) on the same page.
 VIEW-3 (PROTOTYPE — `docs/slices/view-3.md`): identifiers are links (left click → likely definition + `where`; right click → menu), inline
 syntax theme, legend. Builder-side injection ruled out (human 2026-11-07): builders learn the command from the target CLAUDE.md.
+VIEW-4 (PROTOTYPE — `docs/slices/view-4.md`): fixed orientation frame (focus band, repo tree, related, session drawer) around a
+tabs + one-split workspace (human ruling 2026-11-07). `GET /api/files` added.
 
 ## Current Phase
 
