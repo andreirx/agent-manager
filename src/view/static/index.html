@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay Viewer</title>
+<!--
+  VIEW-1 (PROTOTYPE): one page, three columns, read-only.
+  Left: the active slice and the candidate's changed files in affinity order.
+  Middle: the selected file's diff hunks, or a whole file opened at a line.
+  Right: pointers — for a changed file its code / tests / docs neighbors; for a
+  clicked identifier the `where` results (definitions first). Clicking a
+  pointer opens that file in the middle at the line; the breadcrumb records the hops.
+  Syntax colors come from highlight.js on cdnjs when reachable; without it the
+  text renders plain and everything still works. No build step, no framework.
+-->
+<style>
+  :root { --bg:#fff; --fg:#1b1b1b; --muted:#666; --line:#e3e3e3; --add:#e6ffed; --del:#ffeef0; --ctx:transparent; --accent:#0b57d0; --panel:#f7f7f8; --mark:#fff3bf; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#121314; --fg:#e8e8e8; --muted:#9a9a9a; --line:#2b2d30; --add:#12361f; --del:#3d1a1f; --accent:#8ab4f8; --panel:#1b1d1f; --mark:#4a3f12; } }
+  :root[data-theme="dark"] { --bg:#121314; --fg:#e8e8e8; --muted:#9a9a9a; --line:#2b2d30; --add:#12361f; --del:#3d1a1f; --accent:#8ab4f8; --panel:#1b1d1f; --mark:#4a3f12; }
+  html, body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  header { padding:8px 16px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:baseline; flex-wrap:wrap; }
+  header b { font-size:14px; }
+  header .muted, .muted { color:var(--muted); }
+  #crumbs a { color:var(--accent); cursor:pointer; text-decoration:none; }
+  main { display:grid; grid-template-columns: 300px 1fr 360px; gap:0; height:calc(100vh - 42px); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; height:auto; } section { max-height:60vh; } }
+  section { overflow:auto; border-right:1px solid var(--line); padding:8px 16px; }
+  section:last-child { border-right:0; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:12px 0 6px; }
+  ul { list-style:none; margin:0; padding:0; }
+  li { padding:3px 0; }
+  .file { cursor:pointer; color:var(--accent); }
+  .file.active { font-weight:600; }
+  .link { color:var(--muted); font-size:12px; margin-left:12px; }
+  pre { margin:0; white-space:pre; tab-size:4; }
+  .hunk { margin:10px 0; border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+  .hunk .hd { background:var(--panel); color:var(--muted); padding:2px 8px; }
+  .ln { display:grid; grid-template-columns: 4em 4em 1fr; }
+  .ln > span:nth-child(-n+2) { color:var(--muted); text-align:right; padding-right:8px; user-select:none; }
+  .ln.add { background:var(--add); } .ln.del { background:var(--del); }
+  .ln.mark { outline:2px solid var(--accent); }
+  code { cursor:text; }
+  .ptr { padding:2px 0; } .ptr .s { color:var(--muted); display:inline-block; width:4em; text-align:right; margin-right:8px; }
+  .tag { font-size:11px; color:var(--muted); margin-left:6px; }
+  .where-file { margin:6px 0 2px; }
+  .occ { color:var(--accent); cursor:pointer; margin-right:8px; }
+  .note { color:var(--muted); font-size:12px; margin:4px 0 10px; }
+  details summary { cursor:pointer; color:var(--muted); }
+  details pre { white-space:pre-wrap; background:var(--panel); padding:8px; border-radius:4px; }
+</style>
+</head>
+<body>
+<header>
+  <b>Relay Viewer</b>
+  <span id="target" class="muted"></span>
+  <span id="identity" class="muted"></span>
+  <span id="crumbs"></span>
+</header>
+<main>
+  <section id="left">
+    <h2>Slice</h2>
+    <div id="slice" class="muted">loading…</div>
+    <h2>Changed files, in affinity order</h2>
+    <div id="order-note" class="note"></div>
+    <ul id="order"></ul>
+  </section>
+  <section id="middle">
+    <h2 id="middle-title">Diff</h2>
+    <div id="code" class="muted">Select a changed file on the left. Click any identifier in the code to see where else it occurs.</div>
+  </section>
+  <section id="right">
+    <h2 id="right-title">Pointers</h2>
+    <div id="pointers" class="muted">Hints, not facts: a shared rare identifier is a lexical match, never a resolved reference.</div>
+  </section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" crossorigin="anonymous"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const IDENT = /[A-Za-z_][A-Za-z0-9_]*/g;
+  let diff = null;
+  const crumbs = [];
+
+  const api = async (path) => { const r = await fetch(path); return r.json(); };
+
+  function langOf(path) { const b = path.slice(path.lastIndexOf('/') + 1); const i = b.lastIndexOf('.'); return i > 0 ? b.slice(i + 1).toLowerCase() : b.toLowerCase(); }
+
+  function colorize(codeEl, lang) {
+    if (!window.hljs) return;
+    try { if (lang && hljs.getLanguage(lang)) codeEl.classList.add('language-' + lang); hljs.highlightElement(codeEl); } catch (e) { /* plain text is fine */ }
+  }
+
+  function renderSlice(s) {
+    const el = $('slice');
+    if (!s.current) { el.textContent = 'No active slice (.agent-manager/current.json absent).'; return; }
+    const st = s.status || {};
+    let html = `<div><b>${esc(s.current.sliceId)}</b> · ${esc(st.phase || '?')} · iteration ${esc(String(st.iteration ?? '?'))} · last actor ${esc(st.lastActor || '?')}</div>`;
+    if (s.latestBuild) html += `<details><summary>${esc(s.latestBuild.name)}</summary><pre>${esc(s.latestBuild.text)}</pre></details>`;
+    if (s.latestReview) html += `<details><summary>${esc(s.latestReview.name)}</summary><pre>${esc(s.latestReview.text)}</pre></details>`;
+    el.innerHTML = html;
+  }
+
+  function renderOrder(d) {
+    $('order-note').textContent = d.note;
+    const ul = $('order');
+    ul.innerHTML = d.order.map((o, i) => {
+      const link = o.linkedBy.length ? `<div class="link">↳ shares ${esc(o.linkedBy.join(', '))} with ${esc(o.linkedTo)}</div>` : (i === 0 ? '' : '<div class="link">↳ no shared rare identifier (alphabetical)</div>');
+      return `<li><span class="file" data-path="${esc(o.path)}">${esc(o.path)}</span> <span class="tag">${o.rareTokens} rare</span>${link}</li>`;
+    }).join('');
+    ul.querySelectorAll('.file').forEach((a) => a.addEventListener('click', () => showChanged(a.dataset.path)));
+  }
+
+  function hunkHtml(h) {
+    const rows = h.lines.map((l) => `<div class="ln ${l.kind}"><span>${l.oldNo ?? ''}</span><span>${l.newNo ?? ''}</span><span><code>${esc(l.text)}</code></span></div>`).join('');
+    return `<div class="hunk"><div class="hd">${esc(h.header)}</div><pre>${rows}</pre></div>`;
+  }
+
+  function showChanged(path) {
+    document.querySelectorAll('#order .file').forEach((a) => a.classList.toggle('active', a.dataset.path === path));
+    const f = diff.files.find((x) => x.path === path);
+    const u = diff.untracked.find((x) => x.path === path);
+    $('middle-title').textContent = `Diff — ${path}`;
+    const code = $('code');
+    if (f) {
+      code.innerHTML = f.binary ? '<div class="muted">binary</div>' : f.hunks.map(hunkHtml).join('') || '<div class="muted">no text hunks (rename or mode change)</div>';
+    } else if (u) {
+      code.innerHTML = `<div class="note">untracked file — every line is new</div><div class="hunk"><pre>${u.text.split('\n').map((t, i) => `<div class="ln add"><span></span><span>${i + 1}</span><span><code>${esc(t)}</code></span></div>`).join('')}</pre></div>`;
+    } else { code.textContent = 'not in the candidate'; }
+    code.querySelectorAll('code').forEach((c) => colorize(c, langOf(path)));
+    setCrumbs([{ label: path }]);
+    renderPointers(path, diff.pointers[path]);
+  }
+
+  function pointerRows(title, rows, empty) {
+    const body = rows.length ? rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span>${r.crossLanguage ? '<span class="tag">cross-language</span>' : ''}<div class="link">${esc(r.shared.join(', '))}${r.sharedCount > r.shared.length ? ' +' + (r.sharedCount - r.shared.length) : ''}</div></div>`).join('') : `<div class="muted">${empty}</div>`;
+    return `<h2>${title}</h2>${body}`;
+  }
+
+  function renderPointers(path, p) {
+    $('right-title').textContent = `Pointers for ${path}`;
+    const el = $('pointers');
+    if (!p) { el.textContent = 'no pointers'; return; }
+    el.innerHTML = pointerRows('Code to open', p.code, 'no code file shares a rare identifier with the changed lines')
+      + pointerRows('Tests that exercise these identifiers', p.tests, 'none found')
+      + pointerRows('Documentation that mentions them (potential doc updates)', p.docs, 'none found');
+    el.querySelectorAll('.file').forEach((a) => a.addEventListener('click', () => openFile(a.dataset.path, undefined, path)));
+  }
+
+  async function openFile(path, line, from) {
+    const f = await api('/api/file?path=' + encodeURIComponent(path));
+    $('middle-title').textContent = `File — ${path}${line ? ':' + line : ''}`;
+    const code = $('code');
+    if (f.error) { code.textContent = f.error; return; }
+    code.innerHTML = `<div class="hunk"><pre>${f.text.split('\n').map((t, i) => `<div class="ln${line === i + 1 ? ' mark' : ''}" id="L${i + 1}"><span></span><span>${i + 1}</span><span><code>${esc(t)}</code></span></div>`).join('')}</pre></div>`;
+    code.querySelectorAll('code').forEach((c) => colorize(c, f.lang));
+    if (from !== undefined) crumbs.push({ label: path + (line ? ':' + line : ''), path, line });
+    else setCrumbs([{ label: path + (line ? ':' + line : ''), path, line }]);
+    drawCrumbs();
+    if (line) document.getElementById('L' + line)?.scrollIntoView({ block: 'center' });
+    const n = await api('/api/neighbors?path=' + encodeURIComponent(path));
+    if (n.result.status === 'found') renderPointers(path, n.result.rows);
+  }
+
+  function setCrumbs(list) { crumbs.length = 0; list.forEach((c) => crumbs.push(c)); drawCrumbs(); }
+  function drawCrumbs() {
+    $('crumbs').innerHTML = crumbs.map((c, i) => `<a data-i="${i}">${esc(c.label)}</a>`).join(' › ');
+    $('crumbs').querySelectorAll('a').forEach((a) => a.addEventListener('click', () => {
+      const c = crumbs[Number(a.dataset.i)];
+      crumbs.splice(Number(a.dataset.i) + 1);
+      if (c.path) openFile(c.path, c.line); else showChanged(c.label);
+    }));
+  }
+
+  async function showWhere(token) {
+    const w = await api('/api/where?token=' + encodeURIComponent(token));
+    $('right-title').textContent = `where ${token}`;
+    const el = $('pointers');
+    const r = w.result;
+    if (r.status === 'absent') { el.textContent = `${token}: not in the index.`; return; }
+    if (r.status === 'common') { el.textContent = `${token}: common (${r.df} files) — dropped as noise; use grep.`; return; }
+    el.innerHTML = `<div class="note">${r.files.length} files, rarity ${r.idf.toFixed(1)} — likely definitions marked *</div>` + r.files.map((f) => {
+      const tag = f.definitions > 0 ? `definition×${f.definitions}` : f.pathClass === 'code' ? 'use' : f.pathClass;
+      const occ = f.occurrences.slice(0, 12).map((o) => `<span class="occ" data-path="${esc(f.path)}" data-line="${o.line}">${o.line}:${o.col}${o.likelyDefinition ? '*' : ''}</span>`).join('');
+      const more = f.occurrences.length > 12 ? `<span class="muted">+${f.occurrences.length - 12}</span>` : '';
+      return `<div class="where-file"><span class="file" data-path="${esc(f.path)}">${esc(f.path)}</span><span class="tag">${tag}</span><div>${occ}${more}</div></div>`;
+    }).join('');
+    el.querySelectorAll('.occ').forEach((o) => o.addEventListener('click', () => openFile(o.dataset.path, Number(o.dataset.line), 'where')));
+    el.querySelectorAll('.file').forEach((a) => a.addEventListener('click', () => openFile(a.dataset.path, undefined, 'where')));
+  }
+
+  // Click an identifier anywhere in the middle column: find the word under the caret.
+  $('middle').addEventListener('click', (ev) => {
+    const codeEl = ev.target.closest('code');
+    if (!codeEl) return;
+    let node, offset;
+    if (document.caretPositionFromPoint) { const p = document.caretPositionFromPoint(ev.clientX, ev.clientY); if (!p) return; node = p.offsetNode; offset = p.offset; }
+    else if (document.caretRangeFromPoint) { const r = document.caretRangeFromPoint(ev.clientX, ev.clientY); if (!r) return; node = r.startContainer; offset = r.startOffset; }
+    else return;
+    if (!node || node.nodeType !== Node.TEXT_NODE) return;
+    const text = node.textContent || '';
+    let m;
+    IDENT.lastIndex = 0;
+    while ((m = IDENT.exec(text)) !== null) {
+      if (m.index <= offset && offset <= m.index + m[0].length) { if (m[0].length >= 3) showWhere(m[0]); return; }
+    }
+  });
+
+  async function load() {
+    const [s, d] = await Promise.all([api('/api/slice'), api('/api/diff')]);
+    diff = d;
+    $('target').textContent = s.target;
+    $('identity').textContent = `${d.identity} · index ${(d.indexAgeMs / 1000).toFixed(0)} s old · ${d.stats.files} files`;
+    renderSlice(s);
+    renderOrder(d);
+    if (d.order.length) showChanged(d.order[0].path);
+  }
+  load().catch((e) => { $('slice').textContent = 'failed: ' + e.message; });
+})();
+</script>
+</body>
+</html>

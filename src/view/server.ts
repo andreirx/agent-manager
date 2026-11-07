@@ -1,0 +1,217 @@
+/**
+ * The viewer (VIEW-1): a read-only local HTTP server over a target's slice
+ * trail, its git candidate and the lexmap index.
+ *
+ * What it serves and from where:
+ *   GET /                  the single page (src/view/static/index.html)
+ *   GET /api/slice         .agent-manager/current.json, the active slice's
+ *                          status.json, its newest build-<n>.md and review-<n>.json
+ *   GET /api/diff          the candidate: `git diff -U3 HEAD` per file with hunks
+ *                          and line numbers, untracked text files, the files
+ *                          ordered by shared identifiers, and per file the three
+ *                          pointer lists (code / tests / docs) of unchanged neighbors
+ *   GET /api/file?path=    one file's text (inside the target only; .git refused)
+ *   GET /api/where?token=  postings grouped by file, likely definitions first
+ *   GET /api/neighbors?path=  the three pointer lists for any file
+ *
+ * It writes nothing — there is no handler that writes — and it holds no state
+ * but an in-memory index that is rebuilt when older than `maxIndexAgeMs`
+ * (the page shows the index's age and identity). Binds 127.0.0.1 only.
+ * Orthogonal to the relay: the relay neither knows nor needs this process.
+ *
+ * @module view
+ * @maturity PROTOTYPE
+ */
+
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { readFile, readdir } from 'node:fs/promises';
+import { dirname, join, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { AddressInfo } from 'node:net';
+import {
+  languageOf,
+  neighbors,
+  neighborsOfTokens,
+  where,
+  type Lexmap,
+  type NeighborRows,
+} from '../core/lexmap/lexmap.js';
+import { changedFileTokens, orderByAffinity, parseDiffHunks, type FileDiff, type OrderedFile } from '../core/lexmap/diff-view.js';
+import { buildWorkingTreeLexmap, readCandidateChanges, treeIdentity, type BuiltLexmap } from '../adapters/lexmap/git-working-tree.js';
+
+export interface ViewServerOptions {
+  readonly targetDir: string;
+  /** 0 = any free port (tests). */
+  readonly port: number;
+  /** Rebuild the index when older than this. Starting value 5 s. */
+  readonly maxIndexAgeMs?: number;
+}
+
+export interface ViewServer {
+  readonly port: number;
+  close(): Promise<void>;
+}
+
+interface IndexState {
+  readonly built: BuiltLexmap;
+  readonly identity: string;
+  readonly builtAt: number;
+}
+
+const STATIC_DIR = join(dirname(fileURLToPath(import.meta.url)), 'static');
+
+function json(res: ServerResponse, status: number, body: unknown): void {
+  const bytes = Buffer.from(JSON.stringify(body), 'utf-8');
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': bytes.length, 'cache-control': 'no-store' });
+  res.end(bytes);
+}
+
+/** Target-relative path → absolute, refusing escapes and the .git directory. */
+function containedPath(targetDir: string, relative: string): string | undefined {
+  const root = resolve(targetDir);
+  const abs = resolve(root, relative);
+  if (abs !== root && !abs.startsWith(root + sep)) return undefined;
+  const rel = abs.slice(root.length + 1);
+  if (rel === '.git' || rel.startsWith('.git' + sep)) return undefined;
+  return abs;
+}
+
+async function readOptional(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, 'utf-8');
+  } catch {
+    return undefined;
+  }
+}
+
+function newestNumbered(names: readonly string[], prefix: string, suffix: string): string | undefined {
+  let best: { n: number; name: string } | undefined;
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith(suffix)) continue;
+    const n = Number(name.slice(prefix.length, name.length - suffix.length));
+    if (Number.isInteger(n) && (!best || n > best.n)) best = { n, name };
+  }
+  return best?.name;
+}
+
+export async function startViewServer(options: ViewServerOptions): Promise<ViewServer> {
+  const targetDir = resolve(options.targetDir);
+  const maxAge = options.maxIndexAgeMs ?? 5000;
+  let state: IndexState | undefined;
+  let building: Promise<IndexState> | undefined;
+
+  const index = async (): Promise<IndexState> => {
+    if (state && Date.now() - state.builtAt < maxAge) return state;
+    if (!building) {
+      building = (async () => {
+        const built = await buildWorkingTreeLexmap(targetDir);
+        const identity = await treeIdentity(targetDir, built.read);
+        state = { built, identity, builtAt: Date.now() };
+        return state;
+      })().finally(() => { building = undefined; });
+    }
+    return building;
+  };
+
+  const sliceInfo = async (): Promise<unknown> => {
+    const amDir = join(targetDir, '.agent-manager');
+    const currentRaw = await readOptional(join(amDir, 'current.json'));
+    const current = currentRaw ? (JSON.parse(currentRaw) as { sliceId?: string }) : null;
+    const sliceId = current?.sliceId;
+    if (!sliceId) return { target: targetDir, current, status: null, latestBuild: null, latestReview: null, files: [] };
+    const sliceDir = join(amDir, 'slices', sliceId);
+    let names: string[] = [];
+    try { names = (await readdir(sliceDir)).sort(); } catch { names = []; }
+    const statusRaw = await readOptional(join(sliceDir, 'status.json'));
+    const buildName = newestNumbered(names, 'build-', '.md');
+    const reviewName = newestNumbered(names, 'review-', '.json');
+    return {
+      target: targetDir,
+      current,
+      status: statusRaw ? JSON.parse(statusRaw) : null,
+      files: names,
+      latestBuild: buildName ? { name: buildName, text: await readOptional(join(sliceDir, buildName)) ?? '' } : null,
+      latestReview: reviewName ? { name: reviewName, text: await readOptional(join(sliceDir, reviewName)) ?? '' } : null,
+    };
+  };
+
+  const diffInfo = async (): Promise<unknown> => {
+    const { built, identity, builtAt } = await index();
+    const map: Lexmap = built.map;
+    const changes = await readCandidateChanges(targetDir, 'HEAD', undefined, 3);
+    const files: FileDiff[] = parseDiffHunks(changes.diffText);
+    const untracked = changes.untracked.map((u) => ({ path: u.path, text: u.text }));
+    const tokens = changedFileTokens(map, files, untracked);
+    const order: OrderedFile[] = orderByAffinity(map, tokens);
+    const allChanged = new Set<string>([...changes.changedPaths, ...files.map((f) => f.path), ...untracked.map((u) => u.path)]);
+    const pointers: Record<string, NeighborRows> = {};
+    for (const t of tokens) pointers[t.path] = neighborsOfTokens(map, t.tokens, allChanged, [languageOf(t.path)]);
+    return {
+      identity,
+      indexAgeMs: Date.now() - builtAt,
+      stats: map.stats,
+      changedPaths: [...allChanged].sort(),
+      files,
+      untracked,
+      order,
+      pointers,
+      note: 'Files are ordered by the rare identifiers their changed lines share with files placed before them (greedy); a row with no link is an alphabetical fallback. Pointers are lexical hints, never resolved references.',
+    };
+  };
+
+  const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    if (req.method !== 'GET') { json(res, 405, { error: 'read-only viewer: GET only' }); return; }
+    switch (url.pathname) {
+      case '/': {
+        const page = await readFile(join(STATIC_DIR, 'index.html'));
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(page);
+        return;
+      }
+      case '/api/slice': json(res, 200, await sliceInfo()); return;
+      case '/api/diff': json(res, 200, await diffInfo()); return;
+      case '/api/file': {
+        const rel = url.searchParams.get('path') ?? '';
+        const abs = containedPath(targetDir, rel);
+        if (!abs) { json(res, 400, { error: 'path must stay inside the target and outside .git' }); return; }
+        const text = await readOptional(abs);
+        if (text === undefined) { json(res, 404, { error: 'not readable', path: rel }); return; }
+        json(res, 200, { path: rel, lang: languageOf(rel), text });
+        return;
+      }
+      case '/api/where': {
+        const token = url.searchParams.get('token') ?? '';
+        if (token === '') { json(res, 400, { error: 'token required' }); return; }
+        const { built, identity } = await index();
+        json(res, 200, { identity, result: where(built.map, token) });
+        return;
+      }
+      case '/api/neighbors': {
+        const path = url.searchParams.get('path') ?? '';
+        const { built, identity } = await index();
+        json(res, 200, { identity, result: neighbors(built.map, path) });
+        return;
+      }
+      default:
+        json(res, 404, { error: 'unknown route' });
+    }
+  };
+
+  const server: Server = createServer((req, res) => {
+    handle(req, res).catch((cause: unknown) => {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (!res.headersSent) json(res, 500, { error: message });
+      else res.end();
+    });
+  });
+  await new Promise<void>((accept, reject) => {
+    server.once('error', reject);
+    server.listen(options.port, '127.0.0.1', () => accept());
+  });
+  const port = (server.address() as AddressInfo).port;
+  return {
+    port,
+    close: () => new Promise<void>((accept, reject) => server.close((err) => (err ? reject(err) : accept()))),
+  };
+}

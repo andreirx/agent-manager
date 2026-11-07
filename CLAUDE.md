@@ -124,6 +124,10 @@ See `docs/contracts/target-owned-relay.md`.
 `hunk-neighbors` of the candidate into every reviewer context as "Lexical neighbors of the candidate (hints, not facts)";
 ranking tuning is TD-037.
 
+`npm run view -- <target> [--port <n>]`: the read-only browser viewer (VIEW-1, PROTOTYPE — `docs/slices/view-1.md`):
+slice trail, candidate diff in affinity order with hunks, click-an-identifier `where`, code/tests/docs pointers.
+Orthogonal to the relay (no relay file touched; writes nothing).
+
 ## Current Phase
 
 Simplified relay system (READY).

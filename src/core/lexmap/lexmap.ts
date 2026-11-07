@@ -350,6 +350,19 @@ function rankNeighbors(map: Lexmap, tokensIn: Iterable<string>, exclude: Readonl
   };
 }
 
+/**
+ * Neighbors of an arbitrary identifier set (VIEW-1: one changed file's tokens
+ * against the whole candidate's exclusion set). `excludePaths` are never rows.
+ */
+export function neighborsOfTokens(map: Lexmap, tokens: Iterable<string>, excludePaths: Iterable<string>, queryLangs: Iterable<string>): NeighborRows {
+  const exclude = new Set<number>();
+  for (const p of excludePaths) {
+    const f = map.files.findIndex((e) => e.path === p);
+    if (f >= 0) exclude.add(f);
+  }
+  return rankNeighbors(map, tokens, exclude, new Set(queryLangs));
+}
+
 export type NeighborsResult =
   | { readonly status: 'found'; readonly path: string; readonly tokens: number; readonly rows: NeighborRows }
   | { readonly status: 'absent'; readonly path: string };

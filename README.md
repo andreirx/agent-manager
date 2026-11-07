@@ -426,6 +426,14 @@ npm run lexmap -- ../repo-graph hunk-neighbors              # unchanged files li
 
 Design, measurements and limits: `docs/slices/lexmap-1.md`; ranking tuning: TD-037.
 
+### The viewer (`view`, PROTOTYPE)
+
+```bash
+npm run view -- ../repo-graph            # http://127.0.0.1:7788/  read-only, Ctrl-C to stop
+```
+
+One page, three columns: the active slice and the candidate's changed files ordered by the identifiers they share; the selected file's diff hunks (or a whole file at a line); and pointers — code / tests / docs that share rare identifiers with the changed lines, or, after clicking an identifier, every place it occurs with likely definitions first. It reads the slice trail, git and the in-memory index; it never writes and the relay does not know it exists. `docs/slices/view-1.md`.
+
 ## Validation commands
 
 Run TypeScript validation from the Agent Manager root:

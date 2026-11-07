@@ -13,6 +13,7 @@
     "relay": "tsx src/cli/relay.ts",
     "relay-target": "tsx src/cli/relay-target.ts",
     "lexmap": "tsx src/cli/lexmap.ts",
+    "view": "tsx src/cli/view.ts",
     "human": "tsx src/cli/human-input.ts"
   },
   "keywords": [

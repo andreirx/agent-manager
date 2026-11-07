@@ -121,8 +121,9 @@ export async function readWorkingTreeFiles(targetDir: string, params: WorkingTre
  * `core.quotePath=false` so non-ASCII paths print raw), every changed tracked
  * path, and the untracked text files (whole content counts as added).
  */
-export async function readCandidateChanges(targetDir: string, basis = 'HEAD', params: WorkingTreeReadParams = DEFAULT_WORKING_TREE_PARAMS): Promise<CandidateChanges> {
-  const diffText = await git(targetDir, ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '-U0', basis, '--']);
+export async function readCandidateChanges(targetDir: string, basis = 'HEAD', params: WorkingTreeReadParams = DEFAULT_WORKING_TREE_PARAMS, contextLines = 0): Promise<CandidateChanges> {
+  // `contextLines` 0 for tokenizing (the default; only changed lines matter), 3 for display (VIEW-1).
+  const diffText = await git(targetDir, ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', `-U${contextLines}`, basis, '--']);
   const changedPaths = await gitPaths(targetDir, ['diff', '--name-only', '-z', basis, '--']);
   const untrackedPaths = await gitPaths(targetDir, ['ls-files', '-z', '--others', '--exclude-standard']);
   const untracked = await readTextFiles(targetDir, untrackedPaths, params);
