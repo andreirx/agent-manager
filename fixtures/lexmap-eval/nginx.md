@@ -34,9 +34,9 @@ rare: ngx_output_chain_add_copy, ngx_output_chain_align_file_buf, ngx_output_cha
 - [x] src/os/unix/ngx_files.c — shares: ngx_thread_read, ngx_directio_off, ngx_directio_on, thread_task, thread_handler, NGX_HAVE_FILE_AIO ⇒ implements read_file/thread_read/directio the copy loop calls
 - [x] src/http/modules/ngx_http_fastcgi_module.c — shares: ngx_chain_writer, filter_ctx, output_filter, ngx_buf_special, ngx_chain_update_chains, last_in_chain ⇒ calls ngx_chain_writer defined here
 - [ ] src/http/ngx_http_write_filter_module.c — shares: ngx_posted_next_events, ngx_debug_point, send_chain, ngx_buf_size, ngx_buf_special, NGX_CHAIN_ERROR ⇒ later filter; not called from here
-- [ ] src/core/ngx_buf.c — shares: ngx_buf_in_memory, ngx_buf_size, ngx_buf_special, ngx_chain_update_chains, ngx_free_chain, ngx_calloc_buf ⇒
-- [ ] src/os/unix/ngx_writev_chain.c — shares: ngx_buf_in_memory, ngx_debug_point, ngx_buf_special, NGX_CHAIN_ERROR, file_last, recycled ⇒
-- [ ] src/event/ngx_event_pipe.h — shares: thread_ctx, thread_task, output_filter, thread_handler, NGX_THREADS, incoming ⇒
+- [x] src/core/ngx_buf.c — shares: ngx_buf_in_memory, ngx_buf_size, ngx_buf_special, ngx_chain_update_chains, ngx_free_chain, ngx_calloc_buf ⇒ implements ngx_chain_update_chains the busy/free recycling relies on
+- [ ] src/os/unix/ngx_writev_chain.c — shares: ngx_buf_in_memory, ngx_debug_point, ngx_buf_special, NGX_CHAIN_ERROR, file_last, recycled ⇒ a send_chain backend; not called from here
+- [ ] src/event/ngx_event_pipe.h — shares: thread_ctx, thread_task, output_filter, thread_handler, NGX_THREADS, incoming ⇒ parallel pipe ctx with same field names; no interaction
 
 ## query: src/core/ngx_rbtree.c
 rare: ngx_rbtree_left_rotate, ngx_rbtree_right_rotate, ngx_rbt_black, ngx_rbt_copy_color, ngx_rbt_is_black, ngx_rbt_is_red, ngx_rbtree_insert_timer_value, ngx_rbtree_insert_value
@@ -124,7 +124,7 @@ rare: ngx_http_map, ngx_http_map_block, ngx_http_map_cmp_dns_wildcards, ngx_http
 - [ ] src/http/modules/ngx_http_referer_module.c — shares: NGX_HASH_WILDCARD_KEY, dns_wc_head, dns_wc_tail, ngx_dns_strcmp, ngx_hash_wildcard_init, NGX_REGEX_CASELESS ⇒ independent wildcard-hash user
 - [x] src/core/ngx_hash.h — shares: NGX_HASH_LARGE, NGX_HASH_WILDCARD_KEY, dns_wc_head, dns_wc_tail, ngx_hash_wildcard_init, ngx_hash_wildcard_t ⇒ defines keys arrays, wildcard hash, init structs
 - [ ] src/http/modules/ngx_http_ssi_filter_module.c — shares: ngx_hash_keys_array_init, ngx_hash_add_key, NGX_HTTP_VAR_NOCACHEABLE, NGX_MAX_CONF_ERRSTR, ngx_regex_compile_t, bucket_size ⇒ vocabulary only
-- [ ] src/http/modules/ngx_http_split_clients_module.c — shares: handler_conf, ngx_http_variable_null_value, NGX_HTTP_VAR_CHANGEABLE, NGX_HTTP_MAIN_CONF_OFFSET, NGX_CONF_BLOCK, ngx_conf_parse ⇒
+- [ ] src/http/modules/ngx_http_split_clients_module.c — shares: handler_conf, ngx_http_variable_null_value, NGX_HTTP_VAR_CHANGEABLE, NGX_HTTP_MAIN_CONF_OFFSET, NGX_CONF_BLOCK, ngx_conf_parse ⇒ similar variable module; no interaction
 
 ## query: src/mail/ngx_mail_smtp_module.c
 rare: auth_enabled, ngx_mail_smtp_auth_methods, ngx_mail_smtp_auth_methods_names, ngx_mail_smtp_commands, ngx_mail_smtp_create_srv_conf, ngx_mail_smtp_merge_srv_conf, ngx_mail_smtp_module_ctx, ngx_mail_smtp_protocol
@@ -154,8 +154,8 @@ rare: auth_enabled, ngx_mail_smtp_auth_methods, ngx_mail_smtp_auth_methods_names
 - [x] src/mail/ngx_mail_imap_module.c — shares: NGX_MAIL_AUTH_LOGIN_ENABLED, NGX_MAIL_AUTH_PLAIN_ENABLED, ngx_mail_protocol_t, ngx_mail_capabilities, client_buffer_size, NGX_MAIL_AUTH_CRAM_MD5_ENABLED ⇒ sibling protocol module to mirror
 - [x] src/mail/ngx_mail.h — shares: NGX_MAIL_AUTH_NONE_ENABLED, ngx_mail_conf_get_module_srv_conf, NGX_MAIL_AUTH_LOGIN_ENABLED, NGX_MAIL_AUTH_PLAIN_ENABLED, NGX_MAIL_SMTP_PROTOCOL, ngx_mail_protocol_t ⇒ protocol struct, auth flags and conf macros
 - [ ] src/http/ngx_http_core_module.c — shares: NGX_CONF_BITMASK_SET, ngx_conf_merge_bitmask_value, ngx_conf_merge_msec_value, ngx_conf_set_bitmask_slot, ngx_conf_bitmask_t, ngx_conf_merge_size_value ⇒ conf merge macros only
-- [ ] src/mail/ngx_mail_imap_module.h — shares: client_buffer_size, auth_methods, starttls_capability, starttls_only_capability, ngx_mail, capabilities ⇒
-- [ ] src/mail/ngx_mail_pop3_module.h — shares: auth_methods, starttls_capability, starttls_only_capability, ngx_mail, capabilities, capability ⇒
+- [ ] src/mail/ngx_mail_imap_module.h — shares: client_buffer_size, auth_methods, starttls_capability, starttls_only_capability, ngx_mail, capabilities ⇒ sibling conf header only; the mirror target is its .c
+- [ ] src/mail/ngx_mail_pop3_module.h — shares: auth_methods, starttls_capability, starttls_only_capability, ngx_mail, capabilities, capability ⇒ sibling conf header only; the mirror target is its .c
 
 ## query: src/os/win32/ngx_process_cycle.c
 rare: CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT, CTRL_C_EVENT, CTRL_LOGOFF_EVENT, CreateMutex, FreeConsole, OpenMutex, ReleaseMutex
@@ -185,5 +185,5 @@ rare: CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT, CTRL_C_EVENT, CTRL_LOGOFF_EVENT, Creat
 - [x] src/os/unix/ngx_process_cycle.c — shares: ngx_cache_manager_process_handler, ngx_master_process_exit, ngx_start_worker_processes, ngx_worker_process_cycle, ngx_worker_process_exit, exit_master ⇒ the unix counterpart of this file
 - [x] src/os/win32/ngx_process.c — shares: EVENT_MODIFY_STATE, GetExitCodeProcess, OpenEvent, ResetEvent, TerminateProcess, WAIT_OBJECT_0 ⇒ spawn_process, events, signal_process used here
 - [x] src/os/win32/ngx_process.h — shares: MAXIMUM_WAIT_OBJECTS, NGX_PROCESS_SYNC_NAME, ngx_cache_manager_mutex_, quit_event, reopen_event, NGX_PROCESS_JUST_RESPAWN ⇒ process table, event names, sync name length
-- [ ] src/os/win32/ngx_thread.c — shares: ngx_create_thread, ngx_thread_value_t, __stdcall, ngx_tid_t, tid ⇒
-- [ ] src/os/win32/ngx_thread.h — shares: ngx_create_thread, ngx_thread_value_t, __stdcall, ngx_tid_t, tid, HANDLE ⇒
+- [x] src/os/win32/ngx_thread.c — shares: ngx_create_thread, ngx_thread_value_t, __stdcall, ngx_tid_t, tid ⇒ implements ngx_create_thread the worker/cache threads use
+- [x] src/os/win32/ngx_thread.h — shares: ngx_create_thread, ngx_thread_value_t, __stdcall, ngx_tid_t, tid, HANDLE ⇒ declares ngx_create_thread and the thread types used here

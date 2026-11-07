@@ -122,7 +122,8 @@ See `docs/contracts/target-owned-relay.md`.
 `npm run lexmap -- <target> stats | where <identifier> | neighbors <path> | bridge <dirA> <dirB> | hunk-neighbors [--basis <rev>]`
 (`--json`): the in-memory identifier index (LEXMAP-1, PROTOTYPE — `docs/slices/lexmap-1.md`). The relay feeds
 `hunk-neighbors` of the candidate into every reviewer context as "Lexical neighbors of the candidate (hints, not facts)";
-ranking tuning is TD-037.
+ranking tuning is TD-037. `npm run lexmap-eval -- sample <repo> | extend <sheet>… | score <sheet>… [--moves]`: the ranking oracle
+(LEXMAP-EVAL-1 — `docs/slices/lexmap-eval-1.md`; labelled sheets under `fixtures/lexmap-eval/`).
 
 `npm run view -- <target> [--port <n>]`: the read-only browser viewer (VIEW-1, PROTOTYPE — `docs/slices/view-1.md`):
 slice trail, candidate diff in affinity order with hunks, click-an-identifier `where`, code/tests/docs pointers.

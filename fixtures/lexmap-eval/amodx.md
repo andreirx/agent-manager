@@ -34,9 +34,9 @@ rare: commentsRes, deleteComment, pageMap, setPages, setComments, updateStatus, 
 - [ ] renderer/src/components/PopupManager.tsx — shares: forEach, useEffect, onClick, useState, prev ⇒ renderer popup client; React hooks vocabulary only
 - [ ] admin/src/pages/DigitalProducts.tsx — shares: colSpan, onValueChange, SelectContent, SelectTrigger, SelectValue, TableBody ⇒ sibling list page; table vocabulary only
 - [ ] admin/src/pages/Reports.tsx — shares: loadData, colSpan, TableBody, TableCell, TableHead, TableHeader ⇒ own loadData; reporting page, no coupling
-- [ ] admin/src/pages/Forms.tsx — shares: colSpan, TableBody, TableCell, TableHead, TableHeader, TableRow ⇒
-- [ ] admin/src/pages/Customers.tsx — shares: colSpan, TableBody, TableCell, TableHead, TableHeader, TableRow ⇒
-- [ ] admin/src/components/ui/table.tsx — shares: TableBody, TableCell, TableHead, TableHeader, TableRow, Table ⇒
+- [ ] admin/src/pages/Forms.tsx — shares: colSpan, TableBody, TableCell, TableHead, TableHeader, TableRow ⇒ sibling list page; table vocabulary only
+- [ ] admin/src/pages/Customers.tsx — shares: colSpan, TableBody, TableCell, TableHead, TableHeader, TableRow ⇒ sibling list page; table vocabulary only
+- [x] admin/src/components/ui/table.tsx — shares: TableBody, TableCell, TableHead, TableHeader, TableRow, Table ⇒ defines the Table primitives Comments imports (UI kit)
 
 ## query: backend/src/context/update.ts
 rare: UPDATE_CONTEXT, updatedFields, AmodxHandler, updatedBy, UpdateExpression, UpdateCommand, ExpressionAttributeNames, _handler
@@ -66,16 +66,16 @@ rare: UPDATE_CONTEXT, updatedFields, AmodxHandler, updatedBy, UpdateExpression, 
 - [x] backend/src/context/create.ts — shares: AmodxHandler, _handler, updatedAt, toISOString, publishAudit, sourceIp ⇒ writes the CONTEXT# item update.ts rewrites; fields must match
 - [ ] backend/src/products/update.ts — shares: updatedFields, _handler, pathParameters, updatedAt, toISOString, publishAudit ⇒ products entity; parallel handler, no interaction
 - [ ] backend/src/categories/delete.ts — shares: _handler, pathParameters, publishAudit, sourceIp, ExpressionAttributeValues, GetCommand ⇒ categories entity; Dynamo vocabulary only
-- [ ] backend/src/context/get.ts — shares: AmodxHandler, pathParameters, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext, ENFORCE ⇒
-- [ ] backend/src/context/delete.ts — shares: AmodxHandler, _handler, pathParameters, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext, ENFORCE ⇒
-- [ ] backend/src/content/get.ts — shares: AmodxHandler, pathParameters, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext, ENFORCE ⇒
-- [ ] backend/src/comments/moderate.ts — shares: UpdateExpression, UpdateCommand, ExpressionAttributeNames, _handler, ExpressionAttributeValues, APIGatewayProxyHandlerV2WithLambdaAuthorizer ⇒
-- [ ] backend/src/coupons/delete.ts — shares: _handler, pathParameters, publishAudit, sourceIp, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer ⇒
-- [ ] backend/src/popups/delete.ts — shares: _handler, pathParameters, publishAudit, sourceIp, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer ⇒
-- [ ] backend/src/categories/get.ts — shares: pathParameters, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒
-- [ ] backend/src/forms/get.ts — shares: pathParameters, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒
-- [ ] backend/src/orders/get.ts — shares: pathParameters, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒
-- [ ] backend/src/tenant/list.ts — shares: AmodxHandler, ExpressionAttributeValues, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒
+- [x] backend/src/context/get.ts — shares: AmodxHandler, pathParameters, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext, ENFORCE ⇒ reads the same CONTEXT# item; same key and 404 shape
+- [x] backend/src/context/delete.ts — shares: AmodxHandler, _handler, pathParameters, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext, ENFORCE ⇒ deletes the same CONTEXT# item; sibling of the entity
+- [ ] backend/src/content/get.ts — shares: AmodxHandler, pathParameters, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext, ENFORCE ⇒ content entity; handler vocabulary only
+- [ ] backend/src/comments/moderate.ts — shares: UpdateExpression, UpdateCommand, ExpressionAttributeNames, _handler, ExpressionAttributeValues, APIGatewayProxyHandlerV2WithLambdaAuthorizer ⇒ comments entity; UpdateCommand vocabulary only
+- [ ] backend/src/coupons/delete.ts — shares: _handler, pathParameters, publishAudit, sourceIp, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer ⇒ coupons entity; audit vocabulary only
+- [ ] backend/src/popups/delete.ts — shares: _handler, pathParameters, publishAudit, sourceIp, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer ⇒ popups entity; audit vocabulary only
+- [ ] backend/src/categories/get.ts — shares: pathParameters, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒ categories entity; handler vocabulary only
+- [ ] backend/src/forms/get.ts — shares: pathParameters, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒ forms entity; handler vocabulary only
+- [ ] backend/src/orders/get.ts — shares: pathParameters, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒ orders entity; handler vocabulary only
+- [ ] backend/src/tenant/list.ts — shares: AmodxHandler, ExpressionAttributeValues, GetCommand, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒ tenant listing; no CONTEXT coupling
 
 ## query: backend/src/delivery/update.ts
 rare: deliveryDaysOfWeek, deliveryLeadDays, allowedCounties, restrictDeliveryZones, allowedCountries, blockedDates, unblockedDates, yearlyOffDays
@@ -105,11 +105,11 @@ rare: deliveryDaysOfWeek, deliveryLeadDays, allowedCounties, restrictDeliveryZon
 - [x] admin/src/pages/DeliverySettings.tsx — shares: deliveryDaysOfWeek, deliveryLeadDays, allowedCounties, restrictDeliveryZones, allowedCountries, blockedDates ⇒ admin client that PUTs this handler's body
 - [ ] packages/shared/src/country-packs/ro.ts — shares: none ⇒ static RO regions; config stores free-text counties
 - [ ] backend/src/signals/create.ts — shares: _handler, PutCommand, updatedAt, toISOString, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒ signals entity; PutCommand vocabulary only
-- [ ] backend/src/context/create.ts — shares: _handler, PutCommand, updatedAt, toISOString, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒
-- [ ] backend/src/customers/update.ts — shares: _handler, updatedAt, toISOString, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext, Handler ⇒
-- [ ] backend/src/orders/update.ts — shares: _handler, updatedAt, toISOString, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext, Handler ⇒
-- [ ] backend/src/categories/get.ts — shares: APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒
-- [ ] backend/src/forms/get.ts — shares: APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒
+- [ ] backend/src/context/create.ts — shares: _handler, PutCommand, updatedAt, toISOString, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒ context entity; PutCommand vocabulary only
+- [ ] backend/src/customers/update.ts — shares: _handler, updatedAt, toISOString, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext, Handler ⇒ customers entity; handler vocabulary only
+- [ ] backend/src/orders/update.ts — shares: _handler, updatedAt, toISOString, APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext, Handler ⇒ orders entity; handler vocabulary only
+- [ ] backend/src/categories/get.ts — shares: APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒ categories entity; handler type vocabulary only
+- [ ] backend/src/forms/get.ts — shares: APIGatewayProxyHandlerV2WithLambdaAuthorizer, AuthorizerContext ⇒ forms entity; handler type vocabulary only
 
 ## query: packages/shared/src/locale-strings.ts
 rare: FALLBACK_LOCALE, LDMLPluralRule, englishForms, ownString, packFor, packForms, pluralCategories, resolvedOptions
@@ -139,7 +139,7 @@ rare: FALLBACK_LOCALE, LDMLPluralRule, englishForms, ownString, packFor, packFor
 - [x] backend/src/tenant/settings.ts — shares: CookieOrLegalLabelKey, PLURAL_CATEGORIES, COOKIE_AND_LEGAL_LABEL_LOCATIONS, catalogStrings, siteStrings, legalLinks ⇒ PUT /settings validates with PLURAL_CATEGORIES and the nine-key map
 - [ ] backend/src/import/glam-pricelist.ts — shares: fromEntries, isArray, catalogMode, exceptions, decided, placeholders ⇒ pricelist import; generic vocabulary only
 - [x] packages/shared/src/index.ts — shares: CatalogStrings, LocaleStringsInput, PluralTexts, ResolvedLocaleStrings, ResolvedPart, SiteStrings ⇒ defines LocaleStrings types imported; re-exports this module
-- [ ] packages/plugins/src/types.ts — shares: LOCALE1C, BlockStrings, blockStrings, registered, readonly, hero ⇒
+- [x] packages/plugins/src/types.ts — shares: LOCALE1C, BlockStrings, blockStrings, registered, readonly, hero ⇒ plugin registry type requires strings: BlockStrings
 
 ## query: renderer/middleware.ts
 rare: DYN_SEGMENT, PREVIEW_HOST_FORBIDDEN, getAll, originHeader, seg1, seg2, cleanHost, dynamicPath
@@ -169,11 +169,11 @@ rare: DYN_SEGMENT, PREVIEW_HOST_FORBIDDEN, getAll, originHeader, seg1, seg2, cle
 - [ ] admin/src/pages/StrategyEditor.tsx — shares: router ⇒ admin editor; shares only router
 - [x] infra/lib/renderer-hosting.ts — shares: defaultCookies, hasSessionCookie, HostRewriteFunction, SESSION_COOKIE_BASES, maxAge, __Secure ⇒ CF function must keep the identical session-cookie predicate
 - [ ] packages/shared/src/index.ts — shares: endsWith, toLowerCase, startsWith, CloudFront, Bounding, defeating ⇒ shared schemas; middleware imports nothing from it
-- [ ] renderer/src/lib/routing.ts — shares: cleanSlug, amodx_preview_base, _site, startsWith, pathname, rewrite ⇒
-- [ ] renderer/src/app/api/auth/[...nextauth]/route.ts — shares: sameSite, httpOnly, NextRequest, sessionToken, NextAuth, lax ⇒
-- [ ] renderer/src/app/[siteId]/[[...slug]]/page.tsx — shares: sessionToken, NextAuth, _site, enough, layers, handoff ⇒
-- [ ] patches/@opennextjs+aws+4.1.9.patch — shares: fixISRHeaders, CloudFront, Once, SWR, util, adapters ⇒
-- [ ] renderer/src/lib/tenant-directory.ts — shares: isWiredTenantHost, sessionToken, blip, soft, happen, junk ⇒
+- [x] renderer/src/lib/routing.ts — shares: cleanSlug, amodx_preview_base, _site, startsWith, pathname, rewrite ⇒ client reads amodx_preview_base cookie and /_site/ prefix set here
+- [x] renderer/src/app/api/auth/[...nextauth]/route.ts — shares: sameSite, httpOnly, NextRequest, sessionToken, NextAuth, lax ⇒ source of truth for the session cookie name matched here
+- [x] renderer/src/app/[siteId]/[[...slug]]/page.tsx — shares: sessionToken, NextAuth, _site, enough, layers, handoff ⇒ the cacheable route the production rewrite targets
+- [ ] patches/@opennextjs+aws+4.1.9.patch — shares: fixISRHeaders, CloudFront, Once, SWR, util, adapters ⇒ adapter patch cited in a comment; not a dependency
+- [x] renderer/src/lib/tenant-directory.ts — shares: isWiredTenantHost, sessionToken, blip, soft, happen, junk ⇒ defines isWiredTenantHost, the unknown-host gate imported here
 
 ## query: renderer/src/context/CartContext.tsx
 rare: CartContextType, CouponState, couponRaw, getCartKey, getItemKey, setCouponState, setLoaded, CartItem
@@ -203,6 +203,6 @@ rare: CartContextType, CouponState, couponRaw, getCartKey, getItemKey, setCoupon
 - [ ] admin/src/pages/Reviews.tsx — shares: ReactNode, useEffect, useState, Omit, sum, void ⇒ admin reviews page; hooks vocabulary only
 - [ ] admin/src/pages/Labels.tsx — shares: createContext, useContext, useEffect, useState, Provider, prev ⇒ own LabelsCtx; context vocabulary only
 - [ ] renderer/src/app/api/consent/route.ts — shares: none ⇒ consent API route; nothing shared
-- [ ] admin/src/pages/StrategyBoard.tsx — shares: setItems, useEffect, useState ⇒
-- [ ] packages/plugins/src/faq/FaqEditor.tsx — shares: addItem, removeItem ⇒
-- [ ] packages/plugins/src/testimonials/TestimonialsEditor.tsx — shares: addItem, removeItem ⇒
+- [ ] admin/src/pages/StrategyBoard.tsx — shares: setItems, useEffect, useState ⇒ admin board; useState vocabulary only
+- [ ] packages/plugins/src/faq/FaqEditor.tsx — shares: addItem, removeItem ⇒ editor list ops named alike; no cart
+- [ ] packages/plugins/src/testimonials/TestimonialsEditor.tsx — shares: addItem, removeItem ⇒ editor list ops named alike; no cart

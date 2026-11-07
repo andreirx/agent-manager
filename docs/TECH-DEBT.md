@@ -990,7 +990,8 @@ while another live run holds it.
 - Proper solution: measure on three real reviews, then (a) length-normalise the neighbor score (divide by a function of the file's distinct-token count, BM25-style) and (b) treat tokens present on both sides of a `bridge` in more than a share of each side's files as ambient vocabulary of the pair rather than a bridge. Never a per-language stoplist.
 - When to address: after VIEW-1 renders the rows beside the diff, where the human can judge the ordering on sight.
 - Update 2026-11-07 (human ruling after review-2): results are partitioned into code / tests / documentation, each ranked and capped on its own. The Markdown witness now heads the documentation partition ("potential doc updates") instead of displacing code rows; the length bias inside a partition remains and is still this debt.
-- Status: OPEN (mitigated by the partition)
+- Update 2026-11-07 (LEXMAP-EVAL-1, `docs/slices/lexmap-eval-1.md`): measured on 36 queries / 1,012 labelled pairs over six repositories. `sum` P@10 0.46, R@10 0.61; `sqrt-norm` 0.50 / 0.69 (15 queries better, 8 worse — the losses are large hub files a reviewer must open); `def-bonus+keys` 0.50 / 0.64 (8 better, 2 worse). The bias is confirmed; plain normalisation trades sibling noise for lost hubs. Default ranking awaits the human's ruling (slice doc §5).
+- Status: OPEN (measured; ruling pending)
 
 ## TD-038 — activity parsers for Codex `file_change` and Antigravity tool steps are built from published shapes, not live captures
 - Date: 2026-11-07

@@ -34,7 +34,7 @@ rare: DevRef, ThrowawayOffer, DevOfferItem, salesToken, teardownThrowawayOffer, 
 - [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/tenantconfig/TenantConfigRepository.java — shares: none ⇒ Mode A repository; unrelated
 - [x] serverless/packages/backend/src/handlers/offers.ts — shares: accountantId, technicalId, managerId, exposes, priced, applicable ⇒ handler behind POST/GET/DELETE /offers the fixture calls
 - [ ] serverless/packages/backend/scripts/seeders/seed-offers.ts — shares: itemId, accountantId, technicalId, managerId, Seed ⇒ bulk seeder; fixture self-seeds via routes
-- [ ] serverless/packages/backend/src/scripts/transform-offer-item-canonical.ts — shares: itemId ⇒
+- [ ] serverless/packages/backend/src/scripts/transform-offer-item-canonical.ts — shares: itemId ⇒ migration script; unrelated
 
 ## query: frontend/workspace/src/api/file-hosting.ts
 rare: CONFIRM_LEASE, maxAttempts, resolveFile, ResolveResponse, confirmUpload, uploadFileToS3, FormData, UploadIntentResponse
@@ -64,8 +64,8 @@ rare: CONFIRM_LEASE, maxAttempts, resolveFile, ResolveResponse, confirmUpload, u
 - [ ] frontend/web/src/api/product.ts — shares: FormData, getApiClient, multipart, DIRECT, barrel ⇒ shares FormData/getApiClient only
 - [x] serverless/packages/shared/src/schemas/file-hosting.ts — shares: FilePurpose, HostedImageMime, declaredMime, fileId, MIME, AUTHORITATIVE ⇒ strict upload-intent schema the client must satisfy
 - [x] serverless/packages/shared/src/types/file-hosting.ts — shares: ResolveResponse, UploadIntentResponse, ConfirmResponse, FilePurpose, HostedImageMime, declaredMime ⇒ defines the response types imported
-- [ ] frontend/web/src/api/priceAllowance.ts — shares: F34, getApiClient, Types, barrel ⇒
-- [ ] frontend/workspace/src/api/priceAllowances.ts — shares: F34, getApiClient, SUBPATH, BASE, white, barrel ⇒
+- [ ] frontend/web/src/api/priceAllowance.ts — shares: F34, getApiClient, Types, barrel ⇒ admin api; shares client/import rule only
+- [ ] frontend/workspace/src/api/priceAllowances.ts — shares: F34, getApiClient, SUBPATH, BASE, white, barrel ⇒ sibling api; shares client/subpath rule only
 
 ## query: frontend/workspace/src/api/payments.ts
 rare: cashInstallment, invoiceInstallment, ScadentarRow, canCash, canInvoice, InvoiceInstallmentInputSchema, installmentId, ProjectsPage
@@ -95,14 +95,14 @@ rare: cashInstallment, invoiceInstallment, ScadentarRow, canCash, canInvoice, In
 - [ ] serverless/packages/shared/src/types/installment.ts — shares: invoiceNumber, cash, factur, COLLECTION, STATE, Installment ⇒ returns void; no type used
 - [ ] serverless/packages/shared/src/enums/installment-status.ts — shares: Invoice, WORD, PATHS, benefit, disagreement, RECORDED ⇒ status enum; not referenced here
 - [x] frontend/web/src/api/payments.ts — shares: ProjectsPage, getApiClient, invoiceNumber, Invoice, WORD, PATHS ⇒ the admin copy this was ported from
-- [ ] backend/src/main/java/soft/bijuterie/glam/backend/app/dtos/PaymentPostDTO.java — shares: invoiceNumber ⇒
-- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/payment/Payment.java — shares: invoiceNumber, Payment, INVOICED ⇒
-- [ ] frontend/web/src/api/tenantConfig.ts — shares: getApiClient ⇒
-- [ ] backend/src/main/java/soft/bijuterie/glam/backend/app/dtos/PaymentGetDTO.java — shares: invoiceNumber, Payment, INVOICED ⇒
-- [ ] frontend/workspace/src/config/api-client.ts — shares: getApiClient, PORTED, apps, STATE ⇒
-- [ ] frontend/web/src/api/priceAllowance.ts — shares: getApiClient ⇒
-- [ ] frontend/workspace/src/api/exchangeRate.ts — shares: getApiClient, issuing ⇒
-- [ ] frontend/workspace/src/api/order-needs.ts — shares: getApiClient, scadentar ⇒
+- [ ] backend/src/main/java/soft/bijuterie/glam/backend/app/dtos/PaymentPostDTO.java — shares: invoiceNumber ⇒ Mode A DTO; client drives serverless v2
+- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/payment/Payment.java — shares: invoiceNumber, Payment, INVOICED ⇒ Mode A entity; not on this path
+- [ ] frontend/web/src/api/tenantConfig.ts — shares: getApiClient ⇒ shares getApiClient only
+- [ ] backend/src/main/java/soft/bijuterie/glam/backend/app/dtos/PaymentGetDTO.java — shares: invoiceNumber, Payment, INVOICED ⇒ Mode A DTO; client drives serverless v2
+- [ ] frontend/workspace/src/config/api-client.ts — shares: getApiClient, PORTED, apps, STATE ⇒ shared HTTP client utility, not the feature
+- [ ] frontend/web/src/api/priceAllowance.ts — shares: getApiClient ⇒ shares getApiClient only
+- [ ] frontend/workspace/src/api/exchangeRate.ts — shares: getApiClient, issuing ⇒ sibling api; shares getApiClient only
+- [ ] frontend/workspace/src/api/order-needs.ts — shares: getApiClient, scadentar ⇒ sibling api; shares getApiClient only
 
 ## query: serverless/packages/backend/src/handlers/payments.ts
 rare: paymentsHandler, formatPayment, PaymentController, InvoiceInstallmentInputSchema, W12, parseInt, installmentRepository, pathParams
@@ -132,9 +132,9 @@ rare: paymentsHandler, formatPayment, PaymentController, InvoiceInstallmentInput
 - [x] serverless/packages/shared/src/types/installment.ts — shares: W12, amountPaid, invoiceDate, InstallmentStatus, paymentDate, invoiceNumber ⇒ the Installment shape and fields it updates
 - [ ] serverless/packages/backend/src/handlers/health.ts — shares: withWarmup, APIGatewayProxyResultV2, withErrorHandling, APIGatewayProxyEventV2, warmup ⇒ sibling handler; framework vocabulary
 - [ ] serverless/packages/backend/src/handlers/activity-log.ts — shares: parseInt, pathParams, activityLogRepository, withWarmup, APIGatewayProxyResultV2, withErrorHandling ⇒ sibling handler; framework vocabulary
-- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/payment/Payment.java — shares: amountPaid, invoiceDate, paymentDate, invoiceNumber, installmentNumber, INVOICED ⇒
-- [ ] serverless/packages/backend/src/utils/crud-handler.ts — shares: pathParams, APIGatewayProxyResultV2, handleCrudRequest, logAction, requestContext, extractUser ⇒
-- [ ] serverless/packages/backend/src/handlers/files-v2.ts — shares: withWarmup, APIGatewayProxyResultV2, withErrorHandling, requestContext, endsWith, extractUser ⇒
+- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/payment/Payment.java — shares: amountPaid, invoiceDate, paymentDate, invoiceNumber, installmentNumber, INVOICED ⇒ Mode A entity; TS Installment type is the contract
+- [ ] serverless/packages/backend/src/utils/crud-handler.ts — shares: pathParams, APIGatewayProxyResultV2, handleCrudRequest, logAction, requestContext, extractUser ⇒ deliberately no longer imported here
+- [ ] serverless/packages/backend/src/handlers/files-v2.ts — shares: withWarmup, APIGatewayProxyResultV2, withErrorHandling, requestContext, endsWith, extractUser ⇒ sibling handler; framework vocabulary
 
 ## query: serverless/packages/backend/src/services/document-service.ts
 rare: S3_BUCKET_NAME, deleteFileFromS3, existingDocument, getDocument, getDocumentsByOwnerId, searchDocumentsByFileName, getAllNonGenerated, CreateDocumentInput
@@ -164,10 +164,10 @@ rare: S3_BUCKET_NAME, deleteFileFromS3, existingDocument, getDocument, getDocume
 - [x] serverless/packages/backend/src/handlers/estimates.ts — shares: documentRepository, DocumentRepository, DocumentService, Delete ⇒ instantiates DocumentService for the services
 - [x] serverless/packages/backend/src/repositories/document-repository.ts — shares: getByOwnerId, getGeneratedDocuments, searchByFileName, getUploadedDocuments, searchTerm, isGenerated ⇒ the repository every method delegates to
 - [x] backend/src/main/java/soft/bijuterie/glam/backend/core/document/DocumentService.java — shares: existingDocument, getAllNonGenerated, getGeneratedBetweenDates, documentRepository, DocumentRepository, DocumentService ⇒ the Mode A original this port mirrors
-- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/document/Document.java — shares: isGenerated ⇒
-- [ ] backend/src/main/java/soft/bijuterie/glam/backend/app/config/core/DocumentConfig.java — shares: documentRepository, DocumentService ⇒
-- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/document/DocumentRepository.java — shares: DocumentRepository, deleteById ⇒
-- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/category/CategoryService.java — shares: getAll, getById, deleteById ⇒
+- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/document/Document.java — shares: isGenerated ⇒ Mode A entity; TS Document type is the contract
+- [ ] backend/src/main/java/soft/bijuterie/glam/backend/app/config/core/DocumentConfig.java — shares: documentRepository, DocumentService ⇒ Mode A bean wiring
+- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/document/DocumentRepository.java — shares: DocumentRepository, deleteById ⇒ Mode A repository interface
+- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/category/CategoryService.java — shares: getAll, getById, deleteById ⇒ Mode A; CRUD vocabulary only
 
 ## query: serverless/packages/backend/src/services/product-import-service.ts
 rare: ExactDecimal, ImportService, NO_MODIFIERS, PriceModifiers, ProductWithKey, ROUND_HALF_UP, activeInChain, byCoordinate
@@ -197,7 +197,7 @@ rare: ExactDecimal, ImportService, NO_MODIFIERS, PriceModifiers, ProductWithKey,
 - [ ] serverless/packages/backend/src/scripts/transform-etape.ts — shares: OPERATOR_NOTE, GSI1, Treating, ARGUMENT, Otherwise, WILL ⇒ unrelated script
 - [ ] frontend/web/src/App.tsx — shares: Reading, SEPARATE, Import, acquisitions, door, agree ⇒ unrelated
 - [x] backend/src/main/java/soft/bijuterie/glam/backend/core/product/ProductImportService.java — shares: addedItems, existingByNameCollection, fallbackKey, getProductSummary, matchedExisting, matchedProduct ⇒ the Mode A original this port mirrors
-- [ ] backend/src/main/java/soft/bijuterie/glam/backend/app/config/core/ProductConfig.java — shares: XlsProductLoader, CategoryService, ProductService, productRepository, PriceListService, ProductImportService ⇒
-- [ ] serverless/packages/backend/src/repositories/price-list-repository.ts — shares: getByPublicId, listModifierPercent, purchaseModifierPercent, PriceListService, introducedAt, priceList ⇒
-- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/pricelist/PriceList.java — shares: applyPercentModifier, HALF_UP, XlsProductLoader, listModifierPercent, purchaseModifierPercent, introducedAt ⇒
-- [ ] serverless/packages/shared/src/schemas/product.ts — shares: PRODUCT_REMARK_MAX_LENGTH, ProductKey, normalizeFormat, K4a, productName, ProductService ⇒
+- [ ] backend/src/main/java/soft/bijuterie/glam/backend/app/config/core/ProductConfig.java — shares: XlsProductLoader, CategoryService, ProductService, productRepository, PriceListService, ProductImportService ⇒ Mode A bean wiring
+- [x] serverless/packages/backend/src/repositories/price-list-repository.ts — shares: getByPublicId, listModifierPercent, purchaseModifierPercent, PriceListService, introducedAt, priceList ⇒ repository the importer reads chain versions from
+- [ ] backend/src/main/java/soft/bijuterie/glam/backend/core/pricelist/PriceList.java — shares: applyPercentModifier, HALF_UP, XlsProductLoader, listModifierPercent, purchaseModifierPercent, introducedAt ⇒ Mode A entity; modifier rule lives in the loader
+- [ ] serverless/packages/shared/src/schemas/product.ts — shares: PRODUCT_REMARK_MAX_LENGTH, ProductKey, normalizeFormat, K4a, productName, ProductService ⇒ API request schemas; importer never validates with them

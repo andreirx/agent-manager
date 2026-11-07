@@ -34,16 +34,16 @@ rare: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_F
 - [ ] django/conf/locale/pt/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒ another locale's independent formats
 - [ ] django/conf/locale/ko/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒ another locale's independent formats
 - [ ] django/conf/locale/en_GB/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒ another locale's independent formats
-- [ ] django/conf/locale/es_CO/formats.py — shares: MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT, FIRST_DAY_OF_WEEK, NUMBER_GROUPING ⇒
-- [ ] django/conf/locale/da/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒
-- [ ] django/conf/locale/mk/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒
-- [ ] django/conf/locale/sl/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒
-- [ ] django/conf/locale/es_PR/formats.py — shares: MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT, FIRST_DAY_OF_WEEK, NUMBER_GROUPING ⇒
-- [ ] django/conf/locale/ar/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒
-- [ ] django/conf/locale/bs/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒
-- [ ] django/conf/locale/ca/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒
-- [ ] django/conf/locale/ckb/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒
-- [ ] django/conf/locale/es_NI/formats.py — shares: MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT, FIRST_DAY_OF_WEEK, NUMBER_GROUPING ⇒
+- [ ] django/conf/locale/es_CO/formats.py — shares: MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT, FIRST_DAY_OF_WEEK, NUMBER_GROUPING ⇒ another locale's independent formats
+- [ ] django/conf/locale/da/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒ another locale's independent formats
+- [ ] django/conf/locale/mk/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒ another locale's independent formats
+- [ ] django/conf/locale/sl/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒ another locale's independent formats
+- [ ] django/conf/locale/es_PR/formats.py — shares: MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT, FIRST_DAY_OF_WEEK, NUMBER_GROUPING ⇒ another locale's independent formats
+- [ ] django/conf/locale/ar/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒ another locale's independent formats
+- [ ] django/conf/locale/bs/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒ another locale's independent formats
+- [ ] django/conf/locale/ca/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒ another locale's independent formats
+- [ ] django/conf/locale/ckb/formats.py — shares: _INPUT_FORMATS, _FORMAT, MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT ⇒ another locale's independent formats
+- [ ] django/conf/locale/es_NI/formats.py — shares: MONTH_DAY_FORMAT, SHORT_DATE_FORMAT, YEAR_MONTH_FORMAT, SHORT_DATETIME_FORMAT, FIRST_DAY_OF_WEEK, NUMBER_GROUPING ⇒ another locale's independent formats
 
 ## query: django/contrib/sessions/backends/file.py
 rare: _expiry_date, _last_modification, _out_, expiry_age, md5s, output_file_fd, output_file_name, session_file_name
@@ -73,8 +73,8 @@ rare: _expiry_date, _last_modification, _out_, expiry_age, md5s, output_file_fd,
 - [x] django/contrib/sessions/management/commands/clearsessions.py — shares: clear_expired, SessionStore, expired, Session, supports, sessions ⇒ calls SessionStore.clear_expired the store implements
 - [ ] django/http/request.py — shares: ImproperlyConfigured, AttributeError, __class__, __name__, expired, removeprefix ⇒ request object; generic names
 - [ ] django/db/backends/base/base.py — shares: getLogger, USE_TZ, ImproperlyConfigured, __class__, disabling, threads ⇒ DB wrapper; generic names
-- [ ] django/contrib/sessions/exceptions.py — shares: InvalidSessionKey, SuspiciousOperation, session ⇒
-- [ ] django/core/mail/backends/filebased.py — shares: FileExistsError, OSError, ImproperlyConfigured, finally, open, close ⇒
+- [x] django/contrib/sessions/exceptions.py — shares: InvalidSessionKey, SuspiciousOperation, session ⇒ defines InvalidSessionKey the store raises
+- [ ] django/core/mail/backends/filebased.py — shares: FileExistsError, OSError, ImproperlyConfigured, finally, open, close ⇒ parallel file-based mail backend; no interaction
 
 ## query: django/db/migrations/exceptions.py
 rare: BadMigrationError, MigrationSchemaMissing, InvalidBasesError, InvalidMigrationPlan, IrreversibleError, CircularDependencyError, InconsistentMigrationHistory, NodeNotFoundError
@@ -104,14 +104,14 @@ rare: BadMigrationError, MigrationSchemaMissing, InvalidBasesError, InvalidMigra
 - [ ] django/template/base.py — shares: __repr__, __str__, node, reversed, resolved, matches ⇒ template engine; generic names
 - [ ] django/db/models/sql/query.py — shares: RuntimeError, __repr__, __str__, reversed, resolved, matches ⇒ SQL query; generic names
 - [ ] django/conf/locale/ky/formats.py — shares: none ⇒ locale formats
-- [ ] django/core/checks/messages.py — shares: __repr__, __str__ ⇒
-- [ ] django/contrib/contenttypes/migrations/0002_remove_content_type_name.py — shares: LookupError, dependencies ⇒
-- [ ] django/core/checks/translation.py — shares: LookupError ⇒
-- [ ] django/utils/tree.py — shares: __repr__, __str__, graph, node ⇒
-- [ ] django/core/files/base.py — shares: __repr__, __str__ ⇒
-- [ ] django/db/backends/ddl_references.py — shares: __repr__, __str__, migration ⇒
-- [ ] django/core/exceptions.py — shares: __repr__, __str__, impossible, matches, Exception, classes ⇒
-- [ ] django/contrib/auth/management/__init__.py — shares: LookupError, RuntimeError, resolve, etc ⇒
+- [ ] django/core/checks/messages.py — shares: __repr__, __str__ ⇒ check messages; dunder names
+- [ ] django/contrib/contenttypes/migrations/0002_remove_content_type_name.py — shares: LookupError, dependencies ⇒ a migration file; no exception use
+- [ ] django/core/checks/translation.py — shares: LookupError ⇒ unrelated check
+- [ ] django/utils/tree.py — shares: __repr__, __str__, graph, node ⇒ Q-node tree; 'node' coincidence
+- [ ] django/core/files/base.py — shares: __repr__, __str__ ⇒ File class; dunder names
+- [ ] django/db/backends/ddl_references.py — shares: __repr__, __str__, migration ⇒ DDL strings; no exception use
+- [ ] django/core/exceptions.py — shares: __repr__, __str__, impossible, matches, Exception, classes ⇒ Django core exceptions; none subclassed here
+- [ ] django/contrib/auth/management/__init__.py — shares: LookupError, RuntimeError, resolve, etc ⇒ permission creation; generic names
 
 ## query: django/http/multipartparser.py
 rare: ChunkIter, InputStreamExhausted, InterBoundaryIter, UploadHandler, _boundary, _chunk_size, _close_files, _done
@@ -141,13 +141,13 @@ rare: ChunkIter, InputStreamExhausted, InterBoundaryIter, UploadHandler, _bounda
 - [x] django/utils/http.py — shares: __next__, parse_header_parameters, UnicodeEncodeError, MultiValueDict, base64, regex_helper ⇒ parse_header_parameters helper the parser imports
 - [ ] django/contrib/staticfiles/views.py — shares: lstrip, split, find ⇒ unrelated view
 - [ ] django/conf/locale/__init__.py — shares: special ⇒ locale table
-- [ ] django/core/files/uploadedfile.py — shares: content_type_extra, chunk_size, content_type, __all__, field_name, Sanitize ⇒
-- [ ] django/core/serializers/python.py — shares: __next__, chunk_size, LookupError, __iter__, field_name, _meta ⇒
-- [ ] django/http/response.py — shares: DEFAULT_CHARSET, regex_helper, _lazy_re_compile, __iter__, content_type, AttributeError ⇒
-- [ ] django/utils/datastructures.py — shares: MultiValueDict, QueryDict, IndexError, __iter__, KeyError, AttributeError ⇒
-- [ ] django/core/mail/message.py — shares: UnicodeEncodeError, DEFAULT_CHARSET, force_str, IndexError, KeyError, AttributeError ⇒
-- [ ] django/core/handlers/exception.py — shares: TooManyFilesSent, TooManyFieldsSent, MultiPartParserError, RequestDataTooBig, processing, wrap ⇒
-- [ ] django/contrib/gis/gdal/layer.py — shares: field_types, force_str, IndexError, field_name, garbage, routine ⇒
+- [ ] django/core/files/uploadedfile.py — shares: content_type_extra, chunk_size, content_type, __all__, field_name, Sanitize ⇒ handlers, not the parser, construct UploadedFile
+- [ ] django/core/serializers/python.py — shares: __next__, chunk_size, LookupError, __iter__, field_name, _meta ⇒ serializer; generic names
+- [ ] django/http/response.py — shares: DEFAULT_CHARSET, regex_helper, _lazy_re_compile, __iter__, content_type, AttributeError ⇒ response side; no interaction
+- [x] django/utils/datastructures.py — shares: MultiValueDict, QueryDict, IndexError, __iter__, KeyError, AttributeError ⇒ MultiValueDict the parser imports and returns
+- [ ] django/core/mail/message.py — shares: UnicodeEncodeError, DEFAULT_CHARSET, force_str, IndexError, KeyError, AttributeError ⇒ MIME building; shared encoding names only
+- [x] django/core/handlers/exception.py — shares: TooManyFilesSent, TooManyFieldsSent, MultiPartParserError, RequestDataTooBig, processing, wrap ⇒ catches MultiPartParserError and the TooMany*/TooBig errors
+- [ ] django/contrib/gis/gdal/layer.py — shares: field_types, force_str, IndexError, field_name, garbage, routine ⇒ unrelated GDAL layer
 
 ## query: django/http/request.py
 rare: HTTP_PREFIX, UNPREFIXED_HEADERS, _assert_mutable, _body, _check_data_too_big, _current_scheme_host, _get_full_path, _initialize_handlers
@@ -177,12 +177,12 @@ rare: HTTP_PREFIX, UNPREFIXED_HEADERS, _assert_mutable, _body, _check_data_too_b
 - [x] django/utils/http.py — shares: is_same_domain, parse_header_parameters, allowed_hosts, iri_to_uri, MultiValueDict, UnicodeDecodeError ⇒ is_same_domain, parse_header_parameters, iri_to_uri helpers
 - [x] django/http/multipartparser.py — shares: _upload_handlers, _encoding, header_name, upload_handlers, _files, _mutable ⇒ parser the request instantiates; TooManyFilesSent re-export
 - [ ] django/contrib/gis/db/backends/oracle/operations.py — shares: cached_property, compliant, Length, starts, convert, parser ⇒ unrelated GIS backend
-- [ ] django/core/exceptions.py — shares: TooManyFilesSent, DATA_UPLOAD_MAX_NUMBER_FIELDS, TooManyFieldsSent, DisallowedHost, HTTP_HOST, BadRequest ⇒
-- [ ] django/core/files/uploadhandler.py — shares: load_handler, SEEK_END, SpooledTemporaryFile, _stream, BytesIO, HttpRequest ⇒
-- [ ] django/http/__init__.py — shares: RawPostDataException, HttpHeaders, UnreadablePostError, QueryDict, HttpRequest, cookie ⇒
-- [ ] django/core/handlers/exception.py — shares: _mark_post_parse_error, TooManyFilesSent, MultiPartParserError, TooManyFieldsSent, BadRequest, RequestDataTooBig ⇒
-- [ ] django/template/context.py — shares: __copy__, __delitem__, __setitem__, __getitem__, RuntimeError, __iter__ ⇒
-- [ ] django/utils/connection.py — shares: __delitem__, __setitem__, __getitem__, __iter__, cached_property, AttributeError ⇒
+- [x] django/core/exceptions.py — shares: TooManyFilesSent, DATA_UPLOAD_MAX_NUMBER_FIELDS, TooManyFieldsSent, DisallowedHost, HTTP_HOST, BadRequest ⇒ defines BadRequest, DisallowedHost, RequestDataTooBig it raises
+- [x] django/core/files/uploadhandler.py — shares: load_handler, SEEK_END, SpooledTemporaryFile, _stream, BytesIO, HttpRequest ⇒ load_handler the request calls to build upload_handlers
+- [x] django/http/__init__.py — shares: RawPostDataException, HttpHeaders, UnreadablePostError, QueryDict, HttpRequest, cookie ⇒ re-exports HttpRequest/QueryDict/HttpHeaders; the public surface
+- [x] django/core/handlers/exception.py — shares: _mark_post_parse_error, TooManyFilesSent, MultiPartParserError, TooManyFieldsSent, BadRequest, RequestDataTooBig ⇒ calls private request._mark_post_parse_error
+- [ ] django/template/context.py — shares: __copy__, __delitem__, __setitem__, __getitem__, RuntimeError, __iter__ ⇒ template context mapping; dunder names
+- [ ] django/utils/connection.py — shares: __delitem__, __setitem__, __getitem__, __iter__, cached_property, AttributeError ⇒ connection handler; dunder names
 
 ## query: django/utils/module_loading.py
 rare: _initializing, before_import_registry, cached_import, full_module_name, importlib_find, module_to_search, package_path, dotted_path
@@ -212,11 +212,11 @@ rare: _initializing, before_import_registry, cached_import, full_module_name, im
 - [ ] django/utils/autoreload.py — shares: __spec__, __file__, ImportError, __name__, spec, directories ⇒ own spec/__file__ handling; no module_loading use
 - [ ] django/db/models/base.py — shares: app_config, INSTALLED_APPS, AttributeError, __name__, Auto, initialized ⇒ model base; generic names
 - [x] django/db/migrations/writer.py — shares: module_dir, import_module, app_config, ImportError, importlib, register ⇒ calls module_dir
-- [ ] django/contrib/admin/exceptions.py — shares: AlreadyRegistered, NotRegistered, Exception ⇒
-- [ ] django/urls/utils.py — shares: module_has_submodule, import_module, ImportError, AttributeError, importlib, Convert ⇒
-- [ ] django/contrib/admin/__init__.py — shares: autodiscover_modules, register_to, register ⇒
-- [ ] django/template/utils.py — shares: get_app_configs, import_string, app_config, rsplit, directories, dirname ⇒
-- [ ] django/tasks/base.py — shares: module_path, import_string, ImportError, AttributeError, __name__, Raise ⇒
-- [ ] django/contrib/admin/static/admin/js/vendor/jquery/jquery.js — shares: class_name, bubble, discover, forces, spec, err ⇒
-- [ ] django/apps/__init__.py — shares: AppConfig, registry ⇒
-- [ ] django/core/management/commands/flush.py — shares: get_app_configs, import_module, AppConfig, ImportError, importlib, look ⇒
+- [ ] django/contrib/admin/exceptions.py — shares: AlreadyRegistered, NotRegistered, Exception ⇒ only named in a docstring; no code dependency
+- [x] django/urls/utils.py — shares: module_has_submodule, import_module, ImportError, AttributeError, importlib, Convert ⇒ calls module_has_submodule
+- [x] django/contrib/admin/__init__.py — shares: autodiscover_modules, register_to, register ⇒ calls autodiscover_modules with register_to=site
+- [ ] django/template/utils.py — shares: get_app_configs, import_string, app_config, rsplit, directories, dirname ⇒ generic import_string caller
+- [ ] django/tasks/base.py — shares: module_path, import_string, ImportError, AttributeError, __name__, Raise ⇒ generic import_string caller
+- [ ] django/contrib/admin/static/admin/js/vendor/jquery/jquery.js — shares: class_name, bubble, discover, forces, spec, err ⇒ vendored jQuery
+- [ ] django/apps/__init__.py — shares: AppConfig, registry ⇒ re-exports apps; no module_loading use
+- [ ] django/core/management/commands/flush.py — shares: get_app_configs, import_module, AppConfig, ImportError, importlib, look ⇒ no module_loading use

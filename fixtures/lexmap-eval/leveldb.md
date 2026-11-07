@@ -63,7 +63,7 @@ rare: CompactPointer, GetInternalKey, GetLevel, LastSeq, NextFile, deleted_file_
 - [ ] db/log_format.h — shares: none ⇒ unrelated
 - [x] db/version_edit_test.cc — shares: AddFile, version_edit, EncodeTo, VersionEdit, DecodeFrom, InternalKey ⇒ encode/decode round-trip test
 - [ ] db/builder.cc — shares: version_edit, FileMetaData, DecodeFrom, file_size, smallest, largest ⇒ fills FileMetaData; never touches VersionEdit
-- [ ] db/builder.h — shares: FileMetaData, VersionEdit, file_size ⇒
+- [ ] db/builder.h — shares: FileMetaData, VersionEdit, file_size ⇒ forward-declares VersionEdit; BuildTable takes FileMetaData only
 
 ## query: util/crc32c.cc
 rare: AcceleretedCRC32C, CanAccelerateCRC32C, ReadUint32LE, RoundUp, STEP1, STEP16, STEP4, STEP4W
@@ -93,9 +93,9 @@ rare: AcceleretedCRC32C, CanAccelerateCRC32C, ReadUint32LE, RoundUp, STEP1, STEP
 - [x] db/log_writer.cc — shares: crc32c, Extend, crc, xff, zero ⇒ computes record CRCs with Extend/Mask
 - [x] port/port_example.h — shares: AcceleratedCRC32C, Extend, crc, zero, already, least ⇒ documents the AcceleratedCRC32C port contract
 - [ ] util/env_posix.cc — shares: power, template, constexpr, given, bit, possible ⇒ unrelated
-- [ ] .gitmodules — shares: github, google, https, com ⇒
-- [ ] util/comparator.cc — shares: uint8_t, xff, get ⇒
-- [ ] db/log_writer.h — shares: crc32c, pre, crc ⇒
+- [ ] .gitmodules — shares: github, google, https, com ⇒ pins the third_party crc32c submodule; not code
+- [ ] util/comparator.cc — shares: uint8_t, xff, get ⇒ unrelated
+- [ ] db/log_writer.h — shares: crc32c, pre, crc ⇒ declares type_crc_ cache; the crc32c calls are in log_writer.cc
 
 ## query: util/env.cc
 rare: DoWriteStringToFile, kBufferSize, should_sync, va_start, DeleteDir, DeleteFile, LEVELDB_DELETEFILE_UNDEFINED, NotSupported
@@ -125,7 +125,7 @@ rare: DoWriteStringToFile, kBufferSize, should_sync, va_start, DeleteDir, Delete
 - [x] db/version_set.cc — shares: ReadFileToString, info_log, NewAppendableFile, NewSequentialFile, NewWritableFile, SequentialFile ⇒ ReadFileToString reads CURRENT
 - [ ] db/snapshot.h — shares: defined ⇒ unrelated
 - [ ] util/testutil.h — shares: EnvWrapper, NewAppendableFile, NewWritableFile, fname ⇒ ErrorEnv wrapper; interface use only
-- [ ] include/leveldb/export.h — shares: _WIN32, defined ⇒
+- [ ] include/leveldb/export.h — shares: _WIN32, defined ⇒ export macro only; unrelated
 
 ## query: util/logging.cc
 rare: digits_consumed, kLastDigitOfMaxUint64, kMaxUint64, AppendEscapedStringTo, AppendNumberTo, numeric_limits, ConsumeDecimalNumber, NumberToString
@@ -155,11 +155,11 @@ rare: digits_consumed, kLastDigitOfMaxUint64, kMaxUint64, AppendEscapedStringTo,
 - [ ] table/table_test.cc — shares: EscapeString, llu, unsigned, long, str, xff ⇒ debug fprintf only
 - [x] util/logging.h — shares: AppendEscapedStringTo, AppendNumberTo, ConsumeDecimalNumber, NumberToString, EscapeString, avoid ⇒ the header this .cc implements
 - [ ] util/env_posix.cc — shares: numeric_limits, limits, max, constexpr, avoid, cstdlib ⇒ unrelated
-- [ ] util/comparator.cc — shares: uint8_t, xff ⇒
-- [ ] util/crc32c_test.cc — shares: uint8_t, xff ⇒
-- [ ] db/write_batch_test.cc — shares: NumberToString ⇒
-- [ ] util/coding.h — shares: uint8_t, str ⇒
-- [ ] port/port_stdcxx.h — shares: uint8_t, max ⇒
+- [ ] util/comparator.cc — shares: uint8_t, xff ⇒ includes logging.h, never uses it
+- [ ] util/crc32c_test.cc — shares: uint8_t, xff ⇒ unrelated
+- [x] db/write_batch_test.cc — shares: NumberToString ⇒ NumberToString builds the asserted expected-state string
+- [ ] util/coding.h — shares: uint8_t, str ⇒ unrelated
+- [ ] port/port_stdcxx.h — shares: uint8_t, max ⇒ unrelated
 
 ## query: util/status.cc
 rare: len1, len2, CopyState, kCorruption, kIOError, kInvalidArgument, kNotSupported, kOk
@@ -189,6 +189,6 @@ rare: len1, len2, CopyState, kCorruption, kIOError, kInvalidArgument, kNotSuppor
 - [ ] db/log_test.cc — shares: NotFound, msg, Corruption ⇒ matches message substrings, not the prefix
 - [ ] db/memtable.h — shares: NotFound ⇒ Status via public API only
 - [ ] util/env_test.cc — shares: state_ ⇒ its own state_; unrelated
-- [ ] db/version_edit.cc — shares: msg, Corruption ⇒
-- [ ] db/recovery_test.cc — shares: NOT_FOUND, tmp ⇒
-- [ ] db/dbformat.cc — shares: memcpy, tmp ⇒
+- [ ] db/version_edit.cc — shares: msg, Corruption ⇒ Status::Corruption via public API only
+- [ ] db/recovery_test.cc — shares: NOT_FOUND, tmp ⇒ IsNotFound via public API only
+- [ ] db/dbformat.cc — shares: memcpy, tmp ⇒ no Status use at all
