@@ -5,7 +5,7 @@
 import { buildLexmap, type LexmapParams, type SourceFile } from './lexmap.js';
 import { changedFileTokens, orderByAffinity, parseDiffHunks } from './diff-view.js';
 
-const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2 };
+const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2, ranking: 'sum' };
 
 const DIFF = [
   'diff --git a/src/a.ts b/src/a.ts',

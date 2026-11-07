@@ -56,7 +56,25 @@ export interface LexmapParams {
    * English vocabulary.
    */
   readonly wordWeight: number;
+  /** How a neighbor's shared-token weights become its score (LEXMAP-EVAL-1, TD-037). */
+  readonly ranking: RankingVariant;
 }
+
+/**
+ * The scoring formulas under evaluation (TD-037: the plain sum favours files
+ * with many distinct identifiers). Variants fixed, judged by the labelled
+ * relatedness set; the eval loops over all of them, the default is one of them.
+ *   sum          Σ w(shared token)                           — the LEXMAP-1 baseline
+ *   sqrt-norm    Σ w / √(candidate's distinct tokens)        — the cheap cosine
+ *   saturated    Σ w × K / (K + candidate's distinct tokens) — BM25-style length damping
+ *   def-bonus    Σ w, counted twice for tokens the candidate likely defines
+ *   min-shared-2 Σ w, but a file sharing a single token is not a row
+ *   combined     sqrt-norm + def-bonus + min-shared-2
+ */
+export type RankingVariant = 'sum' | 'sqrt-norm' | 'saturated' | 'def-bonus' | 'min-shared-2' | 'combined';
+export const RANKING_VARIANTS: readonly RankingVariant[] = ['sum', 'sqrt-norm', 'saturated', 'def-bonus', 'min-shared-2', 'combined'];
+/** Length-damping constant for `saturated`: a file with K distinct rare tokens scores half of its raw sum. */
+export const SATURATION_K = 150;
 
 export const DEFAULT_LEXMAP_PARAMS: LexmapParams = {
   minTokenLength: 3,
@@ -68,6 +86,7 @@ export const DEFAULT_LEXMAP_PARAMS: LexmapParams = {
   maxSharedShown: 6,
   maxBridgeTokens: 30,
   wordWeight: 0.2,
+  ranking: 'sum',
 };
 
 export type TokenShape = 'identifier' | 'word';
@@ -95,6 +114,8 @@ export interface FileEntry {
   readonly path: string;
   /** Lower-cased extension, or the lower-cased basename when there is none. */
   readonly lang: string;
+  /** Distinct surviving (non-noise) tokens in the file — the length the ranking variants damp. */
+  readonly tokenCount: number;
 }
 
 interface TokenEntry {
@@ -102,6 +123,8 @@ interface TokenEntry {
   df: number;
   /** Sorted unique file indexes. */
   files: number[];
+  /** Sorted unique file indexes with at least one likely-definition occurrence (⊆ files). */
+  defFiles: number[];
   /** Flat quads: file, line, col, likelyDefinition (0|1). */
   postings: number[];
 }
@@ -130,8 +153,8 @@ export function languageOf(path: string): string {
 }
 
 export function buildLexmap(sources: readonly SourceFile[], params: LexmapParams = DEFAULT_LEXMAP_PARAMS): Lexmap {
-  const files: FileEntry[] = sources.map((s) => ({ path: s.path, lang: languageOf(s.path) }));
   const n = sources.length;
+  const tokenCounts: number[] = new Array<number>(n).fill(0);
 
   // Pass 1: document frequency.
   const df = new Map<string, number>();
@@ -156,14 +179,19 @@ export function buildLexmap(sources: readonly SourceFile[], params: LexmapParams
       if (noise.has(occ.token)) continue;
       let entry = tokens.get(occ.token);
       if (!entry) {
-        entry = { df: df.get(occ.token) ?? 0, files: [], postings: [] };
+        entry = { df: df.get(occ.token) ?? 0, files: [], defFiles: [], postings: [] };
         tokens.set(occ.token, entry);
       }
-      if (entry.files[entry.files.length - 1] !== f) entry.files.push(f);
+      if (entry.files[entry.files.length - 1] !== f) {
+        entry.files.push(f);
+        tokenCounts[f] = (tokenCounts[f] ?? 0) + 1;
+      }
+      if (occ.likelyDefinition && entry.defFiles[entry.defFiles.length - 1] !== f) entry.defFiles.push(f);
       entry.postings.push(f, occ.line, occ.col, occ.likelyDefinition ? 1 : 0);
       postingsTotal += 1;
     }
   }
+  const files: FileEntry[] = sources.map((s, i) => ({ path: s.path, lang: languageOf(s.path), tokenCount: tokenCounts[i] ?? 0 }));
 
   return {
     files,
@@ -306,8 +334,34 @@ export function neighborRowCount(rows: NeighborRows): number {
 }
 
 interface Accumulator {
+  /** Σ w over shared tokens (the `sum` baseline). */
   score: number;
+  /** Σ w over the shared tokens the candidate likely defines. */
+  defScore: number;
   shared: { token: string; weight: number }[];
+}
+
+/** The variant's score for one candidate, or `undefined` when the variant drops the row. */
+function rankingScore(variant: RankingVariant, a: Accumulator, tokenCount: number): number | undefined {
+  const length = Math.max(1, tokenCount);
+  switch (variant) {
+    case 'sum':
+      return a.score;
+    case 'sqrt-norm':
+      return a.score / Math.sqrt(length);
+    case 'saturated':
+      return (a.score * SATURATION_K) / (SATURATION_K + length);
+    case 'def-bonus':
+      return a.score + a.defScore;
+    case 'min-shared-2':
+      return a.shared.length >= 2 ? a.score : undefined;
+    case 'combined':
+      return a.shared.length >= 2 ? (a.score + a.defScore) / Math.sqrt(length) : undefined;
+    default: {
+      const unreachable: never = variant;
+      throw new Error(`unknown ranking variant ${String(unreachable)}`);
+    }
+  }
 }
 
 function rankNeighbors(map: Lexmap, tokensIn: Iterable<string>, exclude: ReadonlySet<number>, queryLangs: ReadonlySet<string>): NeighborRows {
@@ -320,23 +374,29 @@ function rankNeighbors(map: Lexmap, tokensIn: Iterable<string>, exclude: Readonl
       if (exclude.has(f)) continue;
       let a = acc.get(f);
       if (!a) {
-        a = { score: 0, shared: [] };
+        a = { score: 0, defScore: 0, shared: [] };
         acc.set(f, a);
       }
       a.score += w;
       a.shared.push({ token, weight: w });
+    }
+    for (const f of entry.defFiles) {
+      const a = acc.get(f); // absent only for excluded files
+      if (a) a.defScore += w;
     }
   }
   const rows: NeighborRow[] = [];
   for (const [f, a] of acc) {
     const file = map.files[f];
     if (!file) continue;
+    const score = rankingScore(map.params.ranking, a, file.tokenCount);
+    if (score === undefined) continue;
     a.shared.sort((x, y) => y.weight - x.weight || (x.token < y.token ? -1 : 1));
     rows.push({
       path: file.path,
       lang: file.lang,
       pathClass: pathClass(file.path),
-      score: a.score,
+      score,
       shared: a.shared.slice(0, map.params.maxSharedShown).map((s) => s.token),
       sharedCount: a.shared.length,
       crossLanguage: !queryLangs.has(file.lang),
@@ -366,6 +426,13 @@ export function neighborsOfTokens(map: Lexmap, tokens: Iterable<string>, exclude
 export type NeighborsResult =
   | { readonly status: 'found'; readonly path: string; readonly tokens: number; readonly rows: NeighborRows }
   | { readonly status: 'absent'; readonly path: string };
+
+/** The distinct surviving tokens of a file, heaviest first; `undefined` when the path is not indexed. */
+export function fileTokensOf(map: Lexmap, path: string): string[] | undefined {
+  const f = map.files.findIndex((e) => e.path === path);
+  if (f < 0) return undefined;
+  return fileTokens(map, f).sort((a, b) => tokenWeight(map, b) - tokenWeight(map, a) || (a < b ? -1 : 1));
+}
 
 /** Files sharing rare identifiers with `path`, strongest link first. */
 export function neighbors(map: Lexmap, path: string): NeighborsResult {

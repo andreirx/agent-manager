@@ -21,7 +21,7 @@ import {
   type SourceFile,
 } from './lexmap.js';
 
-const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2 };
+const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2, ranking: 'sum' };
 
 describe('tokenize', () => {
   it('yields identifiers with 1-based line/col, honours minLength, marks likely definitions', () => {
