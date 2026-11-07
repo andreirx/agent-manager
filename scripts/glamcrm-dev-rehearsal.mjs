@@ -65,7 +65,7 @@ for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
   if (only && !SPLIT && !file.includes(only)) continue;
   const p = path.join(outDir, file); if (!fs.existsSync(p)) { record({ file, skipped: 'absent' }); continue; }
   const t0 = Date.now();
-  const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': file }, body: fs.readFileSync(p) });
+  const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': file.replace(/ — /g, ' - ').replace(/[^\x20-\x7e]/g, '_') }, body: fs.readFileSync(p) });
   const upj = await up.json(); if (!up.ok) { record({ file, step: 'upload', status: up.status, body: JSON.stringify(upj).slice(0, 300) }); continue; }
   const categoryId = await ensureCategory(cat);
   const body = { producerName: producer, categoryId, applicableVatId: vat, fileName: upj.key, introducedAt: new Date().toISOString(), active: true, replacesId: null };
