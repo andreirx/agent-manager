@@ -5,6 +5,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 const [api, tokenFile, outDir, resultsJson, only] = process.argv.slice(2);
+// SPLIT MODE (CATEGORY-SPLIT-1, human 2026-11-07 "wipe dev products and import fresh"): `only` = 'SPLIT' imports every
+// `<list> — <Categorie>.xlsx` in outDir: producer = the first word(s) of the list name as in `plan`, category = the suffix
+// after ' — ' (created on dev when missing), VAT 0 % except KUBERIT (19 %, human ruling). One pricelist per file.
+const SPLIT = only === 'SPLIT';
 const token = fs.readFileSync(tokenFile, 'utf8').trim();
 const H = { Authorization: `Bearer ${token}` };
 // Category / VAT mapping for the DEV rehearsal — an operator ASSUMPTION, listed as a Monday question (the category is
@@ -51,8 +55,14 @@ function record(rec) {
   results.push(rec); fs.writeFileSync(resultsJson, JSON.stringify(results, null, 2));
   if (rec.skipped || rec.step) console.log(`${rec.status ?? '-'} ${rec.file.padEnd(40)} ${rec.skipped ? 'SKIPPED absent' : `FAILED at ${rec.step}: ${rec.body}`}`);
 }
-for (const [file, producer, cat, vat] of plan) {
-  if (only && !file.includes(only)) continue;
+const producerOf = (file) => { const base = file.split(' — ')[0]; const hit = plan.find(([f]) => f.replace('.xlsx', '') === base); return hit ? hit[1] : base.split(' ')[0]; };
+const splitPlan = SPLIT ? fs.readdirSync(outDir).filter((f) => f.endsWith('.xlsx') && f.includes(' — ')).sort().map((f) => {
+  const cat = f.split(' — ')[1].replace('.xlsx', '');
+  return [f, producerOf(f), cat, /^KUBERIT/i.test(f) ? VAT19 : VAT0];
+}) : null;
+if (SPLIT) console.log(`split mode: ${splitPlan.length} workbooks`);
+for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
+  if (only && !SPLIT && !file.includes(only)) continue;
   const p = path.join(outDir, file); if (!fs.existsSync(p)) { record({ file, skipped: 'absent' }); continue; }
   const t0 = Date.now();
   const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': file }, body: fs.readFileSync(p) });
