@@ -7,6 +7,8 @@
  *   score <sheet.md>… [--k 10] [--moves] [--json]
  *       re-index each sheet's repo, rank with every variant, print precision/recall per variant;
  *       --moves lists, per query, what entered/left the top k against the `sum` baseline
+ *   extend <sheet.md>… [--k 10]
+ *       append, under each query, the unlabelled files any variant puts in its top k — to be labelled next
  *
  * Composition root only: git adapter in, pure core, text out.
  *
@@ -16,7 +18,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { buildWorkingTreeLexmap, treeIdentity } from '../adapters/lexmap/git-working-tree.js';
-import { medianTokenCount, parseSheet, renderSheet, sampleQueries, scoreAll, topMoves, DEFAULT_SAMPLE_PARAMS, type VariantScore } from '../core/lexmap/eval.js';
+import { appendCandidates, medianTokenCount, parseSheet, renderSheet, sampleQueries, scoreAll, topMoves, unjudgedTop, DEFAULT_SAMPLE_PARAMS, type VariantScore } from '../core/lexmap/eval.js';
+import { buildLexmap, DEFAULT_LEXMAP_PARAMS } from '../core/lexmap/lexmap.js';
 
 function usage(): never {
   console.error('Usage: npm run lexmap-eval -- sample <repo> [--queries n] [--seed n] [--out file] | score <sheet.md>… [--k n] [--moves] [--json]');
@@ -36,6 +39,7 @@ async function main(): Promise<void> {
   const [verb, ...rest] = positional;
   if (verb === 'sample') await sample(rest[0] ?? usage(), flags);
   else if (verb === 'score') await score(rest.length ? rest : usage(), flags);
+  else if (verb === 'extend') await extend(rest.length ? rest : usage(), flags);
   else usage();
 }
 
@@ -55,6 +59,21 @@ async function sample(repoArg: string, flags: Record<string, string | true>): Pr
   for (const q of sampled) console.log(`  ${q.path} (${q.candidates.length} candidates)`);
 }
 
+async function extend(sheetPaths: string[], flags: Record<string, string | true>): Promise<void> {
+  const k = Number(flags.k ?? 10);
+  for (const p of sheetPaths) {
+    const text = await readFile(resolve(p), 'utf-8');
+    const sheet = parseSheet(text);
+    const built = await buildWorkingTreeLexmap(sheet.repo);
+    const keyed = buildLexmap(built.read.files, { ...DEFAULT_LEXMAP_PARAMS, conceptKeys: true });
+    const additions = unjudgedTop([built.map, keyed], sheet, k);
+    await writeFile(resolve(p), appendCandidates(text, additions), 'utf-8');
+    const n = [...additions.values()].reduce((a, b) => a + b.length, 0);
+    console.log(`${p}: ${n} unlabelled candidates appended under ${additions.size} queries`);
+    for (const [q, add] of additions) console.log(`  ${q}: +${add.length}`);
+  }
+}
+
 function fmt(x: number): string {
   return x.toFixed(2).padStart(6);
 }
@@ -66,7 +85,10 @@ async function score(sheetPaths: string[], flags: Record<string, string | true>)
     const sheet = parseSheet(await readFile(resolve(p), 'utf-8'));
     const built = await buildWorkingTreeLexmap(sheet.repo);
     const identityNow = await treeIdentity(sheet.repo, built.read);
-    all.push({ sheet: p, repo: sheet.repo, identityNow, identitySheet: sheet.identity, scores: scoreAll(built.map, sheet, k) });
+    // Every variant on the exact-spelling index, then again on the concept-key index (LEXMAP-2), labelled "+keys".
+    const keyed = buildLexmap(built.read.files, { ...DEFAULT_LEXMAP_PARAMS, conceptKeys: true });
+    const scores = [...scoreAll(built.map, sheet, k), ...scoreAll(keyed, sheet, k).map((s) => ({ ...s, variant: `${s.variant}+keys` as VariantScore['variant'] }))];
+    all.push({ sheet: p, repo: sheet.repo, identityNow, identitySheet: sheet.identity, scores });
   }
   if (flags.json) {
     console.log(JSON.stringify(all, null, 2));

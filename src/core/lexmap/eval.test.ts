@@ -3,10 +3,10 @@
  * are computed by hand; the sheet round-trip; the two precisions and recall.
  */
 import { buildLexmap, neighbors, type LexmapParams, type SourceFile } from './lexmap.js';
-import { mulberry32, parseSheet, renderSheet, sampleQueries, scoreVariant, topMoves, withParams } from './eval.js';
+import { appendCandidates, mulberry32, parseSheet, renderSheet, sampleQueries, scoreVariant, topMoves, unjudgedTop, withParams } from './eval.js';
 
 // noiseLimit = max(2, ceil(4 × 0.5)) = 2 → a token in more than 2 files is noise.
-const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2, ranking: 'sum' };
+const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2, ranking: 'sum', conceptKeys: false };
 
 // Weights (N = 4): df 2 → ln 2 = 0.6931 (identifier) or 0.1386 (word); df 1 → ln 4.
 // q ∩ small = { function (word, 0.1386), betaFn (0.6931), gammaVal (0.6931) }  = 1.5249, small defines betaFn, small has 3 tokens
@@ -92,5 +92,18 @@ describe('scoring', () => {
     const s = scoreVariant(map, gone, 'sum', 2);
     expect(s.queries).toBe(0);
     expect(s.skipped).toEqual(['src/missing.ts']);
+  });
+});
+
+describe('extension', () => {
+  it('appends only the unlabelled files a variant promotes, under the right query, leaving the text otherwise identical', () => {
+    const sheet = parseSheet(['repo: /repo', '## query: src/q.ts', '- [x] src/small.ts — shares: betaFn ⇒ defines it', '', '## query: src/none.ts', '- [ ] src/big.ts — shares: none ⇒', ''].join('\n'));
+    const add = unjudgedTop([map], sheet, 10);
+    expect([...add.keys()]).toEqual(['src/q.ts']); // big.ts is in every variant's top 10 for q.ts and is not labelled there
+    expect(add.get('src/q.ts')?.map((c) => c.path)).toEqual(['src/big.ts']);
+    const text = ['repo: /repo', '## query: src/q.ts', '- [x] src/small.ts — shares: betaFn ⇒ defines it', '', '## query: src/none.ts', '- [ ] src/big.ts — shares: none ⇒', ''].join('\n');
+    const extended = appendCandidates(text, add);
+    expect(extended.split('\n')[3]).toBe('- [ ] src/big.ts — shares: alphaFn ⇒');
+    expect(extended.replace('- [ ] src/big.ts — shares: alphaFn ⇒\n', '')).toBe(text);
   });
 });

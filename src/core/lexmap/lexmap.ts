@@ -29,7 +29,7 @@
  * @maturity PROTOTYPE
  */
 
-import { distinctTokens, tokenize } from './tokenize.js';
+import { conceptKey, distinctTokens, tokenize } from './tokenize.js';
 
 /** Tunables. Starting values recorded per the numbers-are-parameters rule. */
 export interface LexmapParams {
@@ -58,6 +58,13 @@ export interface LexmapParams {
   readonly wordWeight: number;
   /** How a neighbor's shared-token weights become its score (LEXMAP-EVAL-1, TD-037). */
   readonly ranking: RankingVariant;
+  /**
+   * Index identifiers by their concept key (`settleOrder` ≡ `settle_order` ≡
+   * `SettleOrder`, see `conceptKey`) instead of their exact spelling, so names
+   * meet across languages (LEXMAP-2). Off = LEXMAP-1 behaviour. Compared by the
+   * eval; collapses to one behaviour after the ruling.
+   */
+  readonly conceptKeys: boolean;
 }
 
 /**
@@ -87,6 +94,7 @@ export const DEFAULT_LEXMAP_PARAMS: LexmapParams = {
   maxBridgeTokens: 30,
   wordWeight: 0.2,
   ranking: 'sum',
+  conceptKeys: false,
 };
 
 export type TokenShape = 'identifier' | 'word';
@@ -125,8 +133,36 @@ interface TokenEntry {
   files: number[];
   /** Sorted unique file indexes with at least one likely-definition occurrence (⊆ files). */
   defFiles: number[];
-  /** Flat quads: file, line, col, likelyDefinition (0|1). */
+  /** Spellings seen for this key, first seen first (one entry when `conceptKeys` is off). */
+  surfaces: string[];
+  /** Occurrences per surface, parallel to `surfaces`. */
+  surfaceCounts: number[];
+  /** Flat quints: file, line, col, likelyDefinition (0|1), surface index. */
   postings: number[];
+}
+
+/** The index key of an identifier as the index was built. */
+export function keyOf(map: Lexmap, token: string): string {
+  return map.params.conceptKeys ? conceptKey(token) : token;
+}
+
+/** Distinct index keys of a text — what the queries pass to the index. */
+export function distinctKeys(map: Lexmap, text: string): Set<string> {
+  const out = new Set<string>();
+  for (const t of distinctTokens(text, map.params.minTokenLength)) {
+    const k = keyOf(map, t);
+    if (k !== '') out.add(k);
+  }
+  return out;
+}
+
+/** The most frequent spelling of a key — what rows and bridges show. */
+export function displayForm(map: Lexmap, key: string): string {
+  const entry = map.tokens.get(key);
+  if (!entry) return key;
+  let best = 0;
+  for (let i = 1; i < entry.surfaces.length; i += 1) if ((entry.surfaceCounts[i] ?? 0) > (entry.surfaceCounts[best] ?? 0)) best = i;
+  return entry.surfaces[best] ?? key;
 }
 
 export interface Lexmap {
@@ -160,9 +196,14 @@ export function buildLexmap(sources: readonly SourceFile[], params: LexmapParams
   const df = new Map<string, number>();
   const perFile: Set<string>[] = [];
   let chars = 0;
+  const toKey = params.conceptKeys ? conceptKey : (t: string): string => t;
   for (const s of sources) {
     chars += s.text.length;
-    const set = distinctTokens(s.text, params.minTokenLength);
+    const set = new Set<string>();
+    for (const t of distinctTokens(s.text, params.minTokenLength)) {
+      const k = toKey(t);
+      if (k !== '') set.add(k);
+    }
     perFile.push(set);
     for (const t of set) df.set(t, (df.get(t) ?? 0) + 1);
   }
@@ -176,18 +217,26 @@ export function buildLexmap(sources: readonly SourceFile[], params: LexmapParams
   for (let f = 0; f < n; f += 1) {
     const text = sources[f]?.text ?? '';
     for (const occ of tokenize(text, params.minTokenLength)) {
-      if (noise.has(occ.token)) continue;
-      let entry = tokens.get(occ.token);
+      const key = toKey(occ.token);
+      if (key === '' || noise.has(key)) continue;
+      let entry = tokens.get(key);
       if (!entry) {
-        entry = { df: df.get(occ.token) ?? 0, files: [], defFiles: [], postings: [] };
-        tokens.set(occ.token, entry);
+        entry = { df: df.get(key) ?? 0, files: [], defFiles: [], surfaces: [], surfaceCounts: [], postings: [] };
+        tokens.set(key, entry);
       }
       if (entry.files[entry.files.length - 1] !== f) {
         entry.files.push(f);
         tokenCounts[f] = (tokenCounts[f] ?? 0) + 1;
       }
       if (occ.likelyDefinition && entry.defFiles[entry.defFiles.length - 1] !== f) entry.defFiles.push(f);
-      entry.postings.push(f, occ.line, occ.col, occ.likelyDefinition ? 1 : 0);
+      let s = entry.surfaces.indexOf(occ.token);
+      if (s < 0) {
+        s = entry.surfaces.length;
+        entry.surfaces.push(occ.token);
+        entry.surfaceCounts.push(0);
+      }
+      entry.surfaceCounts[s] = (entry.surfaceCounts[s] ?? 0) + 1;
+      entry.postings.push(f, occ.line, occ.col, occ.likelyDefinition ? 1 : 0, s);
       postingsTotal += 1;
     }
   }
@@ -259,34 +308,38 @@ export interface WhereFile {
   readonly lang: string;
   readonly pathClass: PathClass;
   readonly definitions: number;
+  /** Spellings of the key in this file (one entry unless `conceptKeys` merged several). */
+  readonly surfaces: readonly string[];
   readonly occurrences: readonly { readonly line: number; readonly col: number; readonly likelyDefinition: boolean }[];
 }
 
 export type WhereResult =
-  | { readonly status: 'found'; readonly token: string; readonly df: number; readonly idf: number; readonly files: readonly WhereFile[] }
+  | { readonly status: 'found'; readonly token: string; readonly key: string; readonly df: number; readonly idf: number; readonly files: readonly WhereFile[] }
   | { readonly status: 'common'; readonly token: string; readonly df: number }
   | { readonly status: 'absent'; readonly token: string };
 
 /** Postings of one token grouped by file: definitions first, test/doc files last. */
 export function where(map: Lexmap, token: string): WhereResult {
-  const entry = map.tokens.get(token);
+  const key = keyOf(map, token);
+  const entry = map.tokens.get(key);
   if (!entry) {
-    const df = map.noise.get(token);
+    const df = map.noise.get(key);
     return df === undefined ? { status: 'absent', token } : { status: 'common', token, df };
   }
-  const byFile = new Map<number, { line: number; col: number; likelyDefinition: boolean }[]>();
+  const byFile = new Map<number, { occurrences: { line: number; col: number; likelyDefinition: boolean }[]; surfaces: Set<string> }>();
   const p = entry.postings;
-  for (let i = 0; i < p.length; i += 4) {
+  for (let i = 0; i < p.length; i += 5) {
     const f = p[i] ?? 0;
-    let list = byFile.get(f);
-    if (!list) {
-      list = [];
-      byFile.set(f, list);
+    let acc = byFile.get(f);
+    if (!acc) {
+      acc = { occurrences: [], surfaces: new Set() };
+      byFile.set(f, acc);
     }
-    list.push({ line: p[i + 1] ?? 0, col: p[i + 2] ?? 0, likelyDefinition: (p[i + 3] ?? 0) === 1 });
+    acc.occurrences.push({ line: p[i + 1] ?? 0, col: p[i + 2] ?? 0, likelyDefinition: (p[i + 3] ?? 0) === 1 });
+    acc.surfaces.add(entry.surfaces[p[i + 4] ?? 0] ?? key);
   }
   const files: WhereFile[] = [];
-  for (const [f, occurrences] of byFile) {
+  for (const [f, { occurrences, surfaces }] of byFile) {
     const file = map.files[f];
     if (!file) continue;
     files.push({
@@ -294,6 +347,7 @@ export function where(map: Lexmap, token: string): WhereResult {
       lang: file.lang,
       pathClass: pathClass(file.path),
       definitions: occurrences.filter((o) => o.likelyDefinition).length,
+      surfaces: [...surfaces],
       occurrences,
     });
   }
@@ -304,7 +358,7 @@ export function where(map: Lexmap, token: string): WhereResult {
     if (a.occurrences.length !== b.occurrences.length) return b.occurrences.length - a.occurrences.length;
     return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
   });
-  return { status: 'found', token, df: entry.df, idf: idf(map, token), files };
+  return { status: 'found', token, key, df: entry.df, idf: idf(map, key), files };
 }
 
 // ------------------------------------------------------------ neighbors
@@ -397,7 +451,7 @@ function rankNeighbors(map: Lexmap, tokensIn: Iterable<string>, exclude: Readonl
       lang: file.lang,
       pathClass: pathClass(file.path),
       score,
-      shared: a.shared.slice(0, map.params.maxSharedShown).map((s) => s.token),
+      shared: a.shared.slice(0, map.params.maxSharedShown).map((s) => displayForm(map, s.token)),
       sharedCount: a.shared.length,
       crossLanguage: !queryLangs.has(file.lang),
     });
@@ -501,7 +555,7 @@ export function bridge(map: Lexmap, dirA: string, dirB: string): BridgeResult {
       if (p.startsWith(b)) filesB.push(p);
     }
     if (filesA.length === 0 || filesB.length === 0) continue;
-    rows.push({ token, weight: tokenWeight(map, token), filesA, filesB });
+    rows.push({ token: displayForm(map, token), weight: tokenWeight(map, token), filesA, filesB });
   }
   // Weight, then spread (a token on more files of both sides is more structural), then name.
   rows.sort((x, y) => y.weight - x.weight || (y.filesA.length + y.filesB.length) - (x.filesA.length + x.filesB.length) || (x.token < y.token ? -1 : 1));
@@ -632,7 +686,7 @@ export function hunkNeighbors(map: Lexmap, changes: CandidateChanges): HunkNeigh
     changedFiles.add(u.path);
     pieces.push(u.text);
   }
-  const tokens = distinctTokens(pieces.join('\n'), map.params.minTokenLength);
+  const tokens = distinctKeys(map, pieces.join('\n'));
   let common = 0;
   const live: string[] = [];
   for (const t of tokens) {
@@ -663,12 +717,13 @@ function fmt(n: number): string {
 export function renderWhere(result: WhereResult): string {
   if (result.status === 'absent') return `${result.token}: not in the index.`;
   if (result.status === 'common') return `${result.token}: common (${result.df} files) — dropped as noise; use grep.`;
-  const lines = [`${result.token}: ${result.files.length} files, idf ${fmt(result.idf)}`];
+  const lines = [`${result.token}: ${result.files.length} files, idf ${fmt(result.idf)}${result.key !== result.token ? ` (concept key ${result.key})` : ''}`];
   for (const f of result.files) {
     const tag = f.definitions > 0 ? `definition×${f.definitions}` : f.pathClass === 'code' ? 'use' : f.pathClass;
     const where = f.occurrences.slice(0, 8).map((o) => `${o.line}:${o.col}${o.likelyDefinition ? '*' : ''}`).join(' ');
     const more = f.occurrences.length > 8 ? ` +${f.occurrences.length - 8}` : '';
-    lines.push(`  ${f.path}  [${tag}]  ${where}${more}`);
+    const spelled = f.surfaces.length === 1 && f.surfaces[0] === result.token ? '' : `  as ${f.surfaces.join(', ')}`;
+    lines.push(`  ${f.path}  [${tag}]  ${where}${more}${spelled}`);
   }
   return lines.join('\n');
 }

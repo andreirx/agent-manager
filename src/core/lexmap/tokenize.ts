@@ -40,6 +40,40 @@ export const DEFINITION_KEYWORDS: ReadonlySet<string> = new Set([
 
 const IDENTIFIER = /[A-Za-z_][A-Za-z0-9_]*/g;
 
+const isUpper = (c: string): boolean => c >= 'A' && c <= 'Z';
+const isLowerOrDigit = (c: string): boolean => (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+
+/**
+ * The concept key of an identifier (LEXMAP-2, sub-tokenization): its parts,
+ * lower-cased, joined by `_`, so the spellings of one name in different
+ * languages meet — `settleOrder`, `settle_order`, `SettleOrder`, `SETTLE_ORDER`
+ * all give `settle_order`. Parts split at `_`, at a lower/digit→Upper boundary
+ * (`settleOrder`, `v2Handler`) and before the last capital of a run followed by
+ * a lower-case letter (`HTTPServer` → `http_server`, `IOError` → `io_error`).
+ * Digits stay with their part (`sha256`). Parts are never indexed alone: `order`
+ * is not a key of `settle_order`. An identifier of only underscores has no key ('').
+ */
+export function conceptKey(token: string): string {
+  const parts: string[] = [];
+  for (const chunk of token.split('_')) {
+    if (chunk === '') continue;
+    let start = 0;
+    for (let i = 1; i < chunk.length; i += 1) {
+      const prev = chunk[i - 1] ?? '';
+      const cur = chunk[i] ?? '';
+      const next = chunk[i + 1];
+      const lowerToUpper = isLowerOrDigit(prev) && isUpper(cur);
+      const runEnd = isUpper(prev) && isUpper(cur) && next !== undefined && next >= 'a' && next <= 'z';
+      if (lowerToUpper || runEnd) {
+        parts.push(chunk.slice(start, i));
+        start = i;
+      }
+    }
+    parts.push(chunk.slice(start));
+  }
+  return parts.map((p) => p.toLowerCase()).join('_');
+}
+
 function isWordChar(c: string): boolean {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_';
 }

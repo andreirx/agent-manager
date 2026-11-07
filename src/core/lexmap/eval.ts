@@ -282,3 +282,57 @@ export function topMoves(base: VariantScore, other: VariantScore): QueryMoves[] 
   }
   return out;
 }
+
+// ---------------------------------------------------------- extension
+
+/**
+ * Candidates a variant puts in its raw top k that the sheet never labelled
+ * (the baseline's top rows are labelled; a re-ranking can promote files from
+ * outside them). Per query, de-duplicated across every map and variant —
+ * the lines to append so the condensed and pessimistic numbers meet.
+ */
+export function unjudgedTop(maps: readonly Lexmap[], sheet: LabelSheet, k: number): Map<string, SampledCandidate[]> {
+  const out = new Map<string, SampledCandidate[]>();
+  for (const q of sheet.queries) {
+    const known = new Set([q.path, ...q.candidates.map((c) => c.path)]);
+    const added: SampledCandidate[] = [];
+    for (const map of maps) {
+      for (const variant of RANKING_VARIANTS) {
+        const r = neighbors(withParams(map, { ranking: variant, maxNeighbors: k }), q.path);
+        if (r.status !== 'found') continue;
+        for (const row of r.rows.code.slice(0, k)) {
+          if (known.has(row.path)) continue;
+          known.add(row.path);
+          added.push({ path: row.path, shares: row.shared });
+        }
+      }
+    }
+    if (added.length) out.set(q.path, added);
+  }
+  return out;
+}
+
+/** Append unlabelled candidate lines under their query sections; the rest of the text is untouched. */
+export function appendCandidates(sheetText: string, additions: ReadonlyMap<string, readonly SampledCandidate[]>): string {
+  const lines = sheetText.split('\n');
+  const out: string[] = [];
+  let current: string | undefined;
+  let lastCandidateAt = -1;
+  const flush = (): void => {
+    if (current === undefined) return;
+    const add = additions.get(current) ?? [];
+    const insertAt = lastCandidateAt + 1;
+    out.splice(insertAt, 0, ...add.map((c) => `- [ ] ${c.path} — shares: ${c.shares.length ? c.shares.join(', ') : 'none'} ⇒`));
+  };
+  for (const line of lines) {
+    if (line.startsWith('## query: ')) {
+      flush();
+      current = line.slice(10).trim();
+      lastCandidateAt = -1;
+    }
+    out.push(line);
+    if (line.startsWith('- [')) lastCandidateAt = out.length - 1;
+  }
+  flush();
+  return out.join('\n');
+}

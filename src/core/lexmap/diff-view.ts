@@ -22,7 +22,7 @@
  * @maturity PROTOTYPE
  */
 
-import { distinctTokens } from './tokenize.js';
+import { distinctKeys } from './lexmap.js';
 import { parseGitDiffPath, tokenWeight, type Lexmap } from './lexmap.js';
 
 export type DiffLineKind = 'context' | 'add' | 'del';
@@ -139,7 +139,7 @@ export function changedFileTokens(map: Lexmap, diffs: readonly FileDiff[], untra
   const out: ChangedFileTokens[] = [];
   const live = (text: string): Set<string> => {
     const s = new Set<string>();
-    for (const t of distinctTokens(text, map.params.minTokenLength)) if (map.tokens.has(t)) s.add(t);
+    for (const t of distinctKeys(map, text)) if (map.tokens.has(t)) s.add(t);
     return s;
   };
   for (const d of diffs) {
