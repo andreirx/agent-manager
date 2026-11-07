@@ -72,7 +72,7 @@ describe('buildLexmap', () => {
       ['backend/orders.ts', 1, 'code'],
       ['backend/orders.test.ts', 0, 'test'],
     ]);
-    expect(r.files[0]?.occurrences[0]).toEqual({ line: 1, col: 17, likelyDefinition: true });
+    expect(r.files[0]?.occurrences[0]).toEqual({ line: 1, col: 17, likelyDefinition: true, surface: 'settleOrder' });
     expect(renderWhere(r)).toContain('backend/orders.ts  [definition×1]  1:17*');
     expect(where(map, 'data')).toEqual({ status: 'common', token: 'data', df: 4 });
     expect(where(map, 'nothing_here')).toEqual({ status: 'absent', token: 'nothing_here' });
@@ -262,5 +262,28 @@ describe('concept keys (LEXMAP-2, sub-tokenization)', () => {
     expect(n.rows.code.map((row) => [row.path, row.shared])).toEqual([['db/schema.sql', ['settleOrder']]]);
     // The bridge between the two directories names the concept by its most frequent spelling.
     expect(bridge(on, 'src', 'db').rows.map((row) => row.token)).toEqual(['settleOrder']);
+  });
+});
+
+describe('where: the spelling asked for wins (VIEW-5)', () => {
+  it('ranks the file defining the exact spelling above a file defining a merged spelling', () => {
+    const sources: SourceFile[] = [
+      { path: 'handlers/price-lists.ts', text: 'const priceListService = new PriceListService();\nconst other_thing = 1;\n' },
+      { path: 'core/PriceListService.java', text: 'public class PriceListService {\n}\n' },
+      { path: 'x/a.ts', text: 'filler_a\n' },
+      { path: 'x/b.ts', text: 'filler_b\n' },
+    ];
+    const map = buildLexmap(sources, PARAMS);
+    const r = where(map, 'PriceListService');
+    expect(r.status).toBe('found');
+    if (r.status !== 'found') return;
+    expect(r.files.map((f) => [f.path, f.exactDefinitions, f.definitions])).toEqual([
+      ['core/PriceListService.java', 1, 1],
+      ['handlers/price-lists.ts', 0, 1],
+    ]);
+    expect(r.files[1]?.occurrences.map((o) => o.surface)).toEqual(['priceListService', 'PriceListService']);
+    const asVariable = where(map, 'priceListService');
+    if (asVariable.status !== 'found') return;
+    expect(asVariable.files[0]?.path).toBe('handlers/price-lists.ts');
   });
 });

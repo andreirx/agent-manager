@@ -304,9 +304,11 @@ export interface WhereFile {
   readonly lang: string;
   readonly pathClass: PathClass;
   readonly definitions: number;
-  /** Spellings of the key in this file (one entry unless `conceptKeys` merged several). */
+  /** Likely definitions spelled exactly as asked (`PriceListService` the class, not `priceListService` the variable). */
+  readonly exactDefinitions: number;
+  /** Spellings of the key in this file (one entry unless concept keys merged several). */
   readonly surfaces: readonly string[];
-  readonly occurrences: readonly { readonly line: number; readonly col: number; readonly likelyDefinition: boolean }[];
+  readonly occurrences: readonly { readonly line: number; readonly col: number; readonly likelyDefinition: boolean; readonly surface: string }[];
 }
 
 export type WhereResult =
@@ -322,7 +324,7 @@ export function where(map: Lexmap, token: string): WhereResult {
     const df = map.noise.get(key);
     return df === undefined ? { status: 'absent', token } : { status: 'common', token, df };
   }
-  const byFile = new Map<number, { occurrences: { line: number; col: number; likelyDefinition: boolean }[]; surfaces: Set<string> }>();
+  const byFile = new Map<number, { occurrences: { line: number; col: number; likelyDefinition: boolean; surface: string }[]; surfaces: Set<string> }>();
   const p = entry.postings;
   for (let i = 0; i < p.length; i += 5) {
     const f = p[i] ?? 0;
@@ -331,8 +333,9 @@ export function where(map: Lexmap, token: string): WhereResult {
       acc = { occurrences: [], surfaces: new Set() };
       byFile.set(f, acc);
     }
-    acc.occurrences.push({ line: p[i + 1] ?? 0, col: p[i + 2] ?? 0, likelyDefinition: (p[i + 3] ?? 0) === 1 });
-    acc.surfaces.add(entry.surfaces[p[i + 4] ?? 0] ?? key);
+    const surface = entry.surfaces[p[i + 4] ?? 0] ?? key;
+    acc.occurrences.push({ line: p[i + 1] ?? 0, col: p[i + 2] ?? 0, likelyDefinition: (p[i + 3] ?? 0) === 1, surface });
+    acc.surfaces.add(surface);
   }
   const files: WhereFile[] = [];
   for (const [f, { occurrences, surfaces }] of byFile) {
@@ -343,13 +346,17 @@ export function where(map: Lexmap, token: string): WhereResult {
       lang: file.lang,
       pathClass: pathClass(file.path),
       definitions: occurrences.filter((o) => o.likelyDefinition).length,
+      exactDefinitions: occurrences.filter((o) => o.likelyDefinition && o.surface === token).length,
       surfaces: [...surfaces],
       occurrences,
     });
   }
+  // Definitions spelled as asked come first (VIEW-5: asking for `PriceListService` must land on the
+  // class, not on a `const priceListService` the concept key merged in), then any likely definition.
   files.sort((a, b) => {
     const classOrder = CLASS_ORDER[a.pathClass] - CLASS_ORDER[b.pathClass];
     if (classOrder !== 0) return classOrder;
+    if (a.exactDefinitions !== b.exactDefinitions) return b.exactDefinitions - a.exactDefinitions;
     if (a.definitions !== b.definitions) return b.definitions - a.definitions;
     if (a.occurrences.length !== b.occurrences.length) return b.occurrences.length - a.occurrences.length;
     return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;

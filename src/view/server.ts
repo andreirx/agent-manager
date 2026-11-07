@@ -125,13 +125,29 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
     return building;
   };
 
-  const sliceInfo = async (): Promise<unknown> => {
+  /**
+   * The slice trail. `wanted` (VIEW-5) picks any slice under .agent-manager/slices;
+   * otherwise current.json's, else the most recently updated. `slices` lists them
+   * all with their status, newest first — the "sessions" list.
+   */
+  const sliceInfo = async (wanted: string | null): Promise<unknown> => {
     const amDir = join(targetDir, '.agent-manager');
     const currentRaw = await readOptional(join(amDir, 'current.json'));
     const current = currentRaw ? (JSON.parse(currentRaw) as { sliceId?: string }) : null;
-    const sliceId = current?.sliceId;
-    if (!sliceId) return { target: targetDir, current, status: null, latestBuild: null, latestReview: null, files: [] };
-    const sliceDir = join(amDir, 'slices', sliceId);
+    const slicesDir = join(amDir, 'slices');
+    let ids: string[] = [];
+    try { ids = await readdir(slicesDir); } catch { ids = []; }
+    const slices = (await Promise.all(ids.map(async (id) => {
+      const raw = await readOptional(join(slicesDir, id, 'status.json'));
+      if (!raw) return null;
+      try {
+        const st = JSON.parse(raw) as { phase?: string; iteration?: number; updatedAt?: string; lastActor?: string };
+        return { sliceId: id, phase: st.phase ?? null, iteration: st.iteration ?? null, updatedAt: st.updatedAt ?? null, lastActor: st.lastActor ?? null };
+      } catch { return null; }
+    }))).filter((s): s is NonNullable<typeof s> => s !== null).sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
+    const sliceId = wanted ?? current?.sliceId ?? slices[0]?.sliceId;
+    if (!sliceId) return { target: targetDir, current, slices, sliceId: null, status: null, latestBuild: null, latestReview: null, files: [] };
+    const sliceDir = join(slicesDir, sliceId);
     let names: string[] = [];
     try { names = (await readdir(sliceDir)).sort(); } catch { names = []; }
     const statusRaw = await readOptional(join(sliceDir, 'status.json'));
@@ -140,6 +156,8 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
     return {
       target: targetDir,
       current,
+      slices,
+      sliceId,
       status: statusRaw ? JSON.parse(statusRaw) : null,
       files: names,
       latestBuild: buildName ? { name: buildName, text: await readOptional(join(sliceDir, buildName)) ?? '' } : null,
@@ -182,7 +200,11 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
     try { names = (await readdir(dir)).filter((n) => n.endsWith('.ndjson')); } catch { names = []; }
     const runs = await Promise.all(names.map(async (name) => {
       const info = await stat(join(dir, name));
-      return { runId: name.slice(0, -'.ndjson'.length), mtimeMs: info.mtimeMs, bytes: info.size };
+      // VIEW-5: the first line (run-start) names the slice, role and provider — the runs list needs them to be legible.
+      const head = ((await readOptional(join(dir, name)) ?? '').split('\n')[0] ?? '').trim();
+      let first: Partial<ActivityEvent> = {};
+      try { if (head) first = JSON.parse(head) as Partial<ActivityEvent>; } catch { first = {}; }
+      return { runId: name.slice(0, -'.ndjson'.length), mtimeMs: info.mtimeMs, bytes: info.size, sliceId: first.sliceId ?? null, role: first.role ?? null, provider: first.provider ?? null, startedAt: first.at ?? null };
     }));
     runs.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.runId < b.runId ? 1 : -1));
     const chosen = wanted ? runs.find((r) => r.runId === wanted) : runs[0];
@@ -227,7 +249,7 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
         res.end(page);
         return;
       }
-      case '/api/slice': json(res, 200, await sliceInfo()); return;
+      case '/api/slice': json(res, 200, await sliceInfo(url.searchParams.get('id'))); return;
       case '/api/diff': json(res, 200, await diffInfo()); return;
       case '/api/activity': json(res, 200, await activityInfo(url.searchParams.get('run'))); return;
       case '/api/file': {

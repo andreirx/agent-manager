@@ -70,6 +70,13 @@ describe('view server', () => {
     expect(body.status.phase).toBe('review-impl');
     expect(body.latestBuild).toEqual({ name: 'build-1.md', text: '# second build\n' });
     expect(body.latestReview.name).toBe('review-0.json');
+    // VIEW-5: the slices list and an explicit pick.
+    const listed = (slice.body as { slices: { sliceId: string; phase: string }[]; sliceId: string }).slices;
+    expect(listed).toEqual([{ sliceId: 'S-1', phase: 'review-impl', iteration: 1, updatedAt: '2026-11-07T00:00:00.000Z', lastActor: 'claude' }]);
+    const picked = (await api('/api/slice?id=S-1')).body as { sliceId: string; status: { phase: string } };
+    expect(picked.sliceId).toBe('S-1');
+    expect(picked.status.phase).toBe('review-impl');
+    expect(((await api('/api/slice?id=NOPE')).body as { status: unknown }).status).toBeNull();
   });
 
   it('serves the candidate diff with hunks, line numbers, affinity order and per-file pointers', async () => {

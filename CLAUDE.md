@@ -137,6 +137,8 @@ VIEW-3 (PROTOTYPE — `docs/slices/view-3.md`): identifiers are links (left clic
 syntax theme, legend. Builder-side injection ruled out (human 2026-11-07): builders learn the command from the target CLAUDE.md.
 VIEW-4 (PROTOTYPE — `docs/slices/view-4.md`): fixed orientation frame (focus band, repo tree, related, session drawer) around a
 tabs + one-split workspace (human ruling 2026-11-07). `GET /api/files` added.
+VIEW-5 (PROTOTYPE — `docs/slices/view-5.md`): fixes from a Playwright walk — the spelling asked for wins the jump
+(`exactDefinitions`), slices list + picker (`/api/slice?id=`), legible runs, expandable commands, bridge defaults.
 
 ## Current Phase
 

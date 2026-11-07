@@ -80,6 +80,8 @@
   #session .blocks { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:16px; padding:8px 16px 12px; }
   #session details pre { white-space:pre-wrap; background:var(--panel); padding:8px; border-radius:4px; max-height:30vh; overflow:auto; }
   #session summary.sub { cursor:pointer; color:var(--muted); }
+  #session .run { padding:1px 0; cursor:pointer; } #session .run.cur .file { font-weight:600; }
+  #session .cmd { cursor:pointer; } #session .cmd .full { white-space:pre-wrap; overflow-wrap:anywhere; }
   #menu { position:fixed; display:none; z-index:10; background:var(--bg); border:1px solid var(--line); border-radius:4px; box-shadow:0 4px 16px rgba(0,0,0,.25); padding:4px 0; max-width:40em; max-height:60vh; overflow:auto; }
   #menu .mi { padding:3px 10px; cursor:pointer; overflow-wrap:anywhere; } #menu .mi:hover { background:var(--panel); } #menu .mh { padding:3px 10px; color:var(--muted); font-size:12px; }
   /* highlight.js theme (inline) */
@@ -303,7 +305,8 @@
   }
 
   // ---------------------------------------------------------- related
-  const pointerRows = (title, rows, empty) => `<h2>${title}</h2>` + (rows.length ? rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span>${r.crossLanguage ? '<span class="tag">cross-language</span>' : ''}<div class="link">${esc(r.shared.join(', '))}${r.sharedCount > r.shared.length ? ' +' + (r.sharedCount - r.shared.length) : ''}</div></div>`).join('') : `<div class="muted">${empty}</div>`);
+  // "cross-language" means something for code rows only (a doc is not a language).
+  const pointerRows = (title, rows, empty) => `<h2>${title}</h2>` + (rows.length ? rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span>${r.crossLanguage && r.pathClass === 'code' ? '<span class="tag">cross-language</span>' : ''}<div class="link">${esc(r.shared.join(', '))}${r.sharedCount > r.shared.length ? ' +' + (r.sharedCount - r.shared.length) : ''}</div></div>`).join('') : `<div class="muted">${empty}</div>`);
   function showPointers(path, p) {
     $('right-title').innerHTML = `Related to <span class="path">${esc(path)}</span>`;
     const el = $('pointers');
@@ -317,7 +320,15 @@
   }
 
   // ------------------------------------------------------------ focus
-  const bestOccurrence = (r) => { const f = r.files.find((x) => x.definitions > 0) || r.files[0]; if (!f) return null; const o = f.occurrences.find((x) => x.likelyDefinition) || f.occurrences[0]; return o ? { path: f.path, line: o.line } : null; };
+  // The spelling asked for wins: a likely definition spelled exactly so, else any likely definition, else the top file's first occurrence.
+  const bestOccurrence = (r) => {
+    const exact = r.files.find((x) => x.exactDefinitions > 0);
+    if (exact) { const o = exact.occurrences.find((x) => x.likelyDefinition && x.surface === r.token); if (o) return { path: exact.path, line: o.line, kind: 'likely definition' }; }
+    const def = r.files.find((x) => x.definitions > 0);
+    if (def) { const o = def.occurrences.find((x) => x.likelyDefinition); if (o) return { path: def.path, line: o.line, kind: `likely definition (as ${o.surface})` }; }
+    const f = r.files[0]; const o = f?.occurrences[0];
+    return o ? { path: f.path, line: o.line, kind: 'top location' } : null;
+  };
   function showFocus(token, r) {
     const el = $('focus');
     if (r.status === 'absent') { el.innerHTML = `<b>${esc(token)}</b> <span class="muted">not in the index.</span>`; return; }
@@ -330,12 +341,13 @@
       return `<div class="where-file"><span class="file" data-path="${esc(f.path)}">${esc(f.path)}</span><span class="tag">${tag}</span>${spelled}<div>${occ}${f.occurrences.length > 12 ? `<span class="muted">+${f.occurrences.length - 12}</span>` : ''}</div></div>`;
     }).join('');
     el.innerHTML = `<span class="muted">focus</span> <b>${esc(token)}</b>${r.key !== token ? `<span class="tag">key ${esc(r.key)}</span>` : ''} <span class="muted">${r.files.length} files · rarity ${r.idf.toFixed(1)}</span>`
-      + (best ? ` <span class="muted">${r.files[0].definitions > 0 ? 'likely definition' : 'top location'}</span> <span class="file" data-path="${esc(best.path)}" data-line="${best.line}">${esc(best.path)}:${best.line}</span>` : '')
+      + (best ? ` <span class="muted">${esc(best.kind)}</span> <span class="file" data-path="${esc(best.path)}" data-line="${best.line}">${esc(best.path)}:${best.line}</span>` : '')
       + ` <details><summary>all locations ▾</summary><div class="locs">${locs}</div></details>`;
     el.querySelectorAll('.file, .occ').forEach((x) => x.addEventListener('click', () => openFile(x.dataset.path, x.dataset.line ? Number(x.dataset.line) : undefined)));
   }
   async function focusToken(token, jump) {
     const w = await api('/api/where?token=' + encodeURIComponent(token));
+    $('find').value = token; // the find box always shows the identifier in focus
     showFocus(token, w.result);
     if (!jump || w.result.status !== 'found') return;
     const best = bestOccurrence(w.result);
@@ -364,14 +376,23 @@
   $('find').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { const t = $('find').value.trim(); if (t.length >= 3) focusToken(t, true); } });
 
   // --------------------------------------------------------- session
+  let sessionSlice = '', sessionRun = '';
+  const drawSummary = () => { $('session-summary').textContent = `Session — ${sessionSlice || 'no slice'}${sessionRun ? ' · ' + sessionRun : ''}`; };
+  const when = (iso) => { if (!iso) return ''; const t = new Date(iso); return isNaN(t) ? '' : t.toISOString().slice(0, 16).replace('T', ' ') + 'Z'; };
   function renderSlice(s) {
     const el = $('slice');
-    if (!s.current) { el.textContent = 'No active slice (.agent-manager/current.json absent).'; $('session-summary').textContent = 'Session — no active slice'; return; }
+    const slices = s.slices || [];
+    // The sessions list: every slice under .agent-manager/slices, newest first; the active one (current.json) marked.
+    const picker = slices.length ? `<div><select id="slice-select">${slices.map((x) => `<option value="${esc(x.sliceId)}"${x.sliceId === s.sliceId ? ' selected' : ''}>${esc(x.sliceId)} · ${esc(x.phase || '?')} · it ${esc(String(x.iteration ?? '?'))} · ${when(x.updatedAt)}${s.current && s.current.sliceId === x.sliceId ? ' · active' : ''}</option>`).join('')}</select> <span class="tag">${slices.length} slice${slices.length === 1 ? '' : 's'} on this target</span></div>` : '';
+    if (!s.sliceId) { el.innerHTML = picker + '<div class="muted">No slice trail under .agent-manager/slices.</div>'; sessionSlice = ''; drawSummary(); return; }
     const st = s.status || {};
-    el.innerHTML = `<div><b>${esc(s.current.sliceId)}</b> · phase ${esc(st.phase || '?')} · iteration ${esc(String(st.iteration ?? '?'))} · last actor ${esc(st.lastActor || '?')}</div>`
+    el.innerHTML = picker + `<div><b>${esc(s.sliceId)}</b> · phase ${esc(st.phase || '?')} · iteration ${esc(String(st.iteration ?? '?'))} · last actor ${esc(st.lastActor || '?')}${s.current && s.current.sliceId === s.sliceId ? '' : ' <span class="tag">not the active slice</span>'}</div>`
       + (s.latestBuild ? `<details><summary class="sub">${esc(s.latestBuild.name)} — the builder's report</summary><pre>${esc(s.latestBuild.text)}</pre></details>` : '<div class="muted">no build report yet</div>')
       + (s.latestReview ? `<details><summary class="sub">${esc(s.latestReview.name)} — the reviewer's verdict</summary><pre>${esc(s.latestReview.text)}</pre></details>` : '<div class="muted">no review yet</div>');
-    $('session-summary').textContent = `Session — slice ${s.current.sliceId} · ${st.phase || '?'} · iteration ${st.iteration ?? '?'}`;
+    const sel = el.querySelector('#slice-select');
+    if (sel) sel.addEventListener('change', async () => renderSlice(await api('/api/slice?id=' + encodeURIComponent(sel.value))));
+    sessionSlice = `slice ${s.sliceId} · ${st.phase || '?'} · it ${st.iteration ?? '?'}`;
+    drawSummary();
   }
   function renderOrder(d) {
     const el = $('order');
@@ -383,28 +404,36 @@
   async function loadActivity() {
     const a = await api('/api/activity' + (activityRun ? '?run=' + encodeURIComponent(activityRun) : ''));
     const el = $('activity');
-    if (!a.run) { el.textContent = a.note; $('activity-live').textContent = ''; return; }
+    if (!a.run) { el.textContent = a.note; $('activity-live').textContent = ''; sessionRun = ''; drawSummary(); return; }
     $('activity-live').textContent = a.run.live ? '● live' : '';
-    const sel = a.runs.length > 1 ? `<select id="run-select">${a.runs.map((r) => `<option value="${esc(r.runId)}"${r.runId === a.run.runId ? ' selected' : ''}>${esc(r.runId)}</option>`).join('')}</select>` : `<b>${esc(a.run.runId)}</b>`;
+    // The runs list, legible: when · slice · role · provider; the chosen one bold. Newest first (the server's order).
+    const runRow = (r) => `<div class="run${r.runId === a.run.runId ? ' cur' : ''}" data-run="${esc(r.runId)}"><span class="muted">${when(r.startedAt) || when(new Date(r.mtimeMs).toISOString())}</span> <span class="file">${esc(r.runId)}</span><span class="tag">${esc(r.role || '?')} · ${esc(r.provider || '?')}</span></div>`;
+    const list = `<details${a.runs.length > 1 ? '' : ' open'}><summary class="sub">${a.runs.length} run${a.runs.length === 1 ? '' : 's'} recorded — pick one</summary>${a.runs.slice(0, 30).map(runRow).join('')}${a.runs.length > 30 ? `<div class="muted">+${a.runs.length - 30} older</div>` : ''}</details>`;
     const counts = Object.entries(a.counts).filter(([k]) => !k.startsWith('run-')).map(([k, v]) => `${v} ${k}`).join(' · ') || 'no tool events';
     const rows = a.events.filter((e) => !e.kind.startsWith('run-')).slice(-25).reverse().map((e) => {
-      const what = e.path ? `<span class="file" data-path="${esc(e.path)}">${esc(e.path)}</span>` : e.command ? `<span class="muted">${esc(e.command.slice(0, 70))}${e.command.length > 70 ? '…' : ''}</span>` : e.pattern ? `<span class="muted">/${esc(e.pattern)}/</span>` : `<span class="muted">${esc(e.tool || '')}</span>`;
+      // Commands are shown short; click the line to see the whole command.
+      const what = e.path ? `<span class="file" data-path="${esc(e.path)}">${esc(e.path)}</span>` : e.command ? `<span class="cmd muted" title="click to expand"><span class="short">${esc(e.command.slice(0, 70))}${e.command.length > 70 ? '…' : ''}</span><span class="full" style="display:none">${esc(e.command)}</span></span>` : e.pattern ? `<span class="muted">/${esc(e.pattern)}/</span>` : `<span class="muted">${esc(e.tool || '')}</span>`;
       return `<div><span class="tag">${esc(e.kind)}</span> ${what}${e.detail ? `<span class="tag">${esc(e.detail)}</span>` : ''}</div>`;
     }).join('');
-    const un = a.uninspected ? `<h2>Uninspected neighbors</h2><div class="note">${esc(a.uninspected.basis)}</div>` + (a.uninspected.rows.length ? a.uninspected.rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span><div class="link">${esc(r.shared.join(', '))}</div></div>`).join('') : '<div class="muted">none — every code neighbor was opened</div>') : '';
-    el.innerHTML = `<div>${sel} <span class="tag">${esc(a.run.role || '')} · ${esc(a.run.provider)} · ${esc(a.run.status || '')}</span></div><div class="note">${counts}${a.readsObservable ? '' : ' · reads not observable for this provider'}</div>${rows}${un}`;
-    el.querySelectorAll('.file').forEach((x) => x.addEventListener('click', () => openFile(x.dataset.path)));
-    const select = el.querySelector('#run-select');
-    if (select) select.addEventListener('change', () => { activityRun = select.value; loadActivity(); });
+    const un = a.uninspected ? `<h2>Uninspected neighbors</h2><div class="note">${esc(a.uninspected.basis)}</div>` + (a.uninspected.rows.length ? a.uninspected.rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span><div class="link">${esc(r.shared.join(', '))}</div></div>`).join('') : '<div class="muted">none — every code neighbor was opened</div>') : '<div class="note">Uninspected neighbors are computed for builder runs only (this is a ' + esc(a.run.role || 'non-builder') + ' run).</div>';
+    el.innerHTML = `${list}<div><b>${esc(a.run.runId)}</b> <span class="tag">${esc(a.run.role || '')} · ${esc(a.run.provider)} · ${esc(a.run.status || '')}${a.run.startedAt ? ' · started ' + when(a.run.startedAt) : ''}</span></div><div class="note">${counts}${a.readsObservable ? '' : ' · reads not observable for this provider (they happen inside shell commands)'}</div>${rows}${un}`;
+    el.querySelectorAll('.file[data-path]').forEach((x) => x.addEventListener('click', () => openFile(x.dataset.path)));
+    el.querySelectorAll('.run').forEach((x) => x.addEventListener('click', () => { activityRun = x.dataset.run; loadActivity(); }));
+    el.querySelectorAll('.cmd').forEach((c) => c.addEventListener('click', () => { const open = c.querySelector('.full').style.display !== 'none'; c.querySelector('.full').style.display = open ? 'none' : 'inline'; c.querySelector('.short').style.display = open ? 'inline' : 'none'; }));
+    sessionRun = `run ${a.run.runId} (${a.run.role || '?'} · ${a.run.provider} · ${a.run.live ? 'live' : a.run.status || 'ended'})`;
+    drawSummary();
     if (a.run.live) setTimeout(loadActivity, 5000);
   }
 
   // ---------------------------------------------------------- bridges
   async function loadDirs() {
     const d = await api('/api/dirs');
-    const opts = d.dirs.map((x) => `<option value="${esc(x.path)}">${esc(x.path)} (${x.files}; ${esc(x.langs.slice(0, 4).join(','))})</option>`).join('');
+    // Biggest directories first, dot-directories (IDE junk) last: the default pair is the two largest top-level modules.
+    const top = d.dirs.filter((x) => !x.path.includes('/')).sort((a, b) => (a.path.startsWith('.') - b.path.startsWith('.')) || b.files - a.files);
+    const rest = d.dirs.filter((x) => x.path.includes('/')).sort((a, b) => a.path.localeCompare(b.path));
+    const opts = [...top, ...rest].map((x) => `<option value="${esc(x.path)}">${esc(x.path)} (${x.files}; ${esc(x.langs.slice(0, 4).join(','))})</option>`).join('');
     $('bridge-a').innerHTML = opts; $('bridge-b').innerHTML = opts;
-    if (d.dirs.length > 1) $('bridge-b').selectedIndex = 1;
+    if (top.length > 1) $('bridge-b').selectedIndex = 1;
   }
   async function showBridge() {
     const a = $('bridge-a').value, b = $('bridge-b').value;
@@ -424,7 +453,10 @@
     const [s, d, files] = await Promise.all([api('/api/slice'), api('/api/diff'), api('/api/files')]);
     diff = d; d.changedPaths.forEach((p) => changed.add(p));
     $('target').textContent = s.target;
-    $('identity').textContent = `${d.identity} · index ${(d.indexAgeMs / 1000).toFixed(0)} s old · ${d.stats.files} files`;
+    // Short in the header (HEAD, dirty/clean, file count); the full identity with the inputs digest is the tooltip.
+    const m = /^HEAD (\S+), (\d+) uncommitted/.exec(d.identity);
+    $('identity').textContent = m ? `HEAD ${m[1]} · ${m[2] === '0' ? 'clean' : `${m[2]} uncommitted`} · ${d.stats.files} files` : d.identity;
+    $('identity').title = `${d.identity} · index ${(d.indexAgeMs / 1000).toFixed(0)} s old`;
     // A viewer started before VIEW-4 has no /api/files: fall back to the changed paths and say so.
     const paths = files.files ?? d.changedPaths;
     buildTree(paths);
