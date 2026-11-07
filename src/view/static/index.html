@@ -61,6 +61,9 @@
   <section id="left">
     <h2>Slice</h2>
     <div id="slice" class="muted">loading…</div>
+    <h2>Bridges between modules</h2>
+    <div class="note">Which identifiers two directories share — the names that cross a module or language boundary.</div>
+    <div><select id="bridge-a"></select> ↔ <select id="bridge-b"></select> <button id="bridge-go">show</button></div>
     <h2>Agent activity <span id="activity-live" class="tag"></span></h2>
     <div id="activity" class="muted">loading…</div>
     <h2>Changed files, in affinity order</h2>
@@ -235,7 +238,28 @@
     if (a.run.live) setTimeout(loadActivity, 5000);
   }
 
+  // VIEW-2: the bridge view — pick two directories, see the identifiers they share.
+  async function loadDirs() {
+    const d = await api('/api/dirs');
+    const opts = d.dirs.map((x) => `<option value="${esc(x.path)}">${esc(x.path)} (${x.files}; ${esc(x.langs.slice(0, 4).join(','))})</option>`).join('');
+    $('bridge-a').innerHTML = opts; $('bridge-b').innerHTML = opts;
+    if (d.dirs.length > 1) $('bridge-b').selectedIndex = 1;
+  }
+  async function showBridge() {
+    const a = $('bridge-a').value, b = $('bridge-b').value;
+    const r = await api('/api/bridge?a=' + encodeURIComponent(a) + '&b=' + encodeURIComponent(b));
+    $('right-title').textContent = `bridge ${a} ↔ ${b}`;
+    const el = $('pointers');
+    if (r.error) { el.textContent = r.error; return; }
+    const rows = r.result.rows;
+    el.innerHTML = `<div class="note">${esc(r.note)}</div>` + (rows.length ? rows.map((x) => `<div class="ptr"><span class="s">${x.weight.toFixed(1)}</span><span class="occ" data-token="${esc(x.token)}">${esc(x.token)}</span><span class="tag">${x.filesA.length}↔${x.filesB.length}</span><div class="link"><span class="file" data-path="${esc(x.filesA[0])}">${esc(x.filesA[0])}</span> ↔ <span class="file" data-path="${esc(x.filesB[0])}">${esc(x.filesB[0])}</span></div></div>`).join('') : '<div class="muted">no shared rare identifier</div>');
+    el.querySelectorAll('.occ').forEach((t) => t.addEventListener('click', () => showWhere(t.dataset.token)));
+    el.querySelectorAll('.file').forEach((f) => f.addEventListener('click', () => openFile(f.dataset.path, undefined, 'bridge')));
+  }
+  $('bridge-go').addEventListener('click', () => showBridge().catch((e) => { $('pointers').textContent = 'bridge failed: ' + e.message; }));
+
   async function load() {
+    loadDirs().catch(() => {});
     loadActivity().catch((e) => { $('activity').textContent = 'activity failed: ' + e.message; });
     const [s, d] = await Promise.all([api('/api/slice'), api('/api/diff')]);
     diff = d;

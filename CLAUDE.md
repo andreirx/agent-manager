@@ -130,6 +130,7 @@ Orthogonal to the relay (no relay file touched; writes nothing).
 ACTIVITY-1 (PROTOTYPE — `docs/slices/activity-1.md`): every provider run appends read/edit/exec/search events to
 `<target>/.agent-manager/activity/<runId>.ndjson` (best-effort; relay use case untouched); the viewer shows the live run
 and the uninspected neighbors. Unverified Codex/Antigravity shapes: TD-038.
+VIEW-2 (PROTOTYPE — `docs/slices/view-2.md`): the bridge view (identifiers two directories share) on the same page.
 
 ## Current Phase
 

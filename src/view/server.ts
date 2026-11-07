@@ -16,6 +16,8 @@
  *                          code neighbors it never opened (ACTIVITY-1)
  *   GET /api/file?path=    one file's text (inside the target only; .git refused)
  *   GET /api/where?token=  postings grouped by file, likely definitions first
+ *   GET /api/dirs          directories (two levels) with file counts and languages
+ *   GET /api/bridge?a=&b=  identifiers two directories share, heaviest first (VIEW-2)
  *   GET /api/neighbors?path=  the three pointer lists for any file
  *
  * It writes nothing — there is no handler that writes — and it holds no state
@@ -34,6 +36,8 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import {
+  bridge,
+  directories,
   hunkNeighbors,
   languageOf,
   neighbors,
@@ -232,6 +236,19 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
         const text = await readOptional(abs);
         if (text === undefined) { json(res, 404, { error: 'not readable', path: rel }); return; }
         json(res, 200, { path: rel, lang: languageOf(rel), text });
+        return;
+      }
+      case '/api/dirs': {
+        const { built, identity } = await index();
+        json(res, 200, { identity, dirs: directories(built.map, 2) });
+        return;
+      }
+      case '/api/bridge': {
+        const a = url.searchParams.get('a') ?? '';
+        const b = url.searchParams.get('b') ?? '';
+        if (a === '' || b === '' || a === b) { json(res, 400, { error: 'two different directories required (a, b)' }); return; }
+        const { built, identity } = await index();
+        json(res, 200, { identity, result: bridge(built.map, a, b), note: 'Identifiers both directories contain, heaviest first (rarity × shape), wider spread on ties. A shared name is a lexical bridge, not a resolved symbol.' });
         return;
       }
       case '/api/where': {

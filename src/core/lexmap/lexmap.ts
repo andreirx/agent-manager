@@ -392,6 +392,29 @@ export interface BridgeResult {
   readonly rows: readonly BridgeRow[];
 }
 
+/**
+ * Directories of the indexed tree up to `depth` levels, with file counts and
+ * the languages seen beneath them (VIEW-2: the module pickers of the bridge
+ * view). A directory is whatever the paths say; nothing is inferred.
+ */
+export function directories(map: Lexmap, depth = 2): { path: string; files: number; langs: string[] }[] {
+  const acc = new Map<string, { files: number; langs: Set<string> }>();
+  for (const f of map.files) {
+    const parts = f.path.split('/');
+    for (let d = 1; d < Math.min(parts.length, depth + 1); d += 1) {
+      const dir = parts.slice(0, d).join('/');
+      let e = acc.get(dir);
+      if (!e) {
+        e = { files: 0, langs: new Set() };
+        acc.set(dir, e);
+      }
+      e.files += 1;
+      e.langs.add(f.lang);
+    }
+  }
+  return [...acc].map(([path, e]) => ({ path, files: e.files, langs: [...e.langs].sort() })).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
 function dirPrefix(dir: string): string {
   const d = dir.replace(/^\.\//, '').replace(/\/+$/, '');
   return d === '' || d === '.' ? '' : `${d}/`;

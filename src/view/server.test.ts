@@ -121,6 +121,16 @@ describe('view server', () => {
     expect(ended.run.status).toBe('completed');
   });
 
+  it('lists directories and answers bridge between two of them (VIEW-2)', async () => {
+    const d = (await api('/api/dirs')).body as { dirs: { path: string; files: number; langs: string[] }[] };
+    expect(d.dirs.map((x) => x.path)).toEqual(['docs', 'src']);
+    expect(d.dirs.find((x) => x.path === 'src')?.langs).toEqual(['sql', 'ts']);
+    const b = (await api('/api/bridge?a=src&b=docs')).body as { result: { rows: { token: string; filesA: string[]; filesB: string[] }[] } };
+    expect(b.result.rows.map((r) => r.token)).toEqual(['order_ledger']);
+    expect(b.result.rows[0]?.filesB).toEqual(['docs/ledger.md']);
+    expect((await api('/api/bridge?a=src&b=src')).status).toBe(400);
+  });
+
   it('answers where and neighbors, reads files only inside the target, and refuses writes', async () => {
     const w = await api('/api/where?token=order_ledger');
     const wb = w.body as { result: { status: string; files: { path: string }[] } };
