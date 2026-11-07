@@ -8,7 +8,8 @@ const [api, tokenFile, outDir, resultsJson, only] = process.argv.slice(2);
 // SPLIT MODE (CATEGORY-SPLIT-1, human 2026-11-07 "wipe dev products and import fresh"): `only` = 'SPLIT' imports every
 // `<list> — <Categorie>.xlsx` in outDir: producer = the first word(s) of the list name as in `plan`, category = the suffix
 // after ' — ' (created on dev when missing), VAT 0 % except KUBERIT (19 %, human ruling). One pricelist per file.
-const SPLIT = only === 'SPLIT';
+const SPLIT = !!only && only.startsWith('SPLIT'); // 'SPLIT' = every split workbook; 'SPLIT:<substring>' = only those whose name contains it
+const SPLIT_FILTER = SPLIT && only.includes(':') ? only.slice(only.indexOf(':') + 1) : '';
 const token = fs.readFileSync(tokenFile, 'utf8').trim();
 const H = { Authorization: `Bearer ${token}` };
 // Category / VAT mapping for the DEV rehearsal — an operator ASSUMPTION, listed as a Monday question (the category is
@@ -56,7 +57,7 @@ function record(rec) {
   if (rec.skipped || rec.step) console.log(`${rec.status ?? '-'} ${rec.file.padEnd(40)} ${rec.skipped ? 'SKIPPED absent' : `FAILED at ${rec.step}: ${rec.body}`}`);
 }
 const producerOf = (file) => { const base = file.split(' — ')[0]; const hit = plan.find(([f]) => f.replace('.xlsx', '') === base); return hit ? hit[1] : base.split(' ')[0]; };
-const splitPlan = SPLIT ? fs.readdirSync(outDir).filter((f) => f.endsWith('.xlsx') && f.includes(' — ')).sort().map((f) => {
+const splitPlan = SPLIT ? fs.readdirSync(outDir).filter((f) => f.endsWith('.xlsx') && f.includes(' — ') && (!SPLIT_FILTER || f.includes(SPLIT_FILTER))).sort().map((f) => {
   const cat = f.split(' — ')[1].replace('.xlsx', '');
   return [f, producerOf(f), cat, /^KUBERIT/i.test(f) ? VAT19 : VAT0];
 }) : null;
