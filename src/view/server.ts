@@ -10,6 +10,10 @@
  *                          and line numbers, untracked text files, the files
  *                          ordered by shared identifiers, and per file the three
  *                          pointer lists (code / tests / docs) of unchanged neighbors
+ *   GET /api/activity[?run=]  runs recorded under .agent-manager/activity/, the
+ *                          chosen (default newest) run's events, the paths it
+ *                          read/edited, and for a builder run the candidate's
+ *                          code neighbors it never opened (ACTIVITY-1)
  *   GET /api/file?path=    one file's text (inside the target only; .git refused)
  *   GET /api/where?token=  postings grouped by file, likely definitions first
  *   GET /api/neighbors?path=  the three pointer lists for any file
@@ -24,16 +28,19 @@
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
+import { touchedPaths, type ActivityEvent } from '../core/activity.js';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import {
+  hunkNeighbors,
   languageOf,
   neighbors,
   neighborsOfTokens,
   where,
   type Lexmap,
+  type NeighborRow,
   type NeighborRows,
 } from '../core/lexmap/lexmap.js';
 import { changedFileTokens, orderByAffinity, parseDiffHunks, type FileDiff, type OrderedFile } from '../core/lexmap/diff-view.js';
@@ -159,6 +166,52 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
     };
   };
 
+  /**
+   * ACTIVITY-1: the runs recorded under .agent-manager/activity/, the chosen
+   * run's events, the paths it read and edited, and — for a builder run — the
+   * candidate's code neighbors the agent never opened ("uninspected").
+   */
+  const activityInfo = async (wanted: string | null): Promise<unknown> => {
+    const dir = join(targetDir, '.agent-manager', 'activity');
+    let names: string[] = [];
+    try { names = (await readdir(dir)).filter((n) => n.endsWith('.ndjson')); } catch { names = []; }
+    const runs = await Promise.all(names.map(async (name) => {
+      const info = await stat(join(dir, name));
+      return { runId: name.slice(0, -'.ndjson'.length), mtimeMs: info.mtimeMs, bytes: info.size };
+    }));
+    runs.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.runId < b.runId ? 1 : -1));
+    const chosen = wanted ? runs.find((r) => r.runId === wanted) : runs[0];
+    if (!chosen) return { runs, run: null, events: [], counts: {}, touched: { read: [], edited: [] }, uninspected: null, note: 'no activity recorded yet for this target' };
+    const raw = await readOptional(join(dir, `${chosen.runId}.ndjson`)) ?? '';
+    const events: ActivityEvent[] = [];
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try { events.push(JSON.parse(line) as ActivityEvent); } catch { /* a partially written tail line */ }
+    }
+    const counts: Record<string, number> = {};
+    for (const e of events) counts[e.kind] = (counts[e.kind] ?? 0) + 1;
+    const touched = touchedPaths(events);
+    const first = events[0];
+    const last = events[events.length - 1];
+    const live = last?.kind !== 'run-end';
+    const provider = first?.provider ?? 'unknown';
+    const readsObservable = provider === 'claude';
+    let uninspected: { rows: NeighborRow[]; basis: string } | null = null;
+    if (first?.role === 'builder') {
+      const { built } = await index();
+      const changes = await readCandidateChanges(targetDir, 'HEAD');
+      const report = hunkNeighbors(built.map, changes);
+      const seen = new Set<string>([...touched.read, ...touched.edited]);
+      uninspected = {
+        rows: report.rows.code.filter((r) => !seen.has(r.path)),
+        basis: readsObservable
+          ? `code neighbors of the candidate's changed lines (${report.rows.code.length}) minus the ${seen.size} file${seen.size === 1 ? '' : 's'} this run read or edited`
+          : `code neighbors of the candidate's changed lines (${report.rows.code.length}); ${provider} does not expose file reads (reads happen inside shell commands), so nothing could be subtracted — treat every row as unconfirmed`,
+      };
+    }
+    return { runs, run: { ...chosen, provider, role: first?.role ?? null, live, startedAt: first?.at ?? null, endedAt: live ? null : last?.at ?? null, status: live ? 'running' : last?.detail ?? null }, events, counts, touched, uninspected, readsObservable };
+  };
+
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (req.method !== 'GET') { json(res, 405, { error: 'read-only viewer: GET only' }); return; }
@@ -171,6 +224,7 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
       }
       case '/api/slice': json(res, 200, await sliceInfo()); return;
       case '/api/diff': json(res, 200, await diffInfo()); return;
+      case '/api/activity': json(res, 200, await activityInfo(url.searchParams.get('run'))); return;
       case '/api/file': {
         const rel = url.searchParams.get('path') ?? '';
         const abs = containedPath(targetDir, rel);

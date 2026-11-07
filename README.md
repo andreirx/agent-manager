@@ -434,6 +434,8 @@ npm run view -- ../repo-graph            # http://127.0.0.1:7788/  read-only, Ct
 
 One page, three columns: the active slice and the candidate's changed files ordered by the identifiers they share; the selected file's diff hunks (or a whole file at a line); and pointers — code / tests / docs that share rare identifiers with the changed lines, or, after clicking an identifier, every place it occurs with likely definitions first. It reads the slice trail, git and the in-memory index; it never writes and the relay does not know it exists. `docs/slices/view-1.md`.
 
+The same page shows **agent activity** (ACTIVITY-1): every provider run appends what the agent read, edited, ran and searched to `<target>/.agent-manager/activity/<runId>.ndjson` as it happens; the viewer tails the newest run and lists the **uninspected neighbors** — code files related to the diff that the agent never opened. Which kinds are observable depends on the provider (Claude: all; Codex: commands; Copilot: start/end). `docs/slices/activity-1.md`.
+
 ## Validation commands
 
 Run TypeScript validation from the Agent Manager root:

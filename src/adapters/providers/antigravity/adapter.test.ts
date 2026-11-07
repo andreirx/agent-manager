@@ -7,7 +7,7 @@
 
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -216,5 +216,29 @@ describe('extractAntigravityResponse', () => {
       '',
     ].join('\n');
     expect(extractAntigravityResponse(stdout)).toEqual({ finalText: 'STORED\n', deniedActions: [], sessionId: '50a0d12b-5ddb-4110-9ddf-736291093182', resultStatus: 'SUCCESS' });
+  });
+});
+
+describe('ACTIVITY-1 activity log', () => {
+  test('a run inside a target with .agent-manager/ writes run-start and run-end to activity/<runId>.ndjson; without it, nothing', async () => {
+    await mkdir(join(dir, '.agent-manager'));
+    const { request } = reviewedRequest();
+    const result = await adapter().run(request);
+    expect(result.status).toBe('completed');
+    const lines = (await readFile(join(dir, '.agent-manager', 'activity', 'run-1.ndjson'), 'utf-8')).trim().split('\n').map((l) => JSON.parse(l) as { kind: string; provider: string; role: string; detail?: string; runId: string });
+    expect(lines.map((l) => [l.kind, l.provider, l.role, l.runId])).toEqual([
+      ['run-start', 'antigravity', 'reviewer', 'run-1'],
+      ['run-end', 'antigravity', 'reviewer', 'run-1'],
+    ]);
+    expect(lines[0]?.detail).toBe('mode review, model gemini-3.8-flash, effort high');
+    expect(lines[1]?.detail).toBe('completed');
+    // A bare working directory (no relay state) gets no activity directory.
+    const bare = await mkdtemp(join(tmpdir(), 'am-agy-bare-'));
+    try {
+      await adapter().run(reviewedRequest({ runId: 'run-bare', workingDir: bare }).request);
+      await expect(readFile(join(bare, '.agent-manager', 'activity', 'run-bare.ndjson'), 'utf-8')).rejects.toThrow();
+    } finally {
+      await rm(bare, { recursive: true, force: true });
+    }
   });
 });

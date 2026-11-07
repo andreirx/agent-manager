@@ -370,6 +370,8 @@ the raw log while exposing only extracted final agent text to the relay.
 
 ## Storage (in the target repo)
 
+**Activity logs (ACTIVITY-1, PROTOTYPE).** Every provider run appends `<target>/.agent-manager/activity/<runId>.ndjson` — one JSON event per line (`run-start`, `read`, `edit`, `exec`, `search`, `note`, `run-end`; see `docs/slices/activity-1.md`) as the run streams. Local-only process trail like the rest of `.agent-manager/`; best-effort (a run never fails because its activity could not be written); absent when the working directory has no `.agent-manager/`.
+
 ```
 <target>/.agent-manager/
   .gitignore                           created at runtime (any target)

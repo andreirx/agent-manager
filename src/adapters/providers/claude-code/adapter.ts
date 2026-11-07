@@ -14,6 +14,8 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
+import { claudeEvents } from '../../../core/activity.js';
+import { startActivityCapture } from '../../activity/capture.js';
 import { createHash } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, isAbsolute } from 'node:path';
@@ -168,10 +170,15 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     // a stalled builder was indistinguishable from a thinking one).
     const livePath = `${logPath}.live`;
     const liveStream = createWriteStream(livePath, { flags: 'a' });
+    // ACTIVITY-1: the same chunks, parsed into read/edit/exec/search events and
+    // appended to <workingDir>/.agent-manager/activity/<runId>.ndjson. Best-effort.
+    // (onChunk also carries stderr; non-JSON lines are ignored by the parser.)
+    const capture = await startActivityCapture(request, 'claude', claudeEvents, this.clock);
     let execResult: ExecResult;
     try {
       execResult = await this.execute(prepared.invocation, request.timeout, new TextDecoder().decode(prepared.stdinBytes), (chunk) => {
         liveStream.write(chunk);
+        capture.feed(chunk);
       });
     } finally {
       liveStream.end();
@@ -190,7 +197,9 @@ export class ClaudeAdapter implements ProviderRunnerPort {
     await this.writeLog(logPath, request, execResult, response.finalText, transcriptEnabled, startedAt, completedAt);
 
     // Build result
-    return this.buildResult(request, execResult, response, logPath, startedAt, completedAt, prepared.receipt);
+    const result = this.buildResult(request, execResult, response, logPath, startedAt, completedAt, prepared.receipt);
+    await capture.end(result.status);
+    return result;
   }
 
   /** Compose and identify exactly what a live spawn will receive, without spawning. */

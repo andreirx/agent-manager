@@ -61,6 +61,8 @@
   <section id="left">
     <h2>Slice</h2>
     <div id="slice" class="muted">loading…</div>
+    <h2>Agent activity <span id="activity-live" class="tag"></span></h2>
+    <div id="activity" class="muted">loading…</div>
     <h2>Changed files, in affinity order</h2>
     <div id="order-note" class="note"></div>
     <ul id="order"></ul>
@@ -207,7 +209,34 @@
     }
   });
 
+  // ACTIVITY-1: the newest run's events (polled every 5 s while it is live) and
+  // the uninspected neighbors — candidate code neighbors the agent never opened.
+  let activityRun = null;
+  async function loadActivity() {
+    const a = await api('/api/activity' + (activityRun ? '?run=' + encodeURIComponent(activityRun) : ''));
+    const el = $('activity');
+    if (!a.run) { el.textContent = a.note; $('activity-live').textContent = ''; return; }
+    $('activity-live').textContent = a.run.live ? '● live' : '';
+    const sel = a.runs.length > 1 ? `<select id="run-select">${a.runs.map((r) => `<option value="${esc(r.runId)}"${r.runId === a.run.runId ? ' selected' : ''}>${esc(r.runId)}</option>`).join('')}</select>` : `<b>${esc(a.run.runId)}</b>`;
+    const counts = Object.entries(a.counts).filter(([k]) => !k.startsWith('run-')).map(([k, v]) => `${v} ${k}`).join(' · ') || 'no tool events';
+    const recent = a.events.filter((e) => !e.kind.startsWith('run-')).slice(-40).reverse();
+    const rows = recent.map((e) => {
+      const what = e.path ? `<span class="file" data-path="${esc(e.path)}">${esc(e.path)}</span>` : e.command ? `<span class="muted">${esc(e.command.slice(0, 90))}${e.command.length > 90 ? '…' : ''}</span>` : e.pattern ? `<span class="muted">/${esc(e.pattern)}/</span>` : `<span class="muted">${esc(e.tool || '')}</span>`;
+      return `<div><span class="tag">${esc(e.kind)}</span> ${what}${e.detail ? `<span class="tag">${esc(e.detail)}</span>` : ''}</div>`;
+    }).join('');
+    let un = '';
+    if (a.uninspected) {
+      un = `<h2>Uninspected neighbors</h2><div class="note">${esc(a.uninspected.basis)}</div>` + (a.uninspected.rows.length ? a.uninspected.rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span><div class="link">${esc(r.shared.join(', '))}</div></div>`).join('') : '<div class="muted">none — every code neighbor was opened</div>');
+    }
+    el.innerHTML = `<div>${sel} <span class="tag">${esc(a.run.role || '')} · ${esc(a.run.provider)} · ${esc(a.run.status || '')}</span></div><div class="note">${counts}${a.readsObservable ? '' : ' · reads not observable for this provider'}</div>${rows}${un}`;
+    el.querySelectorAll('.file').forEach((x) => x.addEventListener('click', () => openFile(x.dataset.path, undefined, 'activity')));
+    const select = el.querySelector('#run-select');
+    if (select) select.addEventListener('change', () => { activityRun = select.value; loadActivity(); });
+    if (a.run.live) setTimeout(loadActivity, 5000);
+  }
+
   async function load() {
+    loadActivity().catch((e) => { $('activity').textContent = 'activity failed: ' + e.message; });
     const [s, d] = await Promise.all([api('/api/slice'), api('/api/diff')]);
     diff = d;
     $('target').textContent = s.target;

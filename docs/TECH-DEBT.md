@@ -991,3 +991,11 @@ while another live run holds it.
 - When to address: after VIEW-1 renders the rows beside the diff, where the human can judge the ordering on sight.
 - Update 2026-11-07 (human ruling after review-2): results are partitioned into code / tests / documentation, each ranked and capped on its own. The Markdown witness now heads the documentation partition ("potential doc updates") instead of displacing code rows; the length bias inside a partition remains and is still this debt.
 - Status: OPEN (mitigated by the partition)
+
+## TD-038 — activity parsers for Codex `file_change` and Antigravity tool steps are built from published shapes, not live captures
+- Date: 2026-11-07
+- What was done: ACTIVITY-1's pure parsers map Codex `item.completed` items of type `file_change` (`changes: [{path, kind}]`) to edit events and Antigravity `step_update` steps of `step_type: tool` to notes (`tool_name` / `display_name` / `name`, whichever exists). Claude's `tool_use` shapes and Codex `command_execution` were captured live (a glamCRM builder stream; a Codex `--json` smoke); the two above were not: the Codex smoke was read-only (no file change happened) and the Antigravity probe needs `--dangerously-skip-permissions`, which the authoring harness refused.
+- Why acceptable: both parsers keep every string field they find and never throw; an unexpected shape costs only the richness of that event, never the run. The viewer says per provider which kinds are observable.
+- Proper solution: capture one live Codex builder run with a write and one Antigravity run with a tool step (an operator-run smoke in a scratch target), pin both line shapes in `core/activity.test.ts`, and adjust the field names if they differ.
+- When to address: the first time a Codex or Antigravity builder runs under the relay after this commit — read its `.agent-manager/activity/<runId>.ndjson` and compare.
+- Status: OPEN

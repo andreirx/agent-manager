@@ -32,6 +32,8 @@
  * @maturity PROTOTYPE
  */
 
+import { antigravityEvents } from '../../../core/activity.js';
+import { startActivityCapture } from '../../activity/capture.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -153,13 +155,17 @@ export class AntigravityAdapter implements ProviderRunnerPort {
     const logPath = this.buildLogPath(request, startedAt);
     await mkdir(dirname(logPath), { recursive: true });
 
-    const execResult = await this.execute(prepared.invocation, request.timeout, prepared.stdinBytes);
+    // ACTIVITY-1: tool steps from the stream-json events, appended live. Best-effort.
+    const capture = await startActivityCapture(request, 'antigravity', antigravityEvents, this.clock);
+    const execResult = await this.execute(prepared.invocation, request.timeout, prepared.stdinBytes, (chunk) => capture.feed(chunk));
     const response = extractAntigravityResponse(execResult.stdout, request.providerSession?.kind === 'resume' ? request.providerSession.sessionId : undefined);
 
     const completedAt = this.clock.now();
     await this.writeLog(logPath, request, execResult, response, startedAt, completedAt);
 
-    return this.buildResult(request, execResult, response, logPath, startedAt, completedAt, prepared.receipt);
+    const result = this.buildResult(request, execResult, response, logPath, startedAt, completedAt, prepared.receipt);
+    await capture.end(result.status);
+    return result;
   }
 
   /** Compose and identify exactly what a live spawn will receive, without spawning. */
@@ -262,7 +268,8 @@ export class AntigravityAdapter implements ProviderRunnerPort {
   private async execute(
     invocation: { command: string; args: string[]; cwd: string },
     timeout: number | undefined,
-    stdinBytes: Uint8Array
+    stdinBytes: Uint8Array,
+    onStdout?: (chunk: Buffer) => void
   ): Promise<ExecResult> {
     const effectiveTimeout = timeout ?? this.config.defaultTimeout;
 
@@ -308,6 +315,7 @@ export class AntigravityAdapter implements ProviderRunnerPort {
 
       proc.stdout?.on('data', (data: Buffer) => {
         stdout += data.toString();
+        onStdout?.(data);
       });
 
       proc.stderr?.on('data', (data: Buffer) => {

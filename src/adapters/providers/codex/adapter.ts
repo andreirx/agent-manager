@@ -8,6 +8,8 @@
  * @maturity PROTOTYPE
  */
 
+import { codexEvents } from '../../../core/activity.js';
+import { startActivityCapture } from '../../activity/capture.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -132,7 +134,10 @@ export class CodexAdapter implements ProviderRunnerPort {
 
     await mkdir(dirname(logPath), { recursive: true });
 
-    const execResult = await this.execute(prepared.invocation, request.timeout, new TextDecoder().decode(prepared.stdinBytes));
+    // ACTIVITY-1: completed commands (and file changes, when emitted) from the
+    // --json stream, appended live to the run's activity log. Best-effort.
+    const capture = await startActivityCapture(request, 'codex', codexEvents, this.clock);
+    const execResult = await this.execute(prepared.invocation, request.timeout, new TextDecoder().decode(prepared.stdinBytes), (chunk) => capture.feed(chunk));
     const response = request.providerSession
       ? extractCodexJsonResponse(execResult.stdout)
       : { finalText: execResult.stdout };
@@ -141,7 +146,9 @@ export class CodexAdapter implements ProviderRunnerPort {
 
     await this.writeLog(logPath, request, execResult, startedAt, completedAt);
 
-    return this.buildResult(request, execResult, response, logPath, startedAt, completedAt, prepared.receipt);
+    const result = this.buildResult(request, execResult, response, logPath, startedAt, completedAt, prepared.receipt);
+    await capture.end(result.status);
+    return result;
   }
 
   /** Compose and identify exactly what a live spawn will receive, without spawning. */
@@ -264,7 +271,8 @@ export class CodexAdapter implements ProviderRunnerPort {
   private async execute(
     invocation: { command: string; args: string[]; cwd: string },
     timeout: number | undefined,
-    stdinContent: string
+    stdinContent: string,
+    onStdout?: (chunk: Buffer) => void
   ): Promise<ExecResult> {
     const effectiveTimeout = timeout ?? this.config.defaultTimeout;
 
@@ -312,6 +320,7 @@ export class CodexAdapter implements ProviderRunnerPort {
 
       proc.stdout?.on('data', (data: Buffer) => {
         stdout += data.toString();
+        onStdout?.(data);
       });
 
       proc.stderr?.on('data', (data: Buffer) => {

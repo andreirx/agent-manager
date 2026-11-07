@@ -98,6 +98,29 @@ describe('view server', () => {
     expect(p?.docs.map((row) => row.path)).toEqual(['docs/ledger.md']);
   });
 
+  it('serves activity: the newest run, its events and touched paths, and the uninspected code neighbors', async () => {
+    const before = await api('/api/activity');
+    expect((before.body as { run: unknown; note: string }).run).toBeNull();
+    const dir = join(repo, '.agent-manager/activity');
+    await mkdir(dir, { recursive: true });
+    const ev = (kind: string, extra: Record<string, unknown>) => JSON.stringify({ at: '2026-11-07T10:00:00.000Z', runId: 'build-S-1-1', sliceId: 'S-1', role: 'builder', provider: 'claude', kind, ...extra });
+    await writeFile(join(dir, 'build-S-1-1.ndjson'), [ev('run-start', { detail: 'mode edit' }), ev('read', { tool: 'Read', path: 'src/users.ts' }), ev('exec', { tool: 'Bash', command: 'npm test' }), ev('edit', { tool: 'Edit', path: 'src/orders.ts' }), ''].join('\n'));
+    const r = await api('/api/activity');
+    const body = r.body as { run: { runId: string; live: boolean; provider: string; role: string }; counts: Record<string, number>; touched: { read: string[]; edited: string[] }; uninspected: { rows: { path: string }[]; basis: string }; readsObservable: boolean };
+    expect(body.run.runId).toBe('build-S-1-1');
+    expect(body.run.live).toBe(true); // no run-end yet
+    expect(body.counts).toEqual({ 'run-start': 1, read: 1, exec: 1, edit: 1 });
+    expect(body.touched).toEqual({ read: ['src/users.ts'], edited: ['src/orders.ts'] });
+    expect(body.readsObservable).toBe(true);
+    // Candidate code neighbors are src/schema.sql and src/users.ts; the run read users.ts → schema.sql remains uninspected.
+    expect(body.uninspected.rows.map((x) => x.path)).toEqual(['src/schema.sql']);
+    expect(body.uninspected.basis).toContain('minus the 2 files this run read or edited');
+    await writeFile(join(dir, 'build-S-1-1.ndjson'), ev('run-end', { detail: 'completed' }) + '\n', { flag: 'a' });
+    const ended = (await api('/api/activity?run=build-S-1-1')).body as { run: { live: boolean; status: string } };
+    expect(ended.run.live).toBe(false);
+    expect(ended.run.status).toBe('completed');
+  });
+
   it('answers where and neighbors, reads files only inside the target, and refuses writes', async () => {
     const w = await api('/api/where?token=order_ledger');
     const wb = w.body as { result: { status: string; files: { path: string }[] } };

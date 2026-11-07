@@ -22,6 +22,7 @@
  * @maturity PROTOTYPE
  */
 
+import { noStreamParser, startActivityCapture } from '../../activity/capture.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -158,13 +159,18 @@ export class CopilotAdapter implements ProviderRunnerPort {
 
     await mkdir(dirname(logPath), { recursive: true });
 
+    // ACTIVITY-1: Copilot's batch output carries no structured events; the
+    // activity log records run start and end only. Best-effort.
+    const capture = await startActivityCapture(request, 'copilot', noStreamParser, this.clock);
     const execResult = await this.execute(prepared.invocation, request.timeout, new TextDecoder().decode(prepared.stdinBytes));
 
     const completedAt = this.clock.now();
 
     await this.writeLog(logPath, request, execResult, startedAt, completedAt);
 
-    return this.buildResult(request, execResult, logPath, startedAt, completedAt, prepared.receipt);
+    const result = this.buildResult(request, execResult, logPath, startedAt, completedAt, prepared.receipt);
+    await capture.end(result.status);
+    return result;
   }
 
   /** Compose and identify exactly what a live spawn will receive, without spawning. */

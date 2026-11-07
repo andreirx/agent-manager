@@ -127,6 +127,9 @@ ranking tuning is TD-037.
 `npm run view -- <target> [--port <n>]`: the read-only browser viewer (VIEW-1, PROTOTYPE — `docs/slices/view-1.md`):
 slice trail, candidate diff in affinity order with hunks, click-an-identifier `where`, code/tests/docs pointers.
 Orthogonal to the relay (no relay file touched; writes nothing).
+ACTIVITY-1 (PROTOTYPE — `docs/slices/activity-1.md`): every provider run appends read/edit/exec/search events to
+`<target>/.agent-manager/activity/<runId>.ndjson` (best-effort; relay use case untouched); the viewer shows the live run
+and the uninspected neighbors. Unverified Codex/Antigravity shapes: TD-038.
 
 ## Current Phase
 
