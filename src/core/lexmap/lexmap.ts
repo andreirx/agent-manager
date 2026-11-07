@@ -549,19 +549,26 @@ export function bridge(map: Lexmap, dirA: string, dirB: string): BridgeResult {
   const a = dirPrefix(dirA);
   const b = dirPrefix(dirB);
   const rows: BridgeRow[] = [];
+  // Test files are not a side of a bridge: two test suites sharing a fixture name (`DriftCo`,
+  // `HEADER_13` on glamCRM, VIEW-5 walk) say nothing about the modules. Docs stay: "which code
+  // names does the documentation mention" is a real question.
   for (const [token, entry] of map.tokens) {
     const filesA: string[] = [];
     const filesB: string[] = [];
     for (const f of entry.files) {
       const p = map.files[f]?.path ?? '';
+      if (pathClass(p) === 'test') continue;
       if (p.startsWith(a)) filesA.push(p);
       if (p.startsWith(b)) filesB.push(p);
     }
     if (filesA.length === 0 || filesB.length === 0) continue;
     rows.push({ token: displayForm(map, token), weight: tokenWeight(map, token), filesA, filesB });
   }
-  // Weight, then spread (a token on more files of both sides is more structural), then name.
-  rows.sort((x, y) => y.weight - x.weight || (y.filesA.length + y.filesB.length) - (x.filesA.length + x.filesB.length) || (x.token < y.token ? -1 : 1));
+  // Rarity × spread: a name on one file each side is a coincidence as often as a bridge; one on
+  // several files of both sides is structural. ln keeps ecosystem vocabulary (dozens of files)
+  // from drowning the rare structural names. No oracle covers bridges yet (the eval labels neighbors).
+  const spread = (r: BridgeRow): number => r.weight * (1 + Math.log(r.filesA.length + r.filesB.length - 1));
+  rows.sort((x, y) => spread(y) - spread(x) || (x.token < y.token ? -1 : 1));
   return { dirA: a, dirB: b, rows: rows.slice(0, map.params.maxBridgeTokens) };
 }
 

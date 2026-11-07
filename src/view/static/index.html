@@ -82,6 +82,7 @@
   #session summary.sub { cursor:pointer; color:var(--muted); }
   #session .run { padding:1px 0; cursor:pointer; } #session .run.cur .file { font-weight:600; }
   #session .cmd { cursor:pointer; } #session .cmd .full { white-space:pre-wrap; overflow-wrap:anywhere; }
+  .pick label { display:block; margin:2px 0; } .pick select { max-width:100%; } .pick button { margin-top:4px; }
   #menu { position:fixed; display:none; z-index:10; background:var(--bg); border:1px solid var(--line); border-radius:4px; box-shadow:0 4px 16px rgba(0,0,0,.25); padding:4px 0; max-width:40em; max-height:60vh; overflow:auto; }
   #menu .mi { padding:3px 10px; cursor:pointer; overflow-wrap:anywhere; } #menu .mi:hover { background:var(--panel); } #menu .mh { padding:3px 10px; color:var(--muted); font-size:12px; }
   /* highlight.js theme (inline) */
@@ -118,10 +119,10 @@
     <h2 id="right-title">Related</h2>
     <div class="note">For the active tab: files that share rare identifiers with it — code to open, tests that use the same names, docs that mention them. Score = Σ rarity of the shared names (names the file defines count twice). Hints, not facts.</div>
     <div id="pointers" class="muted">nothing open</div>
-    <h2>Bridges between modules</h2>
-    <div class="note">The identifiers two directories both contain, rarest first — the names that cross a module or language boundary. Click a name to put it in focus.</div>
-    <div><select id="bridge-a"></select> ↔ <select id="bridge-b"></select> <button id="bridge-go">show</button></div>
-    <div id="bridge"></div>
+    <h2>Which names do two parts of the repository share?</h2>
+    <div class="note">Pick two directories. The list below is every identifier that appears in both — the names that cross from one module or language into the other (a Java class and the TypeScript that mirrors it, a SQL column and the code that reads it). Rarest first. Click a name to put it in focus and jump to it.</div>
+    <div class="pick"><label>this <select id="bridge-a"></select></label> <label>and <select id="bridge-b"></select></label> <button id="bridge-go">compare</button></div>
+    <div id="bridge" class="muted">choosing the two largest directories…</div>
   </section>
 </main>
 <details id="session">
@@ -433,18 +434,25 @@
     const rest = d.dirs.filter((x) => x.path.includes('/')).sort((a, b) => a.path.localeCompare(b.path));
     const opts = [...top, ...rest].map((x) => `<option value="${esc(x.path)}">${esc(x.path)} (${x.files}; ${esc(x.langs.slice(0, 4).join(','))})</option>`).join('');
     $('bridge-a').innerHTML = opts; $('bridge-b').innerHTML = opts;
-    if (top.length > 1) $('bridge-b').selectedIndex = 1;
+    if (top.length > 1) { $('bridge-b').selectedIndex = 1; await showBridge(); } // the answer is on the page before anyone presses anything
+    else $('bridge').textContent = 'only one directory here — nothing to compare';
   }
   async function showBridge() {
     const a = $('bridge-a').value, b = $('bridge-b').value;
     const r = await api('/api/bridge?a=' + encodeURIComponent(a) + '&b=' + encodeURIComponent(b));
-    const el = $('bridge');
+    const el = $('bridge'); el.classList.remove('muted');
     if (r.error) { el.textContent = r.error; return; }
-    el.innerHTML = r.result.rows.length ? r.result.rows.map((x) => `<div class="ptr"><span class="s">${x.weight.toFixed(1)}</span><span class="occ" data-token="${esc(x.token)}">${esc(x.token)}</span><span class="tag">${x.filesA.length}↔${x.filesB.length}</span><div class="link"><span class="file" data-path="${esc(x.filesA[0])}">${esc(x.filesA[0])}</span> ↔ <span class="file" data-path="${esc(x.filesB[0])}">${esc(x.filesB[0])}</span></div></div>`).join('') : '<div class="muted">no shared rare identifier</div>';
-    el.querySelectorAll('.occ').forEach((t) => t.addEventListener('click', () => focusToken(t.dataset.token, false)));
+    const rows = r.result.rows;
+    // The answer in a sentence, then the names; each row says how many files on each side hold the name and shows one example per side.
+    el.innerHTML = `<div class="note"><b>${esc(a)}</b> and <b>${esc(b)}</b> share ${rows.length === 0 ? 'no rare identifier' : `${rows.length}${rows.length >= 30 ? '+' : ''} rare identifier${rows.length === 1 ? '' : 's'}`}${rows.length ? ' — name · files on each side · one example per side:' : '.'}</div>`
+      + rows.map((x) => `<div class="ptr"><span class="occ" data-token="${esc(x.token)}">${esc(x.token)}</span><span class="tag">${x.filesA.length} ↔ ${x.filesB.length} file${x.filesA.length + x.filesB.length === 2 ? '' : 's'}</span><div class="link"><span class="file" data-path="${esc(x.filesA[0])}">${esc(x.filesA[0])}</span><br>↔ <span class="file" data-path="${esc(x.filesB[0])}">${esc(x.filesB[0])}</span></div></div>`).join('');
+    el.querySelectorAll('.occ').forEach((t) => t.addEventListener('click', () => focusToken(t.dataset.token, true)));
     el.querySelectorAll('.file').forEach((f) => f.addEventListener('click', () => openFile(f.dataset.path)));
   }
-  $('bridge-go').addEventListener('click', () => showBridge().catch((e) => { $('bridge').textContent = 'bridge failed: ' + e.message; }));
+  $('bridge-go').addEventListener('click', () => showBridge().catch((e) => { $('bridge').textContent = 'comparison failed: ' + e.message; }));
+  // Changing either pick compares at once; the button stays for the reader who expects one.
+  $('bridge-a').addEventListener('change', () => showBridge().catch(() => {}));
+  $('bridge-b').addEventListener('change', () => showBridge().catch(() => {}));
 
   // ------------------------------------------------------------- load
   async function load() {
