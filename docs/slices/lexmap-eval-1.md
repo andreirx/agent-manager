@@ -78,3 +78,7 @@ After the ruling the `conceptKeys` flag collapses to one behaviour and `ranking`
 - The labels are one agent's reading per repository under a written criterion, not the human's; the reasons make every line checkable. Two borderline classes recur in the labellers' reports: cross-cutting utilities that the query imports (`api-client.ts`, `import_string`) were marked unrelated by the rule; "sibling implementations of the same contract" were marked related. Both rules can be flipped and the sheets re-scored.
 - Queries are random program files; a sheet seeded for cross-language pairs (handler ↔ client ↔ schema) would measure the keys where they matter.
 - k = 10 matches the pointer caps; the relay's `hunkNeighbors` ranks a whole candidate's token set, which the sheets do not model directly.
+
+## 7. Ruling (human 2026-11-07)
+
+**Option A.** `def-bonus` on the concept-key index is the default (`DEFAULT_LEXMAP_PARAMS.ranking = 'def-bonus'`); the `conceptKeys` flag is gone — the index is always keyed by concept key, every spelling kept, the most frequent shown. The other five variants stay as the eval's comparisons (`npm run lexmap-eval -- score` now runs on the keyed index only). Normalisation is not adopted; option D (a second seed to separate sibling noise from lost hubs) stays available.

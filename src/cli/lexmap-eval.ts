@@ -19,7 +19,6 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { buildWorkingTreeLexmap, treeIdentity } from '../adapters/lexmap/git-working-tree.js';
 import { appendCandidates, medianTokenCount, parseSheet, renderSheet, sampleQueries, scoreAll, topMoves, unjudgedTop, DEFAULT_SAMPLE_PARAMS, type VariantScore } from '../core/lexmap/eval.js';
-import { buildLexmap, DEFAULT_LEXMAP_PARAMS } from '../core/lexmap/lexmap.js';
 
 function usage(): never {
   console.error('Usage: npm run lexmap-eval -- sample <repo> [--queries n] [--seed n] [--out file] | score <sheet.md>… [--k n] [--moves] [--json]');
@@ -65,8 +64,7 @@ async function extend(sheetPaths: string[], flags: Record<string, string | true>
     const text = await readFile(resolve(p), 'utf-8');
     const sheet = parseSheet(text);
     const built = await buildWorkingTreeLexmap(sheet.repo);
-    const keyed = buildLexmap(built.read.files, { ...DEFAULT_LEXMAP_PARAMS, conceptKeys: true });
-    const additions = unjudgedTop([built.map, keyed], sheet, k);
+    const additions = unjudgedTop([built.map], sheet, k);
     await writeFile(resolve(p), appendCandidates(text, additions), 'utf-8');
     const n = [...additions.values()].reduce((a, b) => a + b.length, 0);
     console.log(`${p}: ${n} unlabelled candidates appended under ${additions.size} queries`);
@@ -85,10 +83,7 @@ async function score(sheetPaths: string[], flags: Record<string, string | true>)
     const sheet = parseSheet(await readFile(resolve(p), 'utf-8'));
     const built = await buildWorkingTreeLexmap(sheet.repo);
     const identityNow = await treeIdentity(sheet.repo, built.read);
-    // Every variant on the exact-spelling index, then again on the concept-key index (LEXMAP-2), labelled "+keys".
-    const keyed = buildLexmap(built.read.files, { ...DEFAULT_LEXMAP_PARAMS, conceptKeys: true });
-    const scores = [...scoreAll(built.map, sheet, k), ...scoreAll(keyed, sheet, k).map((s) => ({ ...s, variant: `${s.variant}+keys` as VariantScore['variant'] }))];
-    all.push({ sheet: p, repo: sheet.repo, identityNow, identitySheet: sheet.identity, scores });
+    all.push({ sheet: p, repo: sheet.repo, identityNow, identitySheet: sheet.identity, scores: scoreAll(built.map, sheet, k) });
   }
   if (flags.json) {
     console.log(JSON.stringify(all, null, 2));

@@ -991,7 +991,8 @@ while another live run holds it.
 - When to address: after VIEW-1 renders the rows beside the diff, where the human can judge the ordering on sight.
 - Update 2026-11-07 (human ruling after review-2): results are partitioned into code / tests / documentation, each ranked and capped on its own. The Markdown witness now heads the documentation partition ("potential doc updates") instead of displacing code rows; the length bias inside a partition remains and is still this debt.
 - Update 2026-11-07 (LEXMAP-EVAL-1, `docs/slices/lexmap-eval-1.md`): measured on 36 queries / 1,012 labelled pairs over six repositories. `sum` P@10 0.46, R@10 0.61; `sqrt-norm` 0.50 / 0.69 (15 queries better, 8 worse — the losses are large hub files a reviewer must open); `def-bonus+keys` 0.50 / 0.64 (8 better, 2 worse). The bias is confirmed; plain normalisation trades sibling noise for lost hubs. Default ranking awaits the human's ruling (slice doc §5).
-- Status: OPEN (measured; ruling pending)
+- Update 2026-11-07 (human ruling, option A): default ranking = `def-bonus` on the concept-key index (LEXMAP-2 always on). Length normalisation not adopted — it loses real hub files; re-measure on a second seed before revisiting.
+- Status: RESOLVED by ruling (the bias is measured and bounded; the oracle stays the regression test for any ranking change)
 
 ## TD-038 — activity parsers for Codex `file_change` and Antigravity tool steps are built from published shapes, not live captures
 - Date: 2026-11-07

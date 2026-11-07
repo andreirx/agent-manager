@@ -56,15 +56,12 @@ export interface LexmapParams {
    * English vocabulary.
    */
   readonly wordWeight: number;
-  /** How a neighbor's shared-token weights become its score (LEXMAP-EVAL-1, TD-037). */
-  readonly ranking: RankingVariant;
   /**
-   * Index identifiers by their concept key (`settleOrder` ≡ `settle_order` ≡
-   * `SettleOrder`, see `conceptKey`) instead of their exact spelling, so names
-   * meet across languages (LEXMAP-2). Off = LEXMAP-1 behaviour. Compared by the
-   * eval; collapses to one behaviour after the ruling.
+   * How a neighbor's shared-token weights become its score (LEXMAP-EVAL-1,
+   * TD-037). Human ruling 2026-11-07 (option A): `def-bonus` on the concept-key
+   * index is the default; the other variants stay for the eval's comparisons.
    */
-  readonly conceptKeys: boolean;
+  readonly ranking: RankingVariant;
 }
 
 /**
@@ -93,8 +90,7 @@ export const DEFAULT_LEXMAP_PARAMS: LexmapParams = {
   maxSharedShown: 6,
   maxBridgeTokens: 30,
   wordWeight: 0.2,
-  ranking: 'sum',
-  conceptKeys: false,
+  ranking: 'def-bonus',
 };
 
 export type TokenShape = 'identifier' | 'word';
@@ -133,7 +129,7 @@ interface TokenEntry {
   files: number[];
   /** Sorted unique file indexes with at least one likely-definition occurrence (⊆ files). */
   defFiles: number[];
-  /** Spellings seen for this key, first seen first (one entry when `conceptKeys` is off). */
+  /** Spellings seen for this key, first seen first (`settleOrder`, `settle_order`, …). */
   surfaces: string[];
   /** Occurrences per surface, parallel to `surfaces`. */
   surfaceCounts: number[];
@@ -141,16 +137,16 @@ interface TokenEntry {
   postings: number[];
 }
 
-/** The index key of an identifier as the index was built. */
-export function keyOf(map: Lexmap, token: string): string {
-  return map.params.conceptKeys ? conceptKey(token) : token;
-}
-
-/** Distinct index keys of a text — what the queries pass to the index. */
+/**
+ * Distinct index keys of a text — what the queries pass to the index. The
+ * index is keyed by concept key (LEXMAP-2, human ruling 2026-11-07):
+ * `settleOrder`, `settle_order` and `SettleOrder` are one key, so names meet
+ * across languages; every spelling is kept and the most frequent one is shown.
+ */
 export function distinctKeys(map: Lexmap, text: string): Set<string> {
   const out = new Set<string>();
   for (const t of distinctTokens(text, map.params.minTokenLength)) {
-    const k = keyOf(map, t);
+    const k = conceptKey(t);
     if (k !== '') out.add(k);
   }
   return out;
@@ -196,7 +192,7 @@ export function buildLexmap(sources: readonly SourceFile[], params: LexmapParams
   const df = new Map<string, number>();
   const perFile: Set<string>[] = [];
   let chars = 0;
-  const toKey = params.conceptKeys ? conceptKey : (t: string): string => t;
+  const toKey = conceptKey;
   for (const s of sources) {
     chars += s.text.length;
     const set = new Set<string>();
@@ -320,7 +316,7 @@ export type WhereResult =
 
 /** Postings of one token grouped by file: definitions first, test/doc files last. */
 export function where(map: Lexmap, token: string): WhereResult {
-  const key = keyOf(map, token);
+  const key = conceptKey(token);
   const entry = map.tokens.get(key);
   if (!entry) {
     const df = map.noise.get(key);

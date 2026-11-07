@@ -21,7 +21,7 @@ import {
   type SourceFile,
 } from './lexmap.js';
 
-const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2, ranking: 'sum', conceptKeys: false };
+const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2, ranking: 'sum' };
 
 describe('tokenize', () => {
   it('yields identifiers with 1-based line/col, honours minLength, marks likely definitions', () => {
@@ -237,17 +237,14 @@ describe('concept keys (LEXMAP-2, sub-tokenization)', () => {
     expect(conceptKey('___')).toBe('');
   });
 
-  it('with conceptKeys on, a TS camelCase name and a SQL snake_case name are one key; off, they are two tokens', () => {
+  it('a TS camelCase name and a SQL snake_case name are one key', () => {
     const sources: SourceFile[] = [
       { path: 'src/orders.ts', text: 'export function settleOrder() { return db.query("ledger_rows"); }\n' },
       { path: 'db/schema.sql', text: 'CREATE TABLE settle_order (id TEXT);\nCREATE TABLE other_thing (id TEXT);\n' },
       { path: 'src/users.ts', text: 'const createUser = () => 1;\n' },
       { path: 'src/misc.ts', text: 'const unrelated_name = 1;\n' },
     ];
-    const off = buildLexmap(sources, PARAMS);
-    expect(where(off, 'settle_order')).toMatchObject({ status: 'found', files: [{ path: 'db/schema.sql' }] });
-    expect(where(off, 'settleOrder')).toMatchObject({ status: 'found', files: [{ path: 'src/orders.ts' }] });
-    const on = buildLexmap(sources, { ...PARAMS, conceptKeys: true });
+    const on = buildLexmap(sources, PARAMS);
     const r = where(on, 'settleOrder');
     expect(r.status).toBe('found');
     if (r.status !== 'found') return;
@@ -263,7 +260,6 @@ describe('concept keys (LEXMAP-2, sub-tokenization)', () => {
     expect(n.status).toBe('found');
     if (n.status !== 'found') return;
     expect(n.rows.code.map((row) => [row.path, row.shared])).toEqual([['db/schema.sql', ['settleOrder']]]);
-    expect(neighbors(off, 'src/orders.ts')).toMatchObject({ status: 'found', rows: { code: [] } });
     // The bridge between the two directories names the concept by its most frequent spelling.
     expect(bridge(on, 'src', 'db').rows.map((row) => row.token)).toEqual(['settleOrder']);
   });

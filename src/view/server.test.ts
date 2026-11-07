@@ -126,7 +126,7 @@ describe('view server', () => {
     expect(d.dirs.map((x) => x.path)).toEqual(['docs', 'src']);
     expect(d.dirs.find((x) => x.path === 'src')?.langs).toEqual(['sql', 'ts']);
     const b = (await api('/api/bridge?a=src&b=docs')).body as { result: { rows: { token: string; filesA: string[]; filesB: string[] }[] } };
-    expect(b.result.rows.map((r) => r.token)).toEqual(['order_ledger']);
+    expect(b.result.rows.map((r) => r.token)).toEqual(['order_ledger', 'TABLE']); // concept keys: SQL TABLE and the doc's "table" are one key, shown by its most frequent spelling
     expect(b.result.rows[0]?.filesB).toEqual(['docs/ledger.md']);
     expect((await api('/api/bridge?a=src&b=src')).status).toBe(400);
   });
