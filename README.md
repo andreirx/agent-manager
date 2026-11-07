@@ -424,7 +424,7 @@ npm run lexmap -- ../repo-graph bridge backend renderer    # identifiers two dir
 npm run lexmap -- ../repo-graph hunk-neighbors              # unchanged files linked to the uncommitted diff
 ```
 
-Design, measurements and limits: `docs/slices/lexmap-1.md`; ranking tuning: TD-037.
+Design, measurements and limits: `docs/slices/lexmap-1.md`; ranking tuning: TD-037, measured by the ranking oracle (`npm run lexmap-eval`, labelled sheets under `fixtures/lexmap-eval/`, `docs/slices/lexmap-eval-1.md`).
 
 ### The viewer (`view`, PROTOTYPE)
 
