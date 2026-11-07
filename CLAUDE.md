@@ -131,6 +131,8 @@ ACTIVITY-1 (PROTOTYPE — `docs/slices/activity-1.md`): every provider run appen
 `<target>/.agent-manager/activity/<runId>.ndjson` (best-effort; relay use case untouched); the viewer shows the live run
 and the uninspected neighbors. Unverified Codex/Antigravity shapes: TD-038.
 VIEW-2 (PROTOTYPE — `docs/slices/view-2.md`): the bridge view (identifiers two directories share) on the same page.
+VIEW-3 (PROTOTYPE — `docs/slices/view-3.md`): identifiers are links (left click → likely definition + `where`; right click → menu), inline
+syntax theme, legend. Builder-side injection ruled out (human 2026-11-07): builders learn the command from the target CLAUDE.md.
 
 ## Current Phase
 

@@ -20,3 +20,7 @@ Builder-side injection (neighbors of the packet's named files into the builder's
 ## Limits
 
 The bridge ranking has the same two faces measured in TD-037: by weight it favours thin 1↔1 links; by spread it surfaces ecosystem vocabulary. The page shows the weight order with the spread beside each row so the reader can see both.
+
+### Ruling (human 2026-11-07)
+
+Builder-side injection: **no**. The builder is told how to use the index itself (the target's CLAUDE.md names the command); the reviewer keeps the pointers about what the diff touched. Closed.

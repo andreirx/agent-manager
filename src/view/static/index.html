@@ -5,32 +5,45 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Relay Viewer</title>
 <!--
-  VIEW-1 (PROTOTYPE): one page, three columns, read-only.
-  Left: the active slice and the candidate's changed files in affinity order.
+  VIEW-1..3 (PROTOTYPE): one page, three columns, read-only.
+  Left: how to read the page, the candidate's changed files in affinity order,
+  the active slice, the agent's activity, the bridge pickers.
   Middle: the selected file's diff hunks, or a whole file opened at a line.
-  Right: pointers — for a changed file its code / tests / docs neighbors; for a
-  clicked identifier the `where` results (definitions first). Clicking a
-  pointer opens that file in the middle at the line; the breadcrumb records the hops.
-  Syntax colors come from highlight.js on cdnjs when reachable; without it the
-  text renders plain and everything still works. No build step, no framework.
+  Right: pointers — for a changed file its code / tests / docs neighbors; for
+  an identifier the `where` results (definitions first); for two directories
+  the bridge.
+  Every identifier in the middle column is a link (VIEW-3): hover underlines
+  it; left click jumps to its best location (a likely definition, else the
+  top-ranked file) and lists every location on the right; right click opens a
+  menu of all its locations. The header's search box does the same for a typed
+  identifier. The breadcrumb records the hops.
+  Syntax colors: highlight.js from cdnjs colors a whole file (or a whole hunk)
+  at once so multi-line comments and strings keep their state; the theme is
+  inline so the page needs no stylesheet from the network. Without the script
+  the text renders plain and everything still works. No build step, no framework.
 -->
 <style>
-  :root { --bg:#fff; --fg:#1b1b1b; --muted:#666; --line:#e3e3e3; --add:#e6ffed; --del:#ffeef0; --ctx:transparent; --accent:#0b57d0; --panel:#f7f7f8; --mark:#fff3bf; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#121314; --fg:#e8e8e8; --muted:#9a9a9a; --line:#2b2d30; --add:#12361f; --del:#3d1a1f; --accent:#8ab4f8; --panel:#1b1d1f; --mark:#4a3f12; } }
-  :root[data-theme="dark"] { --bg:#121314; --fg:#e8e8e8; --muted:#9a9a9a; --line:#2b2d30; --add:#12361f; --del:#3d1a1f; --accent:#8ab4f8; --panel:#1b1d1f; --mark:#4a3f12; }
+  :root { --bg:#fff; --fg:#1b1b1b; --muted:#666; --line:#e3e3e3; --add:#e6ffed; --del:#ffeef0; --ctx:transparent; --accent:#0b57d0; --panel:#f7f7f8; --mark:#fff3bf;
+          --c-comment:#6a737d; --c-kw:#d73a49; --c-str:#032f62; --c-num:#005cc5; --c-title:#6f42c1; --c-type:#22863a; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#121314; --fg:#e8e8e8; --muted:#9a9a9a; --line:#2b2d30; --add:#12361f; --del:#3d1a1f; --accent:#8ab4f8; --panel:#1b1d1f; --mark:#4a3f12;
+          --c-comment:#8b949e; --c-kw:#ff7b72; --c-str:#a5d6ff; --c-num:#79c0ff; --c-title:#d2a8ff; --c-type:#7ee787; } }
+  :root[data-theme="dark"] { --bg:#121314; --fg:#e8e8e8; --muted:#9a9a9a; --line:#2b2d30; --add:#12361f; --del:#3d1a1f; --accent:#8ab4f8; --panel:#1b1d1f; --mark:#4a3f12;
+          --c-comment:#8b949e; --c-kw:#ff7b72; --c-str:#a5d6ff; --c-num:#79c0ff; --c-title:#d2a8ff; --c-type:#7ee787; }
   html, body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   header { padding:8px 16px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:baseline; flex-wrap:wrap; }
   header b { font-size:14px; }
+  header input { font:inherit; padding:2px 6px; border:1px solid var(--line); border-radius:4px; background:var(--panel); color:var(--fg); width:16em; }
   header .muted, .muted { color:var(--muted); }
   #crumbs a { color:var(--accent); cursor:pointer; text-decoration:none; }
-  main { display:grid; grid-template-columns: 300px 1fr 360px; gap:0; height:calc(100vh - 42px); }
+  main { display:grid; grid-template-columns: 300px 1fr 380px; gap:0; height:calc(100vh - 42px); }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; height:auto; } section { max-height:60vh; } }
   section { overflow:auto; border-right:1px solid var(--line); padding:8px 16px; }
   section:last-child { border-right:0; }
-  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:12px 0 6px; }
+  h2 { font-size:12px; letter-spacing:.04em; color:var(--muted); margin:12px 0 6px; overflow-wrap:anywhere; }
+  h2 .path { color:var(--fg); letter-spacing:0; }
   ul { list-style:none; margin:0; padding:0; }
   li { padding:3px 0; }
-  .file { cursor:pointer; color:var(--accent); }
+  .file { cursor:pointer; color:var(--accent); overflow-wrap:anywhere; }
   .file.active { font-weight:600; }
   .link { color:var(--muted); font-size:12px; margin-left:12px; }
   pre { margin:0; white-space:pre; tab-size:4; }
@@ -41,6 +54,7 @@
   .ln.add { background:var(--add); } .ln.del { background:var(--del); }
   .ln.mark { outline:2px solid var(--accent); }
   code { cursor:text; }
+  .id:hover { text-decoration:underline; cursor:pointer; }
   .ptr { padding:2px 0; } .ptr .s { color:var(--muted); display:inline-block; width:4em; text-align:right; margin-right:8px; }
   .tag { font-size:11px; color:var(--muted); margin-left:6px; }
   .where-file { margin:6px 0 2px; }
@@ -48,6 +62,18 @@
   .note { color:var(--muted); font-size:12px; margin:4px 0 10px; }
   details summary { cursor:pointer; color:var(--muted); }
   details pre { white-space:pre-wrap; background:var(--panel); padding:8px; border-radius:4px; }
+  #help { font-size:12px; } #help dl { margin:4px 0 0; } #help dt { font-weight:600; margin-top:6px; } #help dd { margin:0 0 0 12px; color:var(--muted); }
+  #menu { position:fixed; display:none; z-index:10; background:var(--bg); border:1px solid var(--line); border-radius:4px; box-shadow:0 4px 16px rgba(0,0,0,.25); padding:4px 0; max-width:40em; max-height:60vh; overflow:auto; }
+  #menu .mi { padding:3px 10px; cursor:pointer; overflow-wrap:anywhere; } #menu .mi:hover { background:var(--panel); }
+  #menu .mh { padding:3px 10px; color:var(--muted); font-size:12px; }
+  /* highlight.js theme (inline; no stylesheet from the network) */
+  .hljs-comment, .hljs-quote { color:var(--c-comment); font-style:italic; }
+  .hljs-keyword, .hljs-selector-tag, .hljs-meta, .hljs-doctag, .hljs-template-tag { color:var(--c-kw); }
+  .hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta .hljs-string { color:var(--c-str); }
+  .hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet, .hljs-link { color:var(--c-num); }
+  .hljs-title, .hljs-title.function_, .hljs-title.class_, .hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class { color:var(--c-title); }
+  .hljs-type, .hljs-built_in, .hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-params { color:var(--c-type); }
+  .hljs-emphasis { font-style:italic; } .hljs-strong { font-weight:600; }
 </style>
 </head>
 <body>
@@ -55,30 +81,44 @@
   <b>Relay Viewer</b>
   <span id="target" class="muted"></span>
   <span id="identity" class="muted"></span>
+  <input id="find" type="search" placeholder="find identifier… (Enter)" spellcheck="false">
   <span id="crumbs"></span>
 </header>
 <main>
   <section id="left">
-    <h2>Slice</h2>
-    <div id="slice" class="muted">loading…</div>
-    <h2>Bridges between modules</h2>
-    <div class="note">Which identifiers two directories share — the names that cross a module or language boundary.</div>
-    <div><select id="bridge-a"></select> ↔ <select id="bridge-b"></select> <button id="bridge-go">show</button></div>
-    <h2>Agent activity <span id="activity-live" class="tag"></span></h2>
-    <div id="activity" class="muted">loading…</div>
+    <details id="help"><summary>How to read this page</summary>
+      <dl>
+        <dt>Middle column</dt><dd>The diff of the selected changed file (green added, red removed, line numbers old | new), or a whole file opened at a line. Every identifier is a link.</dd>
+        <dt>Left click an identifier</dt><dd>Jumps to its best location — a likely definition if the index saw one (a <code>class</code>/<code>function</code>/<code>def</code>… keyword before it), else the top-ranked file — and lists every location on the right (* marks likely definitions).</dd>
+        <dt>Right click an identifier</dt><dd>A menu of all its locations; pick one to open it there.</dd>
+        <dt>Right column</dt><dd>Pointers for the file in the middle: code to open, tests that use the same names, docs that mention them. Score = sum of the rarity of the identifiers the two files share; the names shown are the rarest shared ones. Hints, not facts — a shared rare name is a lexical match, never a resolved reference.</dd>
+        <dt>Changed files, in affinity order</dt><dd>The candidate (working tree vs HEAD). Each file is placed after the earlier file it shares the most rare identifiers with, so related edits sit together.</dd>
+        <dt>Agent activity</dt><dd>What the newest relay run read, edited, ran and searched (live while it runs); below it, the code neighbors of the candidate the run never opened.</dd>
+        <dt>Bridges</dt><dd>Pick two directories: the identifiers both contain, rarest first — the names that cross a module or language boundary. Click a name for its locations.</dd>
+        <dt>Breadcrumb (header)</dt><dd>Your hops; click one to go back to it.</dd>
+      </dl>
+    </details>
     <h2>Changed files, in affinity order</h2>
     <div id="order-note" class="note"></div>
     <ul id="order"></ul>
+    <h2>Slice</h2>
+    <div id="slice" class="muted">loading…</div>
+    <h2>Agent activity <span id="activity-live" class="tag"></span></h2>
+    <div id="activity" class="muted">loading…</div>
+    <h2>Bridges between modules</h2>
+    <div class="note">Which identifiers two directories share — the names that cross a module or language boundary.</div>
+    <div><select id="bridge-a"></select> ↔ <select id="bridge-b"></select> <button id="bridge-go">show</button></div>
   </section>
   <section id="middle">
     <h2 id="middle-title">Diff</h2>
-    <div id="code" class="muted">Select a changed file on the left. Click any identifier in the code to see where else it occurs.</div>
+    <div id="code" class="muted">Select a changed file on the left, or type an identifier in the header. Click any identifier in the code to go where it is defined.</div>
   </section>
   <section id="right">
     <h2 id="right-title">Pointers</h2>
     <div id="pointers" class="muted">Hints, not facts: a shared rare identifier is a lexical match, never a resolved reference.</div>
   </section>
 </main>
+<div id="menu"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" crossorigin="anonymous"></script>
 <script>
 (() => {
@@ -87,15 +127,62 @@
   const IDENT = /[A-Za-z_][A-Za-z0-9_]*/g;
   let diff = null;
   const crumbs = [];
+  let shown = { path: null, line: null }; // what the middle column shows now
 
   const api = async (path) => { const r = await fetch(path); return r.json(); };
 
   function langOf(path) { const b = path.slice(path.lastIndexOf('/') + 1); const i = b.lastIndexOf('.'); return i > 0 ? b.slice(i + 1).toLowerCase() : b.toLowerCase(); }
 
-  function colorize(codeEl, lang) {
-    if (!window.hljs) return;
-    try { if (lang && hljs.getLanguage(lang)) codeEl.classList.add('language-' + lang); hljs.highlightElement(codeEl); } catch (e) { /* plain text is fine */ }
+  // Highlight a whole text at once, then split the result into one HTML string
+  // per line: spans still open at a newline are closed there and reopened on
+  // the next line, so each line stands alone inside its own row element.
+  function highlightLines(text, lang) {
+    const plain = () => text.split('\n').map(esc);
+    if (!window.hljs || !lang || !hljs.getLanguage(lang)) return plain();
+    let html;
+    try { html = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value; } catch (e) { return plain(); }
+    const lines = []; const open = []; let cur = '';
+    const re = /<span class="[^"]*">|<\/span>|\n|[^<\n]+|</g;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const t = m[0];
+      if (t === '\n') { lines.push(cur + '</span>'.repeat(open.length)); cur = open.join(''); }
+      else if (t.startsWith('<span')) { open.push(t); cur += t; }
+      else if (t === '</span>') { open.pop(); cur += t; }
+      else cur += t;
+    }
+    lines.push(cur + '</span>'.repeat(open.length));
+    return lines.length === text.split('\n').length ? lines : plain();
   }
+
+  // Wrap every identifier (3+ chars) inside the code rows in a span so it can
+  // be hovered, clicked and right-clicked like a link. Runs after highlighting
+  // on the DOM text nodes, so the color spans are kept.
+  function linkIdentifiers(root) {
+    root.querySelectorAll('code').forEach((codeEl) => {
+      const walker = document.createTreeWalker(codeEl, NodeFilter.SHOW_TEXT);
+      const nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      for (const n of nodes) {
+        const text = n.nodeValue || '';
+        if (!/[A-Za-z_]/.test(text)) continue;
+        const frag = document.createDocumentFragment();
+        let last = 0; let m; let any = false;
+        IDENT.lastIndex = 0;
+        while ((m = IDENT.exec(text)) !== null) {
+          if (m[0].length < 3) continue;
+          if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+          const s = document.createElement('span'); s.className = 'id'; s.textContent = m[0]; frag.appendChild(s);
+          last = m.index + m[0].length; any = true;
+        }
+        if (!any) continue;
+        if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+        n.parentNode.replaceChild(frag, n);
+      }
+    });
+  }
+
+  function titleWithPath(el, label, path) { el.innerHTML = `${esc(label)} <span class="path">${esc(path)}</span>`; }
 
   function renderSlice(s) {
     const el = $('slice');
@@ -108,7 +195,7 @@
   }
 
   function renderOrder(d) {
-    $('order-note').textContent = d.note;
+    $('order-note').textContent = d.order.length ? d.note : 'Working tree equals HEAD — nothing to diff. Open a file through the header search, a bridge, or the activity list.';
     const ul = $('order');
     ul.innerHTML = d.order.map((o, i) => {
       const link = o.linkedBy.length ? `<div class="link">↳ shares ${esc(o.linkedBy.join(', '))} with ${esc(o.linkedTo)}</div>` : (i === 0 ? '' : '<div class="link">↳ no shared rare identifier (alphabetical)</div>');
@@ -117,23 +204,31 @@
     ul.querySelectorAll('.file').forEach((a) => a.addEventListener('click', () => showChanged(a.dataset.path)));
   }
 
-  function hunkHtml(h) {
-    const rows = h.lines.map((l) => `<div class="ln ${l.kind}"><span>${l.oldNo ?? ''}</span><span>${l.newNo ?? ''}</span><span><code>${esc(l.text)}</code></span></div>`).join('');
+  function hunkHtml(h, lang) {
+    const colored = highlightLines(h.lines.map((l) => l.text).join('\n'), lang);
+    const rows = h.lines.map((l, i) => `<div class="ln ${l.kind}"><span>${l.oldNo ?? ''}</span><span>${l.newNo ?? ''}</span><span><code>${colored[i]}</code></span></div>`).join('');
     return `<div class="hunk"><div class="hd">${esc(h.header)}</div><pre>${rows}</pre></div>`;
+  }
+
+  function fileRows(text, lang, mark, kind) {
+    const colored = highlightLines(text, lang);
+    return `<div class="hunk"><pre>${colored.map((html, i) => `<div class="ln${kind ? ' ' + kind : ''}${mark === i + 1 ? ' mark' : ''}" id="L${i + 1}"><span></span><span>${i + 1}</span><span><code>${html}</code></span></div>`).join('')}</pre></div>`;
   }
 
   function showChanged(path) {
     document.querySelectorAll('#order .file').forEach((a) => a.classList.toggle('active', a.dataset.path === path));
     const f = diff.files.find((x) => x.path === path);
     const u = diff.untracked.find((x) => x.path === path);
-    $('middle-title').textContent = `Diff — ${path}`;
+    titleWithPath($('middle-title'), 'Diff —', path);
     const code = $('code');
+    const lang = langOf(path);
     if (f) {
-      code.innerHTML = f.binary ? '<div class="muted">binary</div>' : f.hunks.map(hunkHtml).join('') || '<div class="muted">no text hunks (rename or mode change)</div>';
+      code.innerHTML = f.binary ? '<div class="muted">binary</div>' : f.hunks.map((h) => hunkHtml(h, lang)).join('') || '<div class="muted">no text hunks (rename or mode change)</div>';
     } else if (u) {
-      code.innerHTML = `<div class="note">untracked file — every line is new</div><div class="hunk"><pre>${u.text.split('\n').map((t, i) => `<div class="ln add"><span></span><span>${i + 1}</span><span><code>${esc(t)}</code></span></div>`).join('')}</pre></div>`;
+      code.innerHTML = `<div class="note">untracked file — every line is new</div>${fileRows(u.text, lang, undefined, 'add')}`;
     } else { code.textContent = 'not in the candidate'; }
-    code.querySelectorAll('code').forEach((c) => colorize(c, langOf(path)));
+    linkIdentifiers(code);
+    shown = { path, line: null };
     setCrumbs([{ label: path }]);
     renderPointers(path, diff.pointers[path]);
   }
@@ -144,7 +239,7 @@
   }
 
   function renderPointers(path, p) {
-    $('right-title').textContent = `Pointers for ${path}`;
+    titleWithPath($('right-title'), 'Pointers for', path);
     const el = $('pointers');
     if (!p) { el.textContent = 'no pointers'; return; }
     el.innerHTML = pointerRows('Code to open', p.code, 'no code file shares a rare identifier with the changed lines')
@@ -155,17 +250,18 @@
 
   async function openFile(path, line, from) {
     const f = await api('/api/file?path=' + encodeURIComponent(path));
-    $('middle-title').textContent = `File — ${path}${line ? ':' + line : ''}`;
+    titleWithPath($('middle-title'), 'File —', path + (line ? ':' + line : ''));
     const code = $('code');
     if (f.error) { code.textContent = f.error; return; }
-    code.innerHTML = `<div class="hunk"><pre>${f.text.split('\n').map((t, i) => `<div class="ln${line === i + 1 ? ' mark' : ''}" id="L${i + 1}"><span></span><span>${i + 1}</span><span><code>${esc(t)}</code></span></div>`).join('')}</pre></div>`;
-    code.querySelectorAll('code').forEach((c) => colorize(c, f.lang));
+    code.innerHTML = fileRows(f.text, f.lang, line);
+    linkIdentifiers(code);
+    shown = { path, line: line ?? null };
     if (from !== undefined) crumbs.push({ label: path + (line ? ':' + line : ''), path, line });
     else setCrumbs([{ label: path + (line ? ':' + line : ''), path, line }]);
     drawCrumbs();
     if (line) document.getElementById('L' + line)?.scrollIntoView({ block: 'center' });
     const n = await api('/api/neighbors?path=' + encodeURIComponent(path));
-    if (n.result.status === 'found') renderPointers(path, n.result.rows);
+    if (n.result.status === 'found' && $('right-title').textContent.startsWith('Pointers')) renderPointers(path, n.result.rows);
   }
 
   function setCrumbs(list) { crumbs.length = 0; list.forEach((c) => crumbs.push(c)); drawCrumbs(); }
@@ -178,13 +274,23 @@
     }));
   }
 
+  // The best location of an identifier: the first file with a likely
+  // definition (where() sorts code files with definitions first), at its first
+  // definition occurrence; else the top-ranked file at its first occurrence.
+  function bestOccurrence(r) {
+    const f = r.files.find((x) => x.definitions > 0) || r.files[0];
+    if (!f) return null;
+    const o = f.occurrences.find((x) => x.likelyDefinition) || f.occurrences[0];
+    return o ? { path: f.path, line: o.line } : null;
+  }
+
   async function showWhere(token) {
     const w = await api('/api/where?token=' + encodeURIComponent(token));
-    $('right-title').textContent = `where ${token}`;
+    titleWithPath($('right-title'), 'where', token);
     const el = $('pointers');
     const r = w.result;
-    if (r.status === 'absent') { el.textContent = `${token}: not in the index.`; return; }
-    if (r.status === 'common') { el.textContent = `${token}: common (${r.df} files) — dropped as noise; use grep.`; return; }
+    if (r.status === 'absent') { el.textContent = `${token}: not in the index.`; return r; }
+    if (r.status === 'common') { el.textContent = `${token}: common (${r.df} files) — dropped as noise; use grep.`; return r; }
     el.innerHTML = `<div class="note">${r.files.length} files, rarity ${r.idf.toFixed(1)} — likely definitions marked *</div>` + r.files.map((f) => {
       const tag = f.definitions > 0 ? `definition×${f.definitions}` : f.pathClass === 'code' ? 'use' : f.pathClass;
       const occ = f.occurrences.slice(0, 12).map((o) => `<span class="occ" data-path="${esc(f.path)}" data-line="${o.line}">${o.line}:${o.col}${o.likelyDefinition ? '*' : ''}</span>`).join('');
@@ -193,23 +299,64 @@
     }).join('');
     el.querySelectorAll('.occ').forEach((o) => o.addEventListener('click', () => openFile(o.dataset.path, Number(o.dataset.line), 'where')));
     el.querySelectorAll('.file').forEach((a) => a.addEventListener('click', () => openFile(a.dataset.path, undefined, 'where')));
+    return r;
   }
 
-  // Click an identifier anywhere in the middle column: find the word under the caret.
-  $('middle').addEventListener('click', (ev) => {
-    const codeEl = ev.target.closest('code');
-    if (!codeEl) return;
-    let node, offset;
-    if (document.caretPositionFromPoint) { const p = document.caretPositionFromPoint(ev.clientX, ev.clientY); if (!p) return; node = p.offsetNode; offset = p.offset; }
-    else if (document.caretRangeFromPoint) { const r = document.caretRangeFromPoint(ev.clientX, ev.clientY); if (!r) return; node = r.startContainer; offset = r.startOffset; }
-    else return;
-    if (!node || node.nodeType !== Node.TEXT_NODE) return;
-    const text = node.textContent || '';
-    let m;
-    IDENT.lastIndex = 0;
-    while ((m = IDENT.exec(text)) !== null) {
-      if (m.index <= offset && offset <= m.index + m[0].length) { if (m[0].length >= 3) showWhere(m[0]); return; }
+  // Left click / Enter: list every location on the right and jump to the best
+  // one — unless the middle column already shows that very line.
+  async function goTo(token) {
+    const r = await showWhere(token);
+    if (!r || r.status !== 'found') return;
+    const best = bestOccurrence(r);
+    if (!best || (best.path === shown.path && best.line === shown.line)) return;
+    await openFile(best.path, best.line, 'where');
+  }
+
+  // Right click: a menu of all locations (first likely definition per file, else first occurrence).
+  const menu = $('menu');
+  function closeMenu() { menu.style.display = 'none'; menu.innerHTML = ''; }
+  async function openMenu(token, x, y) {
+    const w = await api('/api/where?token=' + encodeURIComponent(token));
+    const r = w.result;
+    if (r.status !== 'found') {
+      menu.innerHTML = `<div class="mh">${esc(token)}: ${r.status === 'common' ? `common (${r.df} files) — dropped as noise` : 'not in the index'}</div>`;
+    } else {
+      const items = r.files.slice(0, 20).map((f) => {
+        const o = f.occurrences.find((q) => q.likelyDefinition) || f.occurrences[0];
+        const tag = f.definitions > 0 ? 'definition' : f.pathClass === 'code' ? 'use' : f.pathClass;
+        return `<div class="mi" data-path="${esc(f.path)}" data-line="${o.line}">${esc(f.path)}:${o.line}<span class="tag">${tag}${f.occurrences.length > 1 ? ` ×${f.occurrences.length}` : ''}</span></div>`;
+      }).join('');
+      const more = r.files.length > 20 ? `<div class="mh">+${r.files.length - 20} more on the right</div>` : '';
+      menu.innerHTML = `<div class="mh">${esc(token)} · ${r.files.length} files · rarity ${r.idf.toFixed(1)}</div>${items}${more}`;
+      menu.querySelectorAll('.mi').forEach((mi) => mi.addEventListener('click', async () => {
+        closeMenu();
+        await showWhere(token);
+        await openFile(mi.dataset.path, Number(mi.dataset.line), 'where');
+      }));
     }
+    menu.style.display = 'block';
+    const w2 = menu.offsetWidth, h2 = menu.offsetHeight;
+    menu.style.left = Math.min(x, window.innerWidth - w2 - 8) + 'px';
+    menu.style.top = Math.min(y, window.innerHeight - h2 - 8) + 'px';
+  }
+  document.addEventListener('click', (ev) => { if (!menu.contains(ev.target)) closeMenu(); });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeMenu(); });
+  $('middle').addEventListener('scroll', closeMenu);
+
+  $('middle').addEventListener('click', (ev) => {
+    const id = ev.target.closest('.id');
+    if (id) goTo(id.textContent);
+  });
+  $('middle').addEventListener('contextmenu', (ev) => {
+    const id = ev.target.closest('.id');
+    if (!id) return;
+    ev.preventDefault();
+    openMenu(id.textContent, ev.clientX, ev.clientY).catch(() => closeMenu());
+  });
+  $('find').addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter') return;
+    const token = $('find').value.trim();
+    if (token.length >= 3) goTo(token);
   });
 
   // ACTIVITY-1: the newest run's events (polled every 5 s while it is live) and
@@ -222,9 +369,9 @@
     $('activity-live').textContent = a.run.live ? '● live' : '';
     const sel = a.runs.length > 1 ? `<select id="run-select">${a.runs.map((r) => `<option value="${esc(r.runId)}"${r.runId === a.run.runId ? ' selected' : ''}>${esc(r.runId)}</option>`).join('')}</select>` : `<b>${esc(a.run.runId)}</b>`;
     const counts = Object.entries(a.counts).filter(([k]) => !k.startsWith('run-')).map(([k, v]) => `${v} ${k}`).join(' · ') || 'no tool events';
-    const recent = a.events.filter((e) => !e.kind.startsWith('run-')).slice(-40).reverse();
+    const recent = a.events.filter((e) => !e.kind.startsWith('run-')).slice(-25).reverse();
     const rows = recent.map((e) => {
-      const what = e.path ? `<span class="file" data-path="${esc(e.path)}">${esc(e.path)}</span>` : e.command ? `<span class="muted">${esc(e.command.slice(0, 90))}${e.command.length > 90 ? '…' : ''}</span>` : e.pattern ? `<span class="muted">/${esc(e.pattern)}/</span>` : `<span class="muted">${esc(e.tool || '')}</span>`;
+      const what = e.path ? `<span class="file" data-path="${esc(e.path)}">${esc(e.path)}</span>` : e.command ? `<span class="muted">${esc(e.command.slice(0, 60))}${e.command.length > 60 ? '…' : ''}</span>` : e.pattern ? `<span class="muted">/${esc(e.pattern)}/</span>` : `<span class="muted">${esc(e.tool || '')}</span>`;
       return `<div><span class="tag">${esc(e.kind)}</span> ${what}${e.detail ? `<span class="tag">${esc(e.detail)}</span>` : ''}</div>`;
     }).join('');
     let un = '';
@@ -248,12 +395,12 @@
   async function showBridge() {
     const a = $('bridge-a').value, b = $('bridge-b').value;
     const r = await api('/api/bridge?a=' + encodeURIComponent(a) + '&b=' + encodeURIComponent(b));
-    $('right-title').textContent = `bridge ${a} ↔ ${b}`;
+    titleWithPath($('right-title'), 'bridge', `${a} ↔ ${b}`);
     const el = $('pointers');
     if (r.error) { el.textContent = r.error; return; }
     const rows = r.result.rows;
     el.innerHTML = `<div class="note">${esc(r.note)}</div>` + (rows.length ? rows.map((x) => `<div class="ptr"><span class="s">${x.weight.toFixed(1)}</span><span class="occ" data-token="${esc(x.token)}">${esc(x.token)}</span><span class="tag">${x.filesA.length}↔${x.filesB.length}</span><div class="link"><span class="file" data-path="${esc(x.filesA[0])}">${esc(x.filesA[0])}</span> ↔ <span class="file" data-path="${esc(x.filesB[0])}">${esc(x.filesB[0])}</span></div></div>`).join('') : '<div class="muted">no shared rare identifier</div>');
-    el.querySelectorAll('.occ').forEach((t) => t.addEventListener('click', () => showWhere(t.dataset.token)));
+    el.querySelectorAll('.occ').forEach((t) => t.addEventListener('click', () => goTo(t.dataset.token)));
     el.querySelectorAll('.file').forEach((f) => f.addEventListener('click', () => openFile(f.dataset.path, undefined, 'bridge')));
   }
   $('bridge-go').addEventListener('click', () => showBridge().catch((e) => { $('pointers').textContent = 'bridge failed: ' + e.message; }));
