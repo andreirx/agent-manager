@@ -199,6 +199,8 @@ This is especially important for enterprise repositories where raw file reading 
 
 Agent Manager should therefore be compatible with TypeScript-friendly tooling and workflows used around repo-graph, while still keeping provider integration open.
 
+Amendment (human, 2026-11-07): orientation that the relay can supply by itself is fed, not offered. Builders did not call repo-graph even when the target's instructions told them to (amodx 0 of 250 runs). Agent Manager therefore keeps a small lexical identifier index of its own (`docs/slices/lexmap-1.md`) and composes its answers into role context — the reviewer sees which unchanged files share rare identifiers with the candidate; later slices show the human the same facts in a browser beside the diff and the agents' live activity. repo-graph stays an optional external source.
+
 ## Near-Term Vision
 
 In the near term, Agent Manager should become a reliable local supervisor that:

@@ -47,6 +47,7 @@ import { ClaudeAdapter } from '../adapters/providers/claude-code/index.js';
 import { CodexAdapter } from '../adapters/providers/codex/index.js';
 import { CopilotAdapter } from '../adapters/providers/copilot/index.js';
 import { AntigravityAdapter } from '../adapters/providers/antigravity/index.js';
+import { candidateLexicalHints } from '../adapters/lexmap/git-working-tree.js';
 import {
   targetRelayLoop,
   admitBaseline,
@@ -73,7 +74,7 @@ const DEFAULT_SHARED_PROMPT = '/Users/apple/CLAUDE-SYSTEM.txt';
 function providerDefaults(name: TargetActor): { model: string; effort: string } {
   switch (name) {
     case 'claude':
-      return { model: 'claude-opus-4-8', effort: 'high' }; // model per human directive 2026-07-31 (back from opus-5); effort high per 2026-07-26
+      return { model: 'claude-opus-5-5', effort: 'high' }; // default builder per human directive 2026-11-07 (was claude-opus-4-8 since 2026-07-31); effort high per 2026-07-26
     case 'copilot':
       // Empty model => the adapter emits NO --model flag, so Copilot uses its
       // OWN default model. We do not hardcode a Copilot model id (the exact
@@ -88,7 +89,7 @@ function providerDefaults(name: TargetActor): { model: string; effort: string } 
     case 'codex':
     case 'human':
     default:
-      return { model: 'gpt-5.6-terra', effort: 'high' }; // reviewer model per human directive 2026-07-27 (was gpt-5.6-sol)
+      return { model: 'gpt-6.1-sol', effort: 'high' }; // default reviewer per human directive 2026-11-07 (was gpt-5.6-terra since 2026-07-27)
   }
 }
 
@@ -927,6 +928,9 @@ async function main(): Promise<void> {
       ...(bookkeeperRaw ? { bookkeeper: bookkeeperRaw } : {}),
       computeDigest,
       changedPaths: gitChangedPaths,
+      // LEXMAP-1: unchanged files sharing rare identifiers with the candidate's
+      // changed lines, rendered into the reviewer's context. Never throws.
+      lexicalHints: candidateLexicalHints,
       artifactStore: store,
       observeCandidateTree,
       createTrackedFileExclusively,

@@ -271,6 +271,15 @@ export interface TargetRelayDeps {
    * implementation that cannot determine the set returns [] (no false trigger).
    */
   changedPaths: (targetDir: string) => Promise<readonly string[]>;
+  /**
+   * LEXMAP-1: the rendered "lexical neighbors of the candidate" section for
+   * the reviewer's context — unchanged files that share rare identifiers with
+   * the candidate's changed lines. Injected as a plain function like
+   * `changedPaths` (the use case stays git-agnostic); absent = no section
+   * (tests and the dry-run). Best-effort: an implementation that cannot
+   * compute it returns a section that names the reason.
+   */
+  lexicalHints?: (targetDir: string) => Promise<string | undefined>;
   /** Existing filesystem boundary used for contained baseline snapshots. */
   artifactStore: ArtifactStorePort;
   /** Stage-3 Git/index/working-tree mechanism; required only for a v3 allocation. */
@@ -1105,7 +1114,8 @@ function buildReviewerContext(
   targetDir: string,
   packetRaw: string,
   buildReport: string | undefined,
-  outputContract: RoleOutputContract
+  outputContract: RoleOutputContract,
+  lexicalHints: string | undefined = undefined
 ): string {
   const sections = [
     cwdHeader(targetDir),
@@ -1134,6 +1144,12 @@ function buildReviewerContext(
       '',
       buildReport
     );
+  }
+  // LEXMAP-1: orientation the relay computed itself. Fed, not offered — the
+  // field showed agents never call an orientation tool they are merely told
+  // about (amodx: 0 of 250 builder runs; glamCRM: 2 of 364).
+  if (lexicalHints !== undefined && lexicalHints.trim().length > 0) {
+    sections.push('', lexicalHints);
   }
   sections.push(
     '',
@@ -2482,6 +2498,9 @@ async function runReview(
   let candidate: Awaited<ReturnType<typeof loadCandidateClosure>> | undefined;
   let stage3Evidence: Stage3EvidenceState | undefined;
   let delivery: RunRequest['delivery'];
+  // LEXMAP-1: computed once per review dispatch, before the directive is built,
+  // from the candidate as it sits in the tree right now. Read-only.
+  const lexicalHints = deps.lexicalHints !== undefined ? await deps.lexicalHints(input.targetDir) : undefined;
   const useSnapshots = status.assurance !== undefined && (status.assurance.contract === 'requirements-assurance/v2-stage2' || posture.kind === 'requirements-document');
   if (useSnapshots && status.assurance) {
     if (!dispatchCapture) throw new Error('invalid-field: reviewed reviewer dispatch has no admitted input capture');
@@ -2526,7 +2545,8 @@ async function runReview(
           ? 'requirements-assurance/v2-requirements-review'
           : stage3
             ? 'requirements-assurance/v3-implementation-review'
-            : 'legacy-status-verdict'
+            : 'legacy-status-verdict',
+        lexicalHints
       ),
       extra,
       capture,
@@ -2537,7 +2557,7 @@ async function runReview(
     delivery = {
       kind: 'legacy-live-inputs',
       prompts,
-      contextText: buildReviewerContext(input.targetDir, packetRaw, buildReport, 'legacy-status-verdict'),
+      contextText: buildReviewerContext(input.targetDir, packetRaw, buildReport, 'legacy-status-verdict', lexicalHints),
     };
   }
   const providerSession = sessionRequestFor(status, 'reviewer', input.supervisorProvider, deps.supervisor);

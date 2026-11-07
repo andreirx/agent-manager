@@ -6,7 +6,7 @@ CLAUDE.md is the sole project-instruction entry point; AGENTS.md was removed at 
 
 The human approved the drafts and authorized implementation: [authority and decisions](docs/assurance/ASSURANCE-0/human-authorization.md). Approval, independent review, implementation, and verification are distinct; only claim gates actually delivered. Execute the staged self-host sequence, beginning with ASSURANCE-0's record grammar and independent review.
 
-**Current overhaul assignment supersedes historical model instructions below for this track:** builder = Codex CLI / gpt-5.6-sol; reviewer = Codex CLI / gpt-5.6-terra; existing high effort. Manager = the human-started coordinating session. Separate invocations, same provider, not cross-vendor independence. Use explicit --builder codex --builder-model gpt-5.6-sol --supervisor codex --supervisor-model gpt-5.6-terra --shared-prompt <absolute-agent-manager-root>/SYSTEM.txt. This prompt must be loaded before either role runs; do not fall back to ~/CLAUDE-SYSTEM.txt. CLI global defaults remain unchanged.
+**Current overhaul assignment supersedes historical model instructions below for this track:** builder = Codex CLI / gpt-5.6-sol; reviewer = Codex CLI / gpt-6.1-sol (human 2026-11-07; was gpt-5.6-terra); existing high effort. Manager = the human-started coordinating session. Separate invocations, same provider, not cross-vendor independence. Use explicit --builder codex --builder-model gpt-5.6-sol --supervisor codex --supervisor-model gpt-6.1-sol --shared-prompt <absolute-agent-manager-root>/SYSTEM.txt. This prompt must be loaded before either role runs; do not fall back to ~/CLAUDE-SYSTEM.txt. Baked CLI defaults: builder claude / claude-opus-5-5, reviewer codex / gpt-6.1-sol (human 2026-11-07).
 
 Use relay-target on agent-manager itself, at most three cycles before checkpoint. Verify the actual runner/prompt identities, preserve pre-existing work, and do not claim future gates enforce this bootstrap. Adopt each newly accepted runtime increment only in a fresh process after typecheck, tests, and legacy routing parity. The legacy --supervisor flag still binds selection and review, not the persistent manager; do not silently rename its contract.
 
@@ -118,6 +118,11 @@ antigravity is PROTOTYPE — `agy` headless stream-json, default `gemini-4-argon
 interactively first; read-only posture caveat TD-035),
 `--shared-prompt <path>`, `--max-iter <n>`, `--until <phase>`, `--dry-run`.
 See `docs/contracts/target-owned-relay.md`.
+
+`npm run lexmap -- <target> stats | where <identifier> | neighbors <path> | bridge <dirA> <dirB> | hunk-neighbors [--basis <rev>]`
+(`--json`): the in-memory identifier index (LEXMAP-1, PROTOTYPE — `docs/slices/lexmap-1.md`). The relay feeds
+`hunk-neighbors` of the candidate into every reviewer context as "Lexical neighbors of the candidate (hints, not facts)";
+ranking tuning is TD-037.
 
 ## Current Phase
 
@@ -254,8 +259,10 @@ target's own CLAUDE.md, not here.
 - agent-manager self-build: see the overhaul assignment at the top of this file.
 - amodx slices (human 2026-10-13): builder `--builder-model claude-opus-5-5` (claude, effort high),
   reviewer `--supervisor-model gpt-6-sol` (codex). Both smoke-verified with the relay's CLI shapes
-  the same day. Supersedes the baked defaults (claude-opus-4-8 / gpt-5.6-terra) for amodx; the
-  baked defaults themselves are unchanged.
+  the same day. Supersedes the baked defaults (then claude-opus-4-8 / gpt-5.6-terra) for amodx.
+- Baked defaults (human 2026-11-07): `claude` without `--builder-model` resolves to `claude-opus-5-5`
+  (was `claude-opus-4-8`); `codex` without `--supervisor-model` resolves to `gpt-6.1-sol` (was
+  `gpt-5.6-terra`). Explicit flags in the standing assignments above are unchanged.
 - amodx slices from 2026-10-16 (human): builder `--builder-model claude-opus-5-5` (claude), reviewer
   `--supervisor-model gpt-6.1-sol` (codex). On a provider capacity/503 failure "just let it retry": the
   relay's own retries, then a later relaunch of the same model — the operator does not switch models.

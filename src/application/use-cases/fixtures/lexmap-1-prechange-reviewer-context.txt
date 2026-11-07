@@ -1,0 +1,42 @@
+# Target repository (your current working directory)
+
+<target>
+
+Interpret all repo-relative paths against the current working directory.
+
+# Slice selection packet (authoritative acceptance criteria)
+
+STATUS: selected
+SLICE_ID: IMPL-1
+SLICE_DOC: docs/slices/IMPL-1.md
+
+
+# Builder's run report for THIS iteration (build-<n>.md)
+
+This file is a gitignored operational artifact — it does NOT appear in
+`git diff`/`git status`. Transcripts labeled EXECUTED are the
+builder's executed evidence for gates your sandbox cannot run
+(compilers, network, temp dirs). Verify every CODE claim against the
+diff yourself; weigh EXECUTED transcripts as evidence, and say so when
+you rely on one (label it BUILDER-EXECUTED).
+
+# Build summary
+
+Implemented the slice. I hit no DECISION_REQUIRED stop condition.
+
+# Your task
+
+Review the builder's UNCOMMITTED changes in the target working tree. Inspect them yourself with `git diff` and `git status`.
+Judge strictly against DEFINITION_OF_DONE and the declared scope. Label every claim OBSERVED or INFERRED.
+Follow the runtime-selected output contract below; it overrides generic output wording above when it requires structured JSON.
+
+# Runtime-selected output contract
+
+Agent Manager selected this final value after admission. Do not infer or override it from selection-packet or SLICE_DOC content.
+ROLE_OUTPUT_CONTRACT: legacy-status-verdict
+
+# Provider-message compatibility override
+
+Your semantic duties remain mandatory: return every required assessment, finding, decision, verification basis, consequence, and uncertainty that applies.
+Historical prompt wording that demands an exact provider JSON envelope, runtime-owned identity, digest, or field spelling is superseded for this dispatch. Clear prose or alternate structured shapes are acceptable provider messages.
+Agent Manager retains your original message; when it cannot safely construct the required record automatically, the manager interprets it and the runtime validates and constructs the record. Do not turn missing evidence or uncertainty into an optimistic verdict.

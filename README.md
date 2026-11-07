@@ -412,6 +412,20 @@ Provider-neutral request fields include:
 
 This keeps provider-specific behavior in adapters and keeps role workflow logic independent of Claude or Codex command-line details.
 
+### Lexical neighbors (`lexmap`, PROTOTYPE)
+
+Before every review the relay indexes the target's working tree in memory — every identifier in every text file, weighted by rarity, no grammars, nothing written to disk (46 MB of source: 1.7 s, 188 MB heap) — and appends to the reviewer's context the unchanged files that share rare identifiers with the candidate's changed lines ("Lexical neighbors of the candidate (hints, not facts)"). The same index is a command:
+
+```bash
+npm run lexmap -- ../repo-graph stats
+npm run lexmap -- ../repo-graph where settleOrder          # postings by file, likely definitions first
+npm run lexmap -- ../repo-graph neighbors src/orders.ts    # files sharing rare identifiers; cross-language flagged
+npm run lexmap -- ../repo-graph bridge backend renderer    # identifiers two directories share
+npm run lexmap -- ../repo-graph hunk-neighbors              # unchanged files linked to the uncommitted diff
+```
+
+Design, measurements and limits: `docs/slices/lexmap-1.md`; ranking tuning: TD-037.
+
 ## Validation commands
 
 Run TypeScript validation from the Agent Manager root:

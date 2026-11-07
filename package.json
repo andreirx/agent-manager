@@ -12,6 +12,7 @@
     "am-001": "tsx src/cli/run-am-001.ts",
     "relay": "tsx src/cli/relay.ts",
     "relay-target": "tsx src/cli/relay-target.ts",
+    "lexmap": "tsx src/cli/lexmap.ts",
     "human": "tsx src/cli/human-input.ts"
   },
   "keywords": [

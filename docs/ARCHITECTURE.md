@@ -543,6 +543,10 @@ It does not become a graph engine.
 
 It treats repo-graph outputs as external deterministic evidence that can be routed into role workflows.
 
+### 9.3 Amendment (human ratification 2026-11-07): lexmap, an orientation index of Agent Manager's own
+
+Agent Manager carries a lexical identifier index (`src/core/lexmap/`, pure; `src/adapters/lexmap/`, git) and feeds its answers into role context itself — unchanged files sharing rare identifiers with a candidate's changed lines, for the reviewer. This is not a graph engine and does not reimplement repo-graph: no grammars, no resolution, no persisted state; every answer is a labelled hint rebuilt from the working tree in seconds. The rule above is narrowed, not withdrawn: repo-graph outputs remain external evidence; lexmap is the orientation the relay can always supply because it is computed where the relay runs. Record: `docs/slices/lexmap-1.md`.
+
 ## 10. Optional tmux Boundary
 
 tmux is an operational mechanism, not a core dependency.

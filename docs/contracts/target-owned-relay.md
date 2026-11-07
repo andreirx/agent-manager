@@ -229,6 +229,10 @@ identities. Run records retain those request projections and receipts as
 `inputProvenance`; accepted requirements reviews require author/reviewer
 baseline and ordered common identities to match.
 
+### Lexical neighbors in the reviewer context (LEXMAP-1, PROTOTYPE)
+
+Every `review-impl` dispatch (legacy and reviewed-input deliveries alike) carries, between the builder's run report and `# Your task`, a section headed `# Lexical neighbors of the candidate (hints, not facts)`: the unchanged files of the target that share rare identifiers with the changed lines of `git diff HEAD` plus untracked files, scored by rarity × token shape, as pointers (path + shared identifiers, never content) in three partitions: code to open (≤ 20 rows), tests that exercise the identifiers (≤ 8), documentation that mentions them (≤ 8). The composition root supplies it through `TargetRelayDeps.lexicalHints`; when the function is absent (tests, `--dry-run`) the context is byte-identical to the previous contract. The section never fails a review: an index that cannot be built renders `Unavailable: <reason>`. It is orientation, not evidence — a row is a file to open, never a finding. Index and verbs: `docs/slices/lexmap-1.md`.
+
 ## Phase graph
 
 ```
