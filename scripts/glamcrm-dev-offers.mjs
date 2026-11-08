@@ -6,8 +6,8 @@
 // 2. Rebuilds offers THROUGH THE API (the real write path: zod boundary, canonical snapshot, codification, S1 deal
 //    serialization): N offers for real clients, 2–5 lines each on ACTIVE products from different pricelists, list price as
 //    unit price, a few discounts; K of them issued as devize (POST /estimates → POST /estimates/{id}/generate-doc), two
-//    put UNDER_REVIEW, the rest DRAFT. Assignees are the seed users with ULID ids (the DEMO_* accounts' ids are not
-//    26-char ULIDs and the create schema refuses them — probed once and recorded in the results).
+//    put UNDER_REVIEW, the rest DRAFT. Assignees are the seed users; the first offer is OWNED by test-vanzator (the demo
+//    accounts carry ULID ids since the 2026-11-08 re-key). Every quantity is a whole number of packages (see qtyFor).
 // Usage: node scripts/glamcrm-dev-offers.mjs <api> <tokenFile> <table> <region> <resultsJson> --yes [offers=10] [issued=6]
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -76,24 +76,28 @@ console.log(`users ${users.length} · clients ${clients.length} · active produc
 // deterministic pseudo-random so a rerun builds the same offers
 let seed = 20261108; const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
 const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
-const qtyFor = (um) => /mp|m2|m²/i.test(um) ? Math.round((12 + rnd() * 70) * 10) / 10 : /ml|lm|m$/i.test(um) ? Math.round(5 + rnd() * 55) : 1 + Math.floor(rnd() * 20);
+// PACKAGING RULE (human 2026-11-08: quantities that are not multiples of the packaging unit were generated here and the API
+// accepted them — the rule lived only in the browsers). The raw quantity is rounded UP to a whole number of packages when the
+// product has a packaging unit > 0 — the same `Math.ceil(q / pu) * pu` the admin page and the workspace apply — then to 2 dp.
+const qtyFor = (p) => {
+  const um = p.measurementUnit;
+  const raw = /mp|m2|m²/i.test(um) ? Math.round((12 + rnd() * 70) * 10) / 10 : /ml|lm|m$/i.test(um) ? Math.round(5 + rnd() * 55) : 1 + Math.floor(rnd() * 20);
+  const pu = Number(p.packagingUnit);
+  if (!Number.isFinite(pu) || pu <= 0) return raw;
+  return Number((Math.max(1, Math.ceil(raw / pu)) * pu).toFixed(2));
+};
 
-// probe: a DEMO_* assignee (non-ULID id) at the create boundary — recorded, not relied upon
-{
-  const demo = users.find((u) => u.username === 'test-vanzator');
-  if (demo) {
-    const r = await post('/api/v2/offers', { internalName: 'Probe — test-vanzator as salesId', clientId: clients[0].id, applicableVatId: vat21, ...assignees, salesId: demo.id, technicalComment: '', accountingComment: '', managerComment: '' });
-    results.probe = { salesId: demo.id, status: r.status, body: JSON.stringify(r.body).slice(0, 200) };
-    console.log(`probe salesId=${demo.id} → ${r.status}`);
-    if (r.ok) { results.probe.kept = r.body.id; }
-  }
-}
+// The DEMO salesperson (test-vanzator; a ULID since the 2026-11-08 re-key) OWNS the first offer, so the salesperson demo
+// account has an offer of its own in the workspace. (The former probe of the non-ULID id is gone with its cause.)
+const demo = users.find((u) => u.username === 'test-vanzator');
+results.demoSalesperson = demo ? demo.id : null;
 
 const THEMES = ['Living + hol', 'Apartament 3 camere', 'Casă P+1 — parter', 'Birouri etaj 2', 'Showroom', 'Pensiune — 6 camere', 'Mansardă', 'Magazin', 'Grădiniță', 'Terasă + scară', 'Vilă — zona de zi', 'Studio'];
 for (let i = 0; i < N_OFFERS; i++) {
   const client = clients[i % clients.length];
   const rec = { internalName: `${THEMES[i % THEMES.length]} — ${client.name}`, client: client.name, lines: [], status: 'DRAFT' };
-  const o = await post('/api/v2/offers', { internalName: rec.internalName, clientId: client.id, applicableVatId: vat21, ...assignees, technicalComment: '', accountingComment: '', managerComment: '' });
+  const o = await post('/api/v2/offers', { internalName: rec.internalName, clientId: client.id, applicableVatId: vat21, ...assignees, ...(i === 0 && demo ? { salesId: demo.id } : {}), technicalComment: '', accountingComment: '', managerComment: '' });
+  if (i === 0 && demo) rec.salesId = demo.id;
   if (!o.ok) { results.errors.push({ step: 'offer', i, status: o.status, body: o.body }); console.log(`offer ${i} FAILED ${o.status}`); continue; }
   rec.offerId = o.body.id;
   // 2–5 lines from 2–3 different pricelists (floor + accessory/plinth where possible)
@@ -103,7 +107,7 @@ for (let i = 0; i < N_OFFERS; i++) {
   const used = new Set();
   for (let k = 0; k < nLines; k++) {
     let p; do { p = pick(pool); } while (used.has(p.id) && used.size < pool.length); used.add(p.id);
-    const line = { offerId: rec.offerId, productId: p.id, customProductName: p.name, quantity: qtyFor(p.measurementUnit), unitPrice: Number(p.listPrice), discountApplied: [0, 0, 5, 10][Math.floor(rnd() * 4)] };
+    const line = { offerId: rec.offerId, productId: p.id, customProductName: p.name, quantity: qtyFor(p), unitPrice: Number(p.listPrice), discountApplied: [0, 0, 5, 10][Math.floor(rnd() * 4)] };
     const li = await post('/api/v2/offer-items', line);
     if (!li.ok) { results.errors.push({ step: 'item', offer: rec.offerId, status: li.status, body: li.body, product: p.internalCodification }); continue; }
     rec.lines.push({ cod: p.internalCodification, producer: p.producerName, name: p.name, um: p.measurementUnit, qty: line.quantity, price: line.unitPrice, disc: line.discountApplied });
