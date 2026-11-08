@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 // PROTOTYPE — operator tool. Maturity: PROTOTYPE (dev only, by construction).
-// DEV ONLY: deletes every PRODUCT and PRICELIST item from the glamCRM DEV DynamoDB table so the split 2026 lists can be
+// DEV ONLY: deletes every PRODUCT, PRICELIST and (with --categories) CATEGORY item from the glamCRM DEV DynamoDB table so the split 2026 lists can be
 // imported fresh (human ruling 2026-11-07: "you can wipe dev products and import fresh"). Refuses any table whose name does
 // not contain "dev". Reads the keys through GSI2 (`GSI2PK = TYPE#PRODUCT` / `TYPE#PRICELIST`, the repositories' own
 // index) and deletes by PK/SK in batches of 25 with retry of unprocessed items. Prints counts only.
-// Usage: node scripts/glamcrm-dev-wipe.mjs <tableName> <region> --yes
+// Usage: node scripts/glamcrm-dev-wipe.mjs <tableName> <region> --yes [--categories]
+// --categories (human 2026-11-08 "erase them once again and the pricelists too and the categories too"): also deletes
+// TYPE#CATEGORY so the fresh set is numbered from publicId 1 again (category-service mints max+1 over what exists).
 import { createRequire } from 'node:module';
 const req = createRequire('/Users/apple/Documents/APLICATII BIJUTERIE/glamCRM/serverless/package.json');
 const { DynamoDBClient } = req('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, QueryCommand, BatchWriteCommand } = req('@aws-sdk/lib-dynamodb');
 
-const [table, region, yes] = process.argv.slice(2);
+const [table, region, yes, ...flags] = process.argv.slice(2);
+const withCategories = flags.includes('--categories');
 if (!table || !region) { console.error('usage: node scripts/glamcrm-dev-wipe.mjs <tableName> <region> --yes'); process.exit(2); }
 if (!/dev/i.test(table)) { console.error(`REFUSED: table "${table}" is not a dev table`); process.exit(3); }
 if (yes !== '--yes') { console.error('REFUSED: pass --yes to delete (dev only)'); process.exit(3); }
@@ -43,7 +46,7 @@ async function deleteAll(keys) {
   return done;
 }
 
-for (const type of ['PRODUCT', 'PRICELIST']) {
+for (const type of ['PRODUCT', 'PRICELIST', ...(withCategories ? ['CATEGORY'] : [])]) {
   const keys = await keysOf(type);
   const before = keys.length;
   const deleted = await deleteAll(keys);

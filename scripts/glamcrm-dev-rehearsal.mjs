@@ -14,7 +14,10 @@ const token = fs.readFileSync(tokenFile, 'utf8').trim();
 const H = { Authorization: `Bearer ${token}` };
 // Category / VAT mapping for the DEV rehearsal — an operator ASSUMPTION, listed as a Monday question (the category is
 // the first segment of every minted codification; the real mapping is the client's).
-const CAT = { Parchet: '01KECM0M89CKN20WS0PWXT80WF', Mocheta: '01KECM0M9N3CG6H3S3H9658VZX', Plinte: '01KECM0MCK9ESVQB968QPE8XPD', Accesorii: '01KECM0MH3GZVFJAYZA4DJYRN4', Adezivi: '01KECM0MFK91HPMGTMTZMA71XD', Profilele: '01KECM0ME114173P8V921FNMH2' };
+// Categories are ALWAYS resolved by name from the live dev API (per-run cache only). 2026-11-08: a hardcoded id map here
+// survived the category wipe and 35 lists were created against deleted category ids → the importer refused every row
+// (categoryPublicId=""), leaving empty pricelist shells (the swallow defect GC-IMPORT-PARITY-1 made them 201s).
+const CAT = {};
 const VAT0 = '01KEEZ2ZNFBYX4BV5N735WDJTZ', VAT19 = '01KECM0MJR7MT0YHDE8S1JM8QF';
 const plan = [
   ['BOEN wood 2026.xlsx', 'BOEN', 'Parchet', VAT0],
