@@ -29,8 +29,16 @@ describe('git working-tree adapter', () => {
     await writeFile(join(repo, 'src/users.ts'), 'export function createUser() {\n  db.query("user_table");\n}\n');
     await writeFile(join(repo, 'sql/schema.sql'), 'CREATE TABLE order_ledger (id TEXT);\nCREATE TABLE user_table (id TEXT);\n');
     await writeFile(join(repo, 'blob.bin'), Buffer.from([0x89, 0x50, 0x00, 0x47, 0x0d, 0x0a]));
-    await writeFile(join(repo, '.gitignore'), 'ignored.txt\n');
+    await writeFile(join(repo, '.gitignore'), 'ignored.txt\n.agent-manager/\n');
     await writeFile(join(repo, 'ignored.txt'), 'secret_token_name\n');
+    // TRANSCRIPT-1: the relay's gitignored trail — indexed only on request, and only slices/ and transcripts/.
+    await mkdir(join(repo, '.agent-manager/slices/S-1/runs'), { recursive: true });
+    await writeFile(join(repo, '.agent-manager/slices/S-1/runs/build-0.json'), '{"runId":"build-S-1-0"}');
+    await mkdir(join(repo, '.agent-manager/transcripts'), { recursive: true });
+    await mkdir(join(repo, '.agent-manager/logs'), { recursive: true });
+    await writeFile(join(repo, '.agent-manager/slices/S-1/build-0.md'), '# report\n');
+    await writeFile(join(repo, '.agent-manager/transcripts/build-S-1-0.md'), '# build-S-1-0 · builder · claude\n');
+    await writeFile(join(repo, '.agent-manager/logs/raw.txt'), '# Run Log\n');
     await git(repo, 'add', '-A');
     await git(repo, 'commit', '-q', '-m', 'base');
   });
@@ -95,5 +103,14 @@ describe('git working-tree adapter', () => {
     } finally {
       await rm(plain, { recursive: true, force: true });
     }
+  });
+
+  it('includeTrail adds .agent-manager/slices and /transcripts (gitignored) but never logs/ or runs/*.json (TRANSCRIPT-1)', async () => {
+    const plain = await readWorkingTreeFiles(repo);
+    expect(plain.files.some((f) => f.path.startsWith('.agent-manager/'))).toBe(false);
+    const withTrail = await readWorkingTreeFiles(repo, { maxFileBytes: 2_000_000, includeTrail: true });
+    const trail = withTrail.files.map((f) => f.path).filter((p) => p.startsWith('.agent-manager/'));
+    expect(trail).toEqual(['.agent-manager/slices/S-1/build-0.md', '.agent-manager/transcripts/build-S-1-0.md']);
+    expect(withTrail.files.length).toBe(plain.files.length + 2);
   });
 });

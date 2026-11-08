@@ -44,6 +44,8 @@ export interface LexmapParams {
   /** Test rows and documentation rows returned per partition (human ruling 2026-11-07: pointers, typed). */
   readonly maxTestRows: number;
   readonly maxDocRows: number;
+  /** Session rows (condensed run transcripts, TRANSCRIPT-1) returned per query. */
+  readonly maxSessionRows: number;
   /** Shared identifiers listed per neighbor row. */
   readonly maxSharedShown: number;
   /** Rows returned by `bridge`. */
@@ -87,6 +89,7 @@ export const DEFAULT_LEXMAP_PARAMS: LexmapParams = {
   maxNeighbors: 20,
   maxTestRows: 8,
   maxDocRows: 8,
+  maxSessionRows: 8,
   maxSharedShown: 6,
   maxBridgeTokens: 30,
   wordWeight: 0.2,
@@ -169,7 +172,18 @@ export interface Lexmap {
   /** Tokens dropped as noise, with their document frequency. */
   readonly noise: ReadonlyMap<string, number>;
   readonly stats: {
+    /** Population files — the repository: code, tests, docs — the ones rarity (N) and the noise cutoff are computed over. */
     readonly files: number;
+    /**
+     * Trail files (`.agent-manager/**`: condensed transcripts, slice briefs, build
+     * reports, verdicts — TRANSCRIPT-1): indexed as locations and neighbors but NOT
+     * part of the population. Measured on glamCRM: counting the trail in N moved
+     * the noise cutoff from 56 to 146 files, so handler boilerplate (`withWarmup`,
+     * `documentsBucket`) stopped being noise and sibling handlers overtook the
+     * service a handler calls. Rarity "in the repository" is the ruled measure; a
+     * transcript or a report quoting a name does not make it rarer or commoner.
+     */
+    readonly trailFiles: number;
     /** Sum of text lengths in UTF-16 code units (what the tokenizer walks); byte sizes are the adapter's. */
     readonly chars: number;
     readonly distinctTokens: number;
@@ -187,23 +201,27 @@ export function languageOf(path: string): string {
 export function buildLexmap(sources: readonly SourceFile[], params: LexmapParams = DEFAULT_LEXMAP_PARAMS): Lexmap {
   const n = sources.length;
   const tokenCounts: number[] = new Array<number>(n).fill(0);
+  // The trail is indexed but is not population (see `stats.trailFiles`).
+  const inPopulation = sources.map((s) => !isTrailPath(s.path));
+  const nPop = inPopulation.filter(Boolean).length;
 
-  // Pass 1: document frequency.
+  // Pass 1: document frequency over the population.
   const df = new Map<string, number>();
-  const perFile: Set<string>[] = [];
   let chars = 0;
   const toKey = conceptKey;
-  for (const s of sources) {
+  for (let f = 0; f < n; f += 1) {
+    const s = sources[f];
+    if (!s) continue;
     chars += s.text.length;
+    if (!inPopulation[f]) continue;
     const set = new Set<string>();
     for (const t of distinctTokens(s.text, params.minTokenLength)) {
       const k = toKey(t);
       if (k !== '') set.add(k);
     }
-    perFile.push(set);
     for (const t of set) df.set(t, (df.get(t) ?? 0) + 1);
   }
-  const noiseLimit = Math.max(params.noiseFloor, Math.ceil(n * params.noiseShare));
+  const noiseLimit = Math.max(params.noiseFloor, Math.ceil(nPop * params.noiseShare));
   const noise = new Map<string, number>();
   for (const [t, c] of df) if (c > noiseLimit) noise.set(t, c);
 
@@ -212,9 +230,11 @@ export function buildLexmap(sources: readonly SourceFile[], params: LexmapParams
   let postingsTotal = 0;
   for (let f = 0; f < n; f += 1) {
     const text = sources[f]?.text ?? '';
+    const population = inPopulation[f] === true;
     for (const occ of tokenize(text, params.minTokenLength)) {
       const key = toKey(occ.token);
-      if (key === '' || noise.has(key)) continue;
+      // A key the population never uses has no rarity; a trail-only word links nothing in the repository.
+      if (key === '' || noise.has(key) || !df.has(key)) continue;
       let entry = tokens.get(key);
       if (!entry) {
         entry = { df: df.get(key) ?? 0, files: [], defFiles: [], surfaces: [], surfaceCounts: [], postings: [] };
@@ -224,7 +244,8 @@ export function buildLexmap(sources: readonly SourceFile[], params: LexmapParams
         entry.files.push(f);
         tokenCounts[f] = (tokenCounts[f] ?? 0) + 1;
       }
-      if (occ.likelyDefinition && entry.defFiles[entry.defFiles.length - 1] !== f) entry.defFiles.push(f);
+      // The trail defines nothing: a `const x` quoted in a transcript or a report is not the repository's definition.
+      if (population && occ.likelyDefinition && entry.defFiles[entry.defFiles.length - 1] !== f) entry.defFiles.push(f);
       let s = entry.surfaces.indexOf(occ.token);
       if (s < 0) {
         s = entry.surfaces.length;
@@ -243,7 +264,7 @@ export function buildLexmap(sources: readonly SourceFile[], params: LexmapParams
     params,
     tokens,
     noise,
-    stats: { files: n, chars, distinctTokens: df.size, noiseTokens: noise.size, postings: postingsTotal },
+    stats: { files: nPop, trailFiles: n - nPop, chars, distinctTokens: df.size, noiseTokens: noise.size, postings: postingsTotal },
   };
 }
 
@@ -280,24 +301,36 @@ function binaryIncludes(sorted: readonly number[], value: number): boolean {
 // ---------------------------------------------------------------- where
 
 /**
- * Three partitions of the working tree (human ruling 2026-11-07): results are
- * pointers, typed — code to open, tests that exercise the names, documentation
- * that mentions them. Starting rules: a test directory or `.test.`/`.spec.`
- * file is `test` (a Markdown fixture inside tests is test material); a docs
- * directory or a `.md`/`.rst`/`.txt` file is `doc`; everything else is `code`.
+ * Four partitions of the working tree (human ruling 2026-11-07: results are
+ * pointers, typed) — code to open, tests that exercise the names, documentation
+ * that mentions them, and (TRANSCRIPT-1, human 2026-11-08) the sessions that
+ * talked about them. Starting rules: everything under `.agent-manager/` — the
+ * relay's sessions on this target: condensed transcripts, slice briefs, build
+ * reports, review verdicts — is `session` (measured: as `doc` the reports
+ * pushed the repository's own `docs/API-SPEC.md` out of the capped doc rows);
+ * a test directory or `.test.`/`.spec.` file is `test` (a Markdown fixture
+ * inside tests is test material); a docs directory or a `.md`/`.rst`/`.txt`
+ * file is `doc`; everything else is `code`.
  */
-export type PathClass = 'code' | 'test' | 'doc';
+export type PathClass = 'code' | 'test' | 'doc' | 'session';
 
 const TEST_PATH = /(^|\/)(tests?|__tests__|specs?|fixtures?)(\/|$)|\.(test|spec)\.[A-Za-z0-9]+$/i;
 const DOC_PATH = /(^|\/)(docs?|examples?)(\/|$)|\.(md|rst|txt)$/i;
+const TRAIL_PATH = /^\.agent-manager\//;
+
+/** Under `.agent-manager/`: the relay's trail on the target, not the repository. */
+export function isTrailPath(path: string): boolean {
+  return TRAIL_PATH.test(path);
+}
 
 export function pathClass(path: string): PathClass {
+  if (isTrailPath(path)) return 'session';
   if (TEST_PATH.test(path)) return 'test';
   if (DOC_PATH.test(path)) return 'doc';
   return 'code';
 }
 
-const CLASS_ORDER: Record<PathClass, number> = { code: 0, test: 1, doc: 2 };
+const CLASS_ORDER: Record<PathClass, number> = { code: 0, test: 1, doc: 2, session: 3 };
 
 export interface WhereFile {
   readonly path: string;
@@ -384,10 +417,12 @@ export interface NeighborRows {
   readonly code: readonly NeighborRow[];
   readonly tests: readonly NeighborRow[];
   readonly docs: readonly NeighborRow[];
+  /** Condensed run transcripts sharing the names (empty unless the trail is indexed — the viewer; never the relay). */
+  readonly sessions: readonly NeighborRow[];
 }
 
 export function neighborRowCount(rows: NeighborRows): number {
-  return rows.code.length + rows.tests.length + rows.docs.length;
+  return rows.code.length + rows.tests.length + rows.docs.length + rows.sessions.length;
 }
 
 interface Accumulator {
@@ -464,6 +499,7 @@ function rankNeighbors(map: Lexmap, tokensIn: Iterable<string>, exclude: Readonl
     code: rows.filter((r) => r.pathClass === 'code').slice(0, map.params.maxNeighbors),
     tests: rows.filter((r) => r.pathClass === 'test').slice(0, map.params.maxTestRows),
     docs: rows.filter((r) => r.pathClass === 'doc').slice(0, map.params.maxDocRows),
+    sessions: rows.filter((r) => r.pathClass === 'session').slice(0, map.params.maxSessionRows),
   };
 }
 
@@ -550,14 +586,16 @@ export function bridge(map: Lexmap, dirA: string, dirB: string): BridgeResult {
   const b = dirPrefix(dirB);
   const rows: BridgeRow[] = [];
   // Test files are not a side of a bridge: two test suites sharing a fixture name (`DriftCo`,
-  // `HEADER_13` on glamCRM, VIEW-5 walk) say nothing about the modules. Docs stay: "which code
-  // names does the documentation mention" is a real question.
+  // `HEADER_13` on glamCRM, VIEW-5 walk) say nothing about the modules. Sessions neither: a
+  // transcript names whatever the agent touched on both sides. Docs stay: "which code names
+  // does the documentation mention" is a real question.
   for (const [token, entry] of map.tokens) {
     const filesA: string[] = [];
     const filesB: string[] = [];
     for (const f of entry.files) {
       const p = map.files[f]?.path ?? '';
-      if (pathClass(p) === 'test') continue;
+      const cls = pathClass(p);
+      if (cls === 'test' || cls === 'session') continue;
       if (p.startsWith(a)) filesA.push(p);
       if (p.startsWith(b)) filesB.push(p);
     }
@@ -744,7 +782,11 @@ function renderRows(rows: readonly NeighborRow[]): string[] {
   return rows.map((r) => `  ${fmt(r.score).padStart(6)}  ${r.path}${r.crossLanguage ? '  [cross-language]' : ''}  — ${r.shared.join(', ')}${r.sharedCount > r.shared.length ? ` +${r.sharedCount - r.shared.length}` : ''}`);
 }
 
-/** The three partitions as pointer lists; an empty partition prints one line saying so. */
+/**
+ * The partitions as pointer lists; an empty partition prints one line saying so.
+ * Sessions print only when present: the relay never indexes the trail, so its
+ * reviewer context (`renderHunkNeighborsSection`) is byte-identical to before TRANSCRIPT-1.
+ */
 function renderPartitions(rows: NeighborRows, subject: string): string[] {
   const block = (title: string, list: readonly NeighborRow[], empty: string): string[] =>
     list.length === 0 ? [`${title}: ${empty}`] : [`${title}:`, ...renderRows(list)];
@@ -752,6 +794,7 @@ function renderPartitions(rows: NeighborRows, subject: string): string[] {
     ...block('Code to open', rows.code, `no code file shares a rare identifier with ${subject}.`),
     ...block('Tests that exercise these identifiers', rows.tests, 'none found.'),
     ...block('Documentation that mentions them (potential doc updates)', rows.docs, 'none found.'),
+    ...(rows.sessions.length > 0 ? block('Sessions that talked about these names (transcripts, reports, verdicts)', rows.sessions, '') : []),
   ];
 }
 

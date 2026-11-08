@@ -17,7 +17,11 @@
  *   GET /api/file?path=    one file's text (inside the target only; .git refused)
  *   GET /api/where?token=  postings grouped by file, likely definitions first
  *   GET /api/dirs          directories (two levels) with file counts and languages
- *   GET /api/files         every indexed path (the repo tree, VIEW-4)
+ *   GET /api/files         every indexed path (the repo tree, VIEW-4); TRANSCRIPT-1: the
+ *                          index includes the trail (.agent-manager/slices, /transcripts),
+ *                          and `extra` lists the raw run logs — viewable, never indexed
+ *   GET /api/sessions?path=  runs whose condensed transcript says they read or edited
+ *                          that path or something under it (TRANSCRIPT-1)
  *   GET /api/bridge?a=&b=  identifiers two directories share, heaviest first (VIEW-2)
  *   GET /api/neighbors?path=  the three pointer lists for any file
  *
@@ -33,6 +37,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { touchedPaths, type ActivityEvent } from '../core/activity.js';
+import { TRANSCRIPTS_DIR, transcriptRelPath, transcriptStarted, transcriptTouches } from '../core/transcript.js';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
@@ -49,13 +54,19 @@ import {
   type NeighborRows,
 } from '../core/lexmap/lexmap.js';
 import { changedFileTokens, orderByAffinity, parseDiffHunks, type FileDiff, type OrderedFile } from '../core/lexmap/diff-view.js';
-import { buildWorkingTreeLexmap, readCandidateChanges, treeIdentity, type BuiltLexmap } from '../adapters/lexmap/git-working-tree.js';
+import { DEFAULT_WORKING_TREE_PARAMS, buildWorkingTreeLexmap, readCandidateChanges, treeIdentity, type BuiltLexmap } from '../adapters/lexmap/git-working-tree.js';
 
 export interface ViewServerOptions {
   readonly targetDir: string;
   /** 0 = any free port (tests). */
   readonly port: number;
-  /** Rebuild the index when older than this. Starting value 5 s. */
+  /**
+   * Rebuild the index when older than this. Starting value 5 s — but never
+   * sooner than ten build durations (TRANSCRIPT-1 walk: with the trail indexed
+   * on a loaded machine one build took 30 s and blocked the event loop, so a
+   * 5 s age meant every request waited for a rebuild). A fast build keeps the
+   * 5 s; a 30 s build is reused for 5 minutes.
+   */
   readonly maxIndexAgeMs?: number;
 }
 
@@ -64,10 +75,32 @@ export interface ViewServer {
   close(): Promise<void>;
 }
 
+/** One run's structural footprint, read back from its condensed transcript (TRANSCRIPT-1). */
+interface SessionTouches {
+  readonly runId: string;
+  readonly transcript: string;
+  readonly startedAt: string | null;
+  readonly read: readonly string[];
+  readonly edited: readonly string[];
+}
+
 interface IndexState {
   readonly built: BuiltLexmap;
   readonly identity: string;
   readonly builtAt: number;
+  /** Newest first. Derived from the indexed transcripts at build time — no second read. */
+  readonly sessions: readonly SessionTouches[];
+}
+
+function sessionTouches(built: BuiltLexmap): SessionTouches[] {
+  const out: SessionTouches[] = [];
+  for (const f of built.read.files) {
+    if (!f.path.startsWith(`${TRANSCRIPTS_DIR}/`) || !f.path.endsWith('.md')) continue;
+    const runId = f.path.slice(TRANSCRIPTS_DIR.length + 1, -'.md'.length);
+    const { read, edited } = transcriptTouches(f.text);
+    out.push({ runId, transcript: f.path, startedAt: transcriptStarted(f.text) ?? null, read, edited });
+  }
+  return out.sort((a, b) => String(b.startedAt ?? '').localeCompare(String(a.startedAt ?? '')) || (a.runId < b.runId ? 1 : -1));
 }
 
 const STATIC_DIR = join(dirname(fileURLToPath(import.meta.url)), 'static');
@@ -113,12 +146,12 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
   let building: Promise<IndexState> | undefined;
 
   const index = async (): Promise<IndexState> => {
-    if (state && Date.now() - state.builtAt < maxAge) return state;
+    if (state && Date.now() - state.builtAt < Math.max(maxAge, 10 * state.built.buildMs)) return state;
     if (!building) {
       building = (async () => {
-        const built = await buildWorkingTreeLexmap(targetDir);
+        const built = await buildWorkingTreeLexmap(targetDir, { ...DEFAULT_WORKING_TREE_PARAMS, includeTrail: true });
         const identity = await treeIdentity(targetDir, built.read);
-        state = { built, identity, builtAt: Date.now() };
+        state = { built, identity, builtAt: Date.now(), sessions: sessionTouches(built) };
         return state;
       })().finally(() => { building = undefined; });
     }
@@ -204,7 +237,11 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
       const head = ((await readOptional(join(dir, name)) ?? '').split('\n')[0] ?? '').trim();
       let first: Partial<ActivityEvent> = {};
       try { if (head) first = JSON.parse(head) as Partial<ActivityEvent>; } catch { first = {}; }
-      return { runId: name.slice(0, -'.ndjson'.length), mtimeMs: info.mtimeMs, bytes: info.size, sliceId: first.sliceId ?? null, role: first.role ?? null, provider: first.provider ?? null, startedAt: first.at ?? null };
+      const runId = name.slice(0, -'.ndjson'.length);
+      // TRANSCRIPT-1: the run's condensed transcript, when one exists (live runs write it at run end).
+      const transcript = transcriptRelPath(runId);
+      const hasTranscript = await stat(join(targetDir, transcript)).then((t) => t.isFile()).catch(() => false);
+      return { runId, mtimeMs: info.mtimeMs, bytes: info.size, sliceId: first.sliceId ?? null, role: first.role ?? null, provider: first.provider ?? null, startedAt: first.at ?? null, transcript: hasTranscript ? transcript : null };
     }));
     runs.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.runId < b.runId ? 1 : -1));
     const chosen = wanted ? runs.find((r) => r.runId === wanted) : runs[0];
@@ -268,8 +305,20 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
       }
       case '/api/files': {
         // VIEW-4: every indexed path, for the repo tree (the index already holds them; no extra I/O).
+        // TRANSCRIPT-1: plus the raw run logs — on disk, viewable through /api/file, never indexed (the FULL version).
         const { built, identity } = await index();
-        json(res, 200, { identity, files: built.map.files.map((f) => f.path) });
+        let logs: string[] = [];
+        try { logs = (await readdir(join(targetDir, '.agent-manager', 'logs'))).filter((n) => n.endsWith('.txt')).sort().map((n) => `.agent-manager/logs/${n}`); } catch { logs = []; }
+        json(res, 200, { identity, files: built.map.files.map((f) => f.path), extra: logs, extraNote: 'raw provider logs: the full stream of each run, readable but not indexed; the condensed transcripts under .agent-manager/transcripts are' });
+        return;
+      }
+      case '/api/sessions': {
+        // TRANSCRIPT-1: the runs whose transcript says they read or edited `path` (a file) or anything under it (a directory).
+        const path = (url.searchParams.get('path') ?? '').replace(/\/+$/, '');
+        const { identity, sessions } = await index();
+        const under = (p: string): boolean => path === '' || p === path || p.startsWith(`${path}/`);
+        const rows = sessions.map((s) => ({ runId: s.runId, transcript: s.transcript, startedAt: s.startedAt, edited: s.edited.filter(under), read: s.read.filter(under) })).filter((s) => s.edited.length > 0 || s.read.length > 0);
+        json(res, 200, { identity, path, sessions: rows, total: sessions.length, note: 'from the read/edit lines of each condensed transcript under .agent-manager/transcripts; Codex runs read inside shell commands, so their reads are not listed' });
         return;
       }
       case '/api/bridge': {

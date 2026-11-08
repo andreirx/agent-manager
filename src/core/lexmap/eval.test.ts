@@ -6,7 +6,7 @@ import { buildLexmap, neighbors, type LexmapParams, type SourceFile } from './le
 import { appendCandidates, mulberry32, parseSheet, renderSheet, sampleQueries, scoreVariant, topMoves, unjudgedTop, withParams } from './eval.js';
 
 // noiseLimit = max(2, ceil(4 × 0.5)) = 2 → a token in more than 2 files is noise.
-const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2, ranking: 'sum' };
+const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSessionRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2, ranking: 'sum' };
 
 // Weights (N = 4): df 2 → ln 2 = 0.6931 (identifier) or 0.1386 (word); df 1 → ln 4.
 // q ∩ small = { function (word, 0.1386), betaFn (0.6931), gammaVal (0.6931) }  = 1.5249, small defines betaFn, small has 3 tokens

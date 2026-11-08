@@ -51,6 +51,11 @@ describe('view server', () => {
     await writeFile(join(sliceDir, 'build-0.md'), '# first\n');
     await writeFile(join(sliceDir, 'build-1.md'), '# second build\n');
     await writeFile(join(sliceDir, 'review-0.json'), '{"verdict":"revise"}');
+    // TRANSCRIPT-1: one condensed transcript (indexed, class session) and one raw log (listed, never indexed).
+    await mkdir(join(repo, '.agent-manager/transcripts'), { recursive: true });
+    await writeFile(join(repo, '.agent-manager/transcripts/build-S-1-1.md'), '# build-S-1-1 · builder · claude\n\nslice S-1 · started 2026-11-07T09:00:00.000Z · ended 2026-11-07T09:10:00.000Z · completed\n\nI audited order_ledger writes.\n\n- read `src/users.ts`\n- edit `src/orders.ts`\n');
+    await mkdir(join(repo, '.agent-manager/logs'), { recursive: true });
+    await writeFile(join(repo, '.agent-manager/logs/2026-11-07_09-00-00Z__builder__claude__slice-S-1.txt'), '# Run Log\n\nRun ID: build-S-1-1\n');
     server = await startViewServer({ targetDir: repo, port: 0, maxIndexAgeMs: 60_000 });
   });
 
@@ -113,8 +118,9 @@ describe('view server', () => {
     const ev = (kind: string, extra: Record<string, unknown>) => JSON.stringify({ at: '2026-11-07T10:00:00.000Z', runId: 'build-S-1-1', sliceId: 'S-1', role: 'builder', provider: 'claude', kind, ...extra });
     await writeFile(join(dir, 'build-S-1-1.ndjson'), [ev('run-start', { detail: 'mode edit' }), ev('read', { tool: 'Read', path: 'src/users.ts' }), ev('exec', { tool: 'Bash', command: 'npm test' }), ev('edit', { tool: 'Edit', path: 'src/orders.ts' }), ''].join('\n'));
     const r = await api('/api/activity');
-    const body = r.body as { run: { runId: string; live: boolean; provider: string; role: string }; counts: Record<string, number>; touched: { read: string[]; edited: string[] }; uninspected: { rows: { path: string }[]; basis: string }; readsObservable: boolean };
+    const body = r.body as { run: { runId: string; live: boolean; provider: string; role: string; transcript: string | null }; counts: Record<string, number>; touched: { read: string[]; edited: string[] }; uninspected: { rows: { path: string }[]; basis: string }; readsObservable: boolean };
     expect(body.run.runId).toBe('build-S-1-1');
+    expect(body.run.transcript).toBe('.agent-manager/transcripts/build-S-1-1.md'); // TRANSCRIPT-1: the run's condensed transcript, when present
     expect(body.run.live).toBe(true); // no run-end yet
     expect(body.counts).toEqual({ 'run-start': 1, read: 1, exec: 1, edit: 1 });
     expect(body.touched).toEqual({ read: ['src/users.ts'], edited: ['src/orders.ts'] });
@@ -130,7 +136,7 @@ describe('view server', () => {
 
   it('lists directories and answers bridge between two of them (VIEW-2)', async () => {
     const d = (await api('/api/dirs')).body as { dirs: { path: string; files: number; langs: string[] }[] };
-    expect(d.dirs.map((x) => x.path)).toEqual(['docs', 'src']);
+    expect(d.dirs.map((x) => x.path)).toEqual(['.agent-manager', '.agent-manager/slices', '.agent-manager/transcripts', 'docs', 'src']); // TRANSCRIPT-1: the trail is a directory like any other
     expect(d.dirs.find((x) => x.path === 'src')?.langs).toEqual(['sql', 'ts']);
     const b = (await api('/api/bridge?a=src&b=docs')).body as { result: { rows: { token: string; filesA: string[]; filesB: string[] }[] } };
     expect(b.result.rows.map((r) => r.token)).toEqual(['order_ledger', 'TABLE']); // concept keys: SQL TABLE and the doc's "table" are one key, shown by its most frequent spelling
@@ -138,9 +144,28 @@ describe('view server', () => {
     expect((await api('/api/bridge?a=src&b=src')).status).toBe(400);
   });
 
-  it('lists every indexed path for the repo tree (VIEW-4)', async () => {
-    const f = (await api('/api/files')).body as { files: string[] };
-    expect(f.files).toEqual(['.gitignore', 'docs/ledger.md', 'src/new.ts', 'src/orders.ts', 'src/schema.sql', 'src/users.ts']);
+  it('lists every indexed path for the repo tree (VIEW-4), the trail included and the raw logs beside it (TRANSCRIPT-1)', async () => {
+    const f = (await api('/api/files')).body as { files: string[]; extra: string[] };
+    expect(f.files).toEqual([
+      '.agent-manager/slices/S-1/build-0.md', '.agent-manager/slices/S-1/build-1.md', '.agent-manager/slices/S-1/review-0.json', '.agent-manager/slices/S-1/status.json',
+      '.agent-manager/transcripts/build-S-1-1.md',
+      '.gitignore', 'docs/ledger.md', 'src/new.ts', 'src/orders.ts', 'src/schema.sql', 'src/users.ts',
+    ]);
+    expect(f.extra).toEqual(['.agent-manager/logs/2026-11-07_09-00-00Z__builder__claude__slice-S-1.txt']);
+    // The raw log is readable as a file, like anything inside the target.
+    expect(((await api('/api/file?path=' + encodeURIComponent(f.extra[0] ?? ''))).body as { text: string }).text).toContain('Run ID: build-S-1-1');
+  });
+
+  it('relates transcripts both ways: as session neighbors by shared names, and as the runs that touched a path (TRANSCRIPT-1)', async () => {
+    const n = (await api('/api/neighbors?path=src/orders.ts')).body as { result: { rows: { sessions: { path: string }[]; code: { path: string }[] } } };
+    expect(n.result.rows.sessions.map((r) => r.path)).toEqual(['.agent-manager/transcripts/build-S-1-1.md']);
+    expect(n.result.rows.code.map((r) => r.path)).not.toContain('.agent-manager/transcripts/build-S-1-1.md');
+    const byFile = (await api('/api/sessions?path=src/orders.ts')).body as { sessions: { runId: string; transcript: string; startedAt: string; edited: string[]; read: string[] }[]; total: number };
+    expect(byFile.total).toBe(1);
+    expect(byFile.sessions).toEqual([{ runId: 'build-S-1-1', transcript: '.agent-manager/transcripts/build-S-1-1.md', startedAt: '2026-11-07T09:00:00.000Z', edited: ['src/orders.ts'], read: [] }]);
+    const byDir = (await api('/api/sessions?path=src/')).body as { sessions: { edited: string[]; read: string[] }[] };
+    expect(byDir.sessions[0]).toMatchObject({ edited: ['src/orders.ts'], read: ['src/users.ts'] });
+    expect(((await api('/api/sessions?path=docs')).body as { sessions: unknown[] }).sessions).toEqual([]);
   });
 
   it('answers where and neighbors, reads files only inside the target, and refuses writes', async () => {

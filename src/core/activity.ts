@@ -22,13 +22,19 @@
  *    TD-038).
  *  - Copilot: nothing structured; only run start and end.
  *
+ * TRANSCRIPT-1 (human 2026-11-08): the agent's own words are kept too — a
+ * `say` event per Claude `text` block and per Codex `agent_message` — so the
+ * run's event log is also its condensed transcript (what the agent said and
+ * touched; never what it copied: tool results and thinking stay in the raw
+ * provider log only).
+ *
  * Pure: no I/O, no Node APIs. Paths under `root` are made root-relative.
  *
  * @module core
  * @maturity PROTOTYPE
  */
 
-export type ActivityKind = 'run-start' | 'run-end' | 'read' | 'edit' | 'exec' | 'search' | 'note';
+export type ActivityKind = 'run-start' | 'run-end' | 'read' | 'edit' | 'exec' | 'search' | 'note' | 'say';
 
 export interface ActivityEvent {
   readonly at: string;
@@ -45,6 +51,8 @@ export interface ActivityEvent {
   readonly tool?: string;
   /** Short free text: exit code, status, provider note. */
   readonly detail?: string;
+  /** The agent's prose (`say` events only), verbatim. */
+  readonly text?: string;
 }
 
 /** Fixed fields of one run, supplied by the adapter. */
@@ -93,7 +101,7 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 
-function event(base: ActivityBase, at: string, kind: ActivityKind, rest: Partial<Pick<ActivityEvent, 'path' | 'command' | 'pattern' | 'tool' | 'detail'>> = {}): ActivityEvent {
+function event(base: ActivityBase, at: string, kind: ActivityKind, rest: Partial<Pick<ActivityEvent, 'path' | 'command' | 'pattern' | 'tool' | 'detail' | 'text'>> = {}): ActivityEvent {
   return {
     at,
     runId: base.runId,
@@ -106,6 +114,7 @@ function event(base: ActivityBase, at: string, kind: ActivityKind, rest: Partial
     ...(rest.pattern !== undefined ? { pattern: rest.pattern } : {}),
     ...(rest.tool !== undefined ? { tool: rest.tool } : {}),
     ...(rest.detail !== undefined ? { detail: rest.detail } : {}),
+    ...(rest.text !== undefined ? { text: rest.text } : {}),
   };
 }
 
@@ -121,7 +130,7 @@ const CLAUDE_READ_TOOLS = new Set(['Read', 'NotebookRead']);
 const CLAUDE_EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const CLAUDE_SEARCH_TOOLS = new Set(['Grep', 'Glob']);
 
-/** One Claude `stream-json` line → events for each `tool_use` block in an assistant message. */
+/** One Claude `stream-json` line → a `say` per text block and an event per `tool_use` block of an assistant message. */
 export function claudeEvents(line: string, base: ActivityBase, at: string): ActivityEvent[] {
   const v = parseJson(line);
   if (!v || v['type'] !== 'assistant') return [];
@@ -133,6 +142,11 @@ export function claudeEvents(line: string, base: ActivityBase, at: string): Acti
   for (const block of content) {
     if (!block || typeof block !== 'object') continue;
     const b = block as Record<string, unknown>;
+    if (b['type'] === 'text') {
+      const text = str(b['text']) ?? '';
+      if (text.trim() !== '') out.push(event(base, at, 'say', { text }));
+      continue;
+    }
     if (b['type'] !== 'tool_use') continue;
     const tool = str(b['name']) ?? 'tool';
     const input = (b['input'] && typeof b['input'] === 'object' ? b['input'] : {}) as Record<string, unknown>;
@@ -146,7 +160,7 @@ export function claudeEvents(line: string, base: ActivityBase, at: string): Acti
   return out;
 }
 
-/** One Codex `--json` line → an exec event per completed command, an edit per file change. */
+/** One Codex `--json` line → an exec per completed command, an edit per file change, a `say` per agent message. */
 export function codexEvents(line: string, base: ActivityBase, at: string): ActivityEvent[] {
   const v = parseJson(line);
   if (!v || v['type'] !== 'item.completed') return [];
@@ -154,6 +168,10 @@ export function codexEvents(line: string, base: ActivityBase, at: string): Activ
   if (!item || typeof item !== 'object') return [];
   const it = item as Record<string, unknown>;
   const type = str(it['type']);
+  if (type === 'agent_message') {
+    const text = str(it['text']) ?? '';
+    return text.trim() === '' ? [] : [event(base, at, 'say', { text })];
+  }
   if (type === 'command_execution') {
     const exit = it['exit_code'];
     const status = str(it['status']);

@@ -21,6 +21,12 @@
   Every identifier in the code is a link: hover underlines; left click puts it
   in focus and jumps to its likely definition (a tab is reused if the file is
   open); right click lists all its locations. Read-only; no build step.
+  TRANSCRIPT-1 (human 2026-11-08): the relay's local trail is in the tree —
+  .agent-manager/slices (briefs, reports, verdicts) and /transcripts (one
+  condensed transcript per run: what the agent said and touched) are indexed;
+  the raw logs under /logs are listed in italics and open as plain text (the
+  FULL version, never indexed). Related gains the sessions that talked about
+  the names, and the runs whose transcript says they read or edited the file.
 -->
 <style>
   :root { --bg:#fff; --fg:#1b1b1b; --muted:#666; --line:#e3e3e3; --add:#e6ffed; --del:#ffeef0; --accent:#0b57d0; --panel:#f7f7f8; --mark:#fff3bf;
@@ -54,6 +60,9 @@
   #tree .dir { cursor:pointer; } #tree .dir::before { content:'▸ '; color:var(--muted); } #tree .dir.open::before { content:'▾ '; }
   #tree .leaf { cursor:pointer; } #tree .leaf:hover { text-decoration:underline; }
   #tree .leaf.opened { color:var(--accent); font-weight:600; } #tree .leaf.changed::after { content:' ●'; color:#d9822b; font-size:10px; }
+  #tree .leaf.raw { color:var(--muted); font-style:italic; }
+  .sess { padding:2px 0; } .sess .when { color:var(--muted); margin-right:6px; } .sess .link { margin-left:0; }
+  .say { white-space:pre-wrap; overflow-wrap:anywhere; cursor:pointer; } .say .full { white-space:pre-wrap; }
   #open-list div { padding:1px 0; overflow-wrap:anywhere; } #open-list .cur { font-weight:600; }
   /* workspace */
   #workspace { display:flex; flex-direction:column; padding:0; }
@@ -107,6 +116,7 @@
 <main>
   <section id="left">
     <h2>Repository <span id="tree-count" class="tag"></span></h2>
+    <div class="note"><code>.agent-manager/</code> is the relay's trail on this target: <code>slices/</code> (briefs, build reports, verdicts) and <code>transcripts/</code> (one condensed transcript per run) are indexed like source; <code>logs/</code> (in italics) are the full raw streams — readable, not indexed.</div>
     <div id="tree" class="muted">loading…</div>
     <h2>Open files</h2>
     <div id="open-list" class="muted">none</div>
@@ -117,7 +127,7 @@
   </section>
   <section id="right">
     <h2 id="right-title">Related</h2>
-    <div class="note">For the active tab: files that share rare identifiers with it — code to open, tests that use the same names, docs that mention them. Score = Σ rarity of the shared names (names the file defines count twice). Hints, not facts.</div>
+    <div class="note">For the active tab: files that share rare identifiers with it — code to open, tests that use the same names, docs that mention them, sessions that talked about them. Score = Σ rarity of the shared names (names the file defines count twice). Hints, not facts. Then the runs whose transcript says they read or edited the file (exact, from the transcript's own lines).</div>
     <div id="pointers" class="muted">nothing open</div>
     <h2>Which names do two parts of the repository share?</h2>
     <div class="note">Pick two directories. The list below is every identifier that appears in both — the names that cross from one module or language into the other (a Java class and the TypeScript that mirrors it, a SQL column and the code that reads it). Rarest first. Click a name to put it in focus and jump to it.</div>
@@ -140,7 +150,7 @@
     </div>
     <div>
       <h2>Agent run <span id="activity-live" class="tag"></span></h2>
-      <div class="note">What the newest provider run did, from <code>.agent-manager/activity/&lt;run&gt;.ndjson</code> (written live by the relay): files it read and edited, commands it ran, searches it made. "Uninspected" = code neighbors of the diff that the run never opened.</div>
+      <div class="note">What the newest provider run did, from <code>.agent-manager/activity/&lt;run&gt;.ndjson</code> (written live by the relay): what it said, files it read and edited, commands it ran, searches it made. "transcript" opens the run's condensed transcript as a tab. "Uninspected" = code neighbors of the diff that the run never opened.</div>
       <div id="activity" class="muted">loading…</div>
     </div>
   </div>
@@ -161,6 +171,10 @@
   let activeId = null, pinnedId = null, nextId = 1;
   const texts = new Map();         // path → { lang, text }
   const changed = new Set();
+  const unindexed = new Set();     // raw logs: in the tree, readable, not in the index
+  const isTranscript = (p) => p.startsWith('.agent-manager/transcripts/');
+  const LINK_MAX_CHARS = 400000;   // past this, identifiers are not linked (a raw log can be megabytes)
+  const RAW_SHOW_CHARS = 400000;   // a raw log is shown up to here (they run to 35 MB); the note says where the whole file is
 
   // ------------------------------------------------------- highlighting
   function highlightLines(text, lang) {
@@ -222,7 +236,8 @@
     }
     for (const name of node.files.slice().sort((a, b) => a.localeCompare(b))) {
       const li = document.createElement('li'); const full = prefix ? `${prefix}/${name}` : name;
-      const leaf = document.createElement('span'); leaf.className = 'leaf' + (changed.has(full) ? ' changed' : '') + (tabs.some((t) => t.path === full) ? ' opened' : ''); leaf.textContent = name; leaf.dataset.path = full;
+      const leaf = document.createElement('span'); leaf.className = 'leaf' + (changed.has(full) ? ' changed' : '') + (tabs.some((t) => t.path === full) ? ' opened' : '') + (unindexed.has(full) ? ' raw' : ''); leaf.textContent = name; leaf.dataset.path = full;
+      if (unindexed.has(full)) leaf.title = 'raw provider log — the full stream, readable, not indexed';
       leaf.addEventListener('click', () => openFile(full));
       li.appendChild(leaf); ul.appendChild(li);
     }
@@ -297,27 +312,47 @@
       body = f ? (f.binary ? '<div class="muted">binary</div>' : f.hunks.map((h) => hunkHtml(h, langOf(t.path))).join('') || '<div class="muted">no text hunks (rename or mode change)</div>')
         : u ? `<div class="note">untracked file — every line is new</div>${fileRows(u.text, langOf(t.path), undefined, 'add')}` : '<div class="muted">not in the candidate any more</div>';
     } else {
-      const f = texts.get(t.path); body = f ? fileRows(f.text, f.lang, t.line) : '<div class="muted">loading…</div>';
+      const f = texts.get(t.path);
+      const cut = f && unindexed.has(t.path) && f.text.length > RAW_SHOW_CHARS;
+      body = f ? (cut ? `<div class="note">first ${Math.round(RAW_SHOW_CHARS / 1000)} K of ${(f.text.length / 1e6).toFixed(1)} M characters — the whole file is on disk at <code>${esc(t.path)}</code></div>` : '') + fileRows(cut ? f.text.slice(0, RAW_SHOW_CHARS) : f.text, f.lang, t.line) : '<div class="muted">loading…</div>';
     }
-    pane.innerHTML = `<h2>${t.kind === 'diff' ? 'Diff —' : 'File —'} <span class="path">${esc(t.path)}${t.line ? ':' + t.line : ''}</span>${t.id === pinnedId ? '<span class="tag">pinned</span>' : ''}</h2>${body}`;
-    linkIdentifiers(pane);
+    const big = t.kind === 'file' && (texts.get(t.path)?.text.length || 0) > LINK_MAX_CHARS;
+    const what = t.kind === 'diff' ? 'Diff —' : isTranscript(t.path) ? 'Transcript —' : unindexed.has(t.path) ? 'Raw log —' : 'File —';
+    pane.innerHTML = `<h2>${what} <span class="path">${esc(t.path)}${t.line ? ':' + t.line : ''}</span>${t.id === pinnedId ? '<span class="tag">pinned</span>' : ''}${big ? '<span class="tag">identifiers not linked (file too large)</span>' : ''}</h2>${body}`;
+    if (!big) linkIdentifiers(pane);
+    if (isTranscript(t.path)) linkTouches(pane);
     if (t.line) requestAnimationFrame(() => pane.querySelector(`.ln[data-l="${t.line}"]`)?.scrollIntoView({ block: 'center' }));
     return pane;
+  }
+
+  // In a transcript, the `- read \`path\`` / `- edit \`path\`` lines open the file.
+  function linkTouches(pane) {
+    pane.querySelectorAll('.ln > span:last-child > code').forEach((codeEl) => {
+      const m = /^- (read|edit) `([^`]+)`/.exec(codeEl.textContent || ''); if (!m) return;
+      const path = m[2];
+      const target = [...codeEl.querySelectorAll('span')].find((x) => x.textContent === '`' + path + '`') || codeEl;
+      if (target === codeEl) { codeEl.innerHTML = esc(codeEl.textContent).replace(esc('`' + path + '`'), `<span class="file" data-path="${esc(path)}">\`${esc(path)}\`</span>`); }
+      else { target.className = 'file'; target.dataset.path = path; }
+    });
+    pane.querySelectorAll('.file[data-path]').forEach((x) => x.addEventListener('click', (ev) => { ev.stopPropagation(); openFile(x.dataset.path); }));
   }
 
   // ---------------------------------------------------------- related
   // "cross-language" means something for code rows only (a doc is not a language).
   const pointerRows = (title, rows, empty) => `<h2>${title}</h2>` + (rows.length ? rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span>${r.crossLanguage && r.pathClass === 'code' ? '<span class="tag">cross-language</span>' : ''}<div class="link">${esc(r.shared.join(', '))}${r.sharedCount > r.shared.length ? ' +' + (r.sharedCount - r.shared.length) : ''}</div></div>`).join('') : `<div class="muted">${empty}</div>`);
-  function showPointers(path, p) {
+  // The runs whose transcript says they read or edited the file (structural, exact): when · run · what it did to it.
+  const sessionRows = (path, s) => `<h2>Runs that touched this file</h2>` + (s && s.sessions.length ? s.sessions.slice(0, 12).map((x) => `<div class="sess"><span class="when">${when(x.startedAt)}</span><span class="file" data-path="${esc(x.transcript)}">${esc(x.runId)}</span><span class="tag">${x.edited.length ? 'edited' : ''}${x.edited.length && x.read.length ? ' · ' : ''}${x.read.length ? 'read' : ''}</span>${x.edited.length + x.read.length > 1 ? `<div class="link">${esc([...x.edited, ...x.read].filter((p) => p !== path).slice(0, 4).join(', '))}</div>` : ''}</div>`).join('') + (s.sessions.length > 12 ? `<div class="muted">+${s.sessions.length - 12} more</div>` : '') : `<div class="muted">${s ? (s.total ? 'none of the ' + s.total + ' transcripts names it' : 'no transcripts yet — `npm run transcript -- <target> --all` recovers them from the raw logs') : 'unavailable'}</div>`);
+  function showPointers(path, p, s) {
     $('right-title').innerHTML = `Related to <span class="path">${esc(path)}</span>`;
     const el = $('pointers');
-    el.innerHTML = p ? pointerRows('Code to open', p.code, 'no code file shares a rare identifier') + pointerRows('Tests that exercise these identifiers', p.tests, 'none found') + pointerRows('Documentation that mentions them', p.docs, 'none found') : '<span class="muted">no pointers</span>';
+    el.innerHTML = (p ? pointerRows('Code to open', p.code, 'no code file shares a rare identifier') + pointerRows('Tests that exercise these identifiers', p.tests, 'none found') + pointerRows('Documentation that mentions them', p.docs, 'none found') + pointerRows('Sessions that talked about these names (transcripts, reports, verdicts)', p.sessions || [], 'none found') : '<span class="muted">no pointers</span>') + (isTranscript(path) ? '' : sessionRows(path, s));
     el.querySelectorAll('.file').forEach((a) => a.addEventListener('click', () => openFile(a.dataset.path)));
   }
   async function loadRelated(t) {
-    if (t.kind === 'diff' && diff) { showPointers(t.path, diff.pointers[t.path]); return; }
-    const n = await api('/api/neighbors?path=' + encodeURIComponent(t.path));
-    if (activeId === t.id) showPointers(t.path, n.result.status === 'found' ? n.result.rows : null);
+    const sessions = isTranscript(t.path) ? Promise.resolve(null) : api('/api/sessions?path=' + encodeURIComponent(t.path)).catch(() => null);
+    if (t.kind === 'diff' && diff) { showPointers(t.path, diff.pointers[t.path], await sessions); return; }
+    const [n, s] = await Promise.all([api('/api/neighbors?path=' + encodeURIComponent(t.path)), sessions]);
+    if (activeId === t.id) showPointers(t.path, n.result.status === 'found' ? n.result.rows : null, s);
   }
 
   // ------------------------------------------------------------ focus
@@ -408,18 +443,18 @@
     if (!a.run) { el.textContent = a.note; $('activity-live').textContent = ''; sessionRun = ''; drawSummary(); return; }
     $('activity-live').textContent = a.run.live ? '● live' : '';
     // The runs list, legible: when · slice · role · provider; the chosen one bold. Newest first (the server's order).
-    const runRow = (r) => `<div class="run${r.runId === a.run.runId ? ' cur' : ''}" data-run="${esc(r.runId)}"><span class="muted">${when(r.startedAt) || when(new Date(r.mtimeMs).toISOString())}</span> <span class="file">${esc(r.runId)}</span><span class="tag">${esc(r.role || '?')} · ${esc(r.provider || '?')}</span></div>`;
+    const runRow = (r) => `<div class="run${r.runId === a.run.runId ? ' cur' : ''}" data-run="${esc(r.runId)}"><span class="muted">${when(r.startedAt) || when(new Date(r.mtimeMs).toISOString())}</span> <span class="file">${esc(r.runId)}</span><span class="tag">${esc(r.role || '?')} · ${esc(r.provider || '?')}</span>${r.transcript ? `<span class="file tag" data-path="${esc(r.transcript)}">transcript</span>` : ''}</div>`;
     const list = `<details${a.runs.length > 1 ? '' : ' open'}><summary class="sub">${a.runs.length} run${a.runs.length === 1 ? '' : 's'} recorded — pick one</summary>${a.runs.slice(0, 30).map(runRow).join('')}${a.runs.length > 30 ? `<div class="muted">+${a.runs.length - 30} older</div>` : ''}</details>`;
     const counts = Object.entries(a.counts).filter(([k]) => !k.startsWith('run-')).map(([k, v]) => `${v} ${k}`).join(' · ') || 'no tool events';
     const rows = a.events.filter((e) => !e.kind.startsWith('run-')).slice(-25).reverse().map((e) => {
       // Commands are shown short; click the line to see the whole command.
-      const what = e.path ? `<span class="file" data-path="${esc(e.path)}">${esc(e.path)}</span>` : e.command ? `<span class="cmd muted" title="click to expand"><span class="short">${esc(e.command.slice(0, 70))}${e.command.length > 70 ? '…' : ''}</span><span class="full" style="display:none">${esc(e.command)}</span></span>` : e.pattern ? `<span class="muted">/${esc(e.pattern)}/</span>` : `<span class="muted">${esc(e.tool || '')}</span>`;
+      const what = e.path ? `<span class="file" data-path="${esc(e.path)}">${esc(e.path)}</span>` : e.text ? `<span class="cmd say" title="click to expand"><span class="short">${esc(e.text.slice(0, 120).replace(/\s+/g, ' '))}${e.text.length > 120 ? '…' : ''}</span><span class="full" style="display:none">${esc(e.text)}</span></span>` : e.command ? `<span class="cmd muted" title="click to expand"><span class="short">${esc(e.command.slice(0, 70))}${e.command.length > 70 ? '…' : ''}</span><span class="full" style="display:none">${esc(e.command)}</span></span>` : e.pattern ? `<span class="muted">/${esc(e.pattern)}/</span>` : `<span class="muted">${esc(e.tool || '')}</span>`;
       return `<div><span class="tag">${esc(e.kind)}</span> ${what}${e.detail ? `<span class="tag">${esc(e.detail)}</span>` : ''}</div>`;
     }).join('');
     const un = a.uninspected ? `<h2>Uninspected neighbors</h2><div class="note">${esc(a.uninspected.basis)}</div>` + (a.uninspected.rows.length ? a.uninspected.rows.map((r) => `<div class="ptr"><span class="s">${r.score.toFixed(1)}</span><span class="file" data-path="${esc(r.path)}">${esc(r.path)}</span><div class="link">${esc(r.shared.join(', '))}</div></div>`).join('') : '<div class="muted">none — every code neighbor was opened</div>') : '<div class="note">Uninspected neighbors are computed for builder runs only (this is a ' + esc(a.run.role || 'non-builder') + ' run).</div>';
-    el.innerHTML = `${list}<div><b>${esc(a.run.runId)}</b> <span class="tag">${esc(a.run.role || '')} · ${esc(a.run.provider)} · ${esc(a.run.status || '')}${a.run.startedAt ? ' · started ' + when(a.run.startedAt) : ''}</span></div><div class="note">${counts}${a.readsObservable ? '' : ' · reads not observable for this provider (they happen inside shell commands)'}</div>${rows}${un}`;
+    el.innerHTML = `${list}<div><b>${esc(a.run.runId)}</b> <span class="tag">${esc(a.run.role || '')} · ${esc(a.run.provider)} · ${esc(a.run.status || '')}${a.run.startedAt ? ' · started ' + when(a.run.startedAt) : ''}</span>${a.run.transcript ? ` <span class="file" data-path="${esc(a.run.transcript)}">open transcript</span>` : ' <span class="tag">no transcript (written at run end; `npm run transcript` recovers older runs)</span>'}</div><div class="note">${counts}${a.readsObservable ? '' : ' · reads not observable for this provider (they happen inside shell commands)'}</div>${rows}${un}`;
     el.querySelectorAll('.file[data-path]').forEach((x) => x.addEventListener('click', () => openFile(x.dataset.path)));
-    el.querySelectorAll('.run').forEach((x) => x.addEventListener('click', () => { activityRun = x.dataset.run; loadActivity(); }));
+    el.querySelectorAll('.run').forEach((x) => x.addEventListener('click', (ev) => { if (ev.target.dataset.path) return; activityRun = x.dataset.run; loadActivity(); }));
     el.querySelectorAll('.cmd').forEach((c) => c.addEventListener('click', () => { const open = c.querySelector('.full').style.display !== 'none'; c.querySelector('.full').style.display = open ? 'none' : 'inline'; c.querySelector('.short').style.display = open ? 'inline' : 'none'; }));
     sessionRun = `run ${a.run.runId} (${a.run.role || '?'} · ${a.run.provider} · ${a.run.live ? 'live' : a.run.status || 'ended'})`;
     drawSummary();
@@ -467,8 +502,9 @@
     $('identity').title = `${d.identity} · index ${(d.indexAgeMs / 1000).toFixed(0)} s old`;
     // A viewer started before VIEW-4 has no /api/files: fall back to the changed paths and say so.
     const paths = files.files ?? d.changedPaths;
-    buildTree(paths);
-    $('tree-count').textContent = files.files ? `${paths.length} files` : 'changed files only — restart `npm run view` for the whole tree';
+    (files.extra || []).forEach((p) => unindexed.add(p));
+    buildTree([...paths, ...(files.extra || [])]);
+    $('tree-count').textContent = files.files ? `${paths.length} files${files.extra && files.extra.length ? ` + ${files.extra.length} raw logs` : ''}` : 'changed files only — restart `npm run view` for the whole tree';
     $('tree').classList.remove('muted'); $('tree').innerHTML = ''; $('tree').appendChild(renderDir(treeRoot, ''));
     renderSlice(s); renderOrder(d);
     if (d.order.length) { $('session').open = true; openDiff(d.order[0].path); }

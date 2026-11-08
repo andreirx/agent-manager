@@ -15,6 +15,7 @@
     "lexmap": "tsx src/cli/lexmap.ts",
     "lexmap-eval": "tsx src/cli/lexmap-eval.ts",
     "view": "tsx src/cli/view.ts",
+    "transcript": "tsx src/cli/transcript.ts",
     "human": "tsx src/cli/human-input.ts"
   },
   "keywords": [

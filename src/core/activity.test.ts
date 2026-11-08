@@ -30,7 +30,8 @@ describe('claudeEvents', () => {
       { type: 'tool_use', id: 'x6', name: 'TodoWrite', input: { todos: [] } },
     ] } });
     const events = claudeEvents(line, BASE, AT);
-    expect(events.map((e) => [e.kind, e.tool, e.command ?? e.pattern ?? e.path])).toEqual([
+    expect(events.map((e) => [e.kind, e.tool, e.command ?? e.pattern ?? e.path ?? e.text])).toEqual([
+      ['say', undefined, 'Looking.'],
       ['read', 'Read', 'pl-tools/engines/normalize.mjs'],
       ['edit', 'Edit', 'pl-tools/vendors/gerflor.config.mjs'],
       ['edit', 'Write', 'pl-tools/test/new.test.mjs'],
@@ -38,7 +39,9 @@ describe('claudeEvents', () => {
       ['search', 'Grep', 'settleOrder'],
       ['note', 'TodoWrite', undefined],
     ]);
-    expect(events[0]).toEqual({ at: AT, runId: 'build-S-1', sliceId: 'S', role: 'builder', provider: 'claude', kind: 'read', tool: 'Read', path: 'pl-tools/engines/normalize.mjs' });
+    expect(events[1]).toEqual({ at: AT, runId: 'build-S-1', sliceId: 'S', role: 'builder', provider: 'claude', kind: 'read', tool: 'Read', path: 'pl-tools/engines/normalize.mjs' });
+    // TRANSCRIPT-1: a blank text block is not a say.
+    expect(claudeEvents(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '  \n' }] } }), BASE, AT)).toEqual([]);
   });
 
   it('ignores system, user, rate-limit and non-JSON lines', () => {
@@ -50,12 +53,12 @@ describe('claudeEvents', () => {
 
 describe('codexEvents', () => {
   const codex = { ...BASE, provider: 'codex' };
-  it('emits one exec per completed command_execution with its exit code, nothing for started/messages/errors', () => {
+  it('emits one exec per completed command_execution with its exit code, a say per agent_message, nothing for started/errors', () => {
     const started = '{"type":"item.started","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc \'ls package.json\'","aggregated_output":"","exit_code":null,"status":"in_progress"}}';
     const completed = '{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc \'ls package.json\'","aggregated_output":"package.json\\n","exit_code":0,"status":"completed"}}';
     expect(codexEvents(started, codex, AT)).toEqual([]);
     expect(codexEvents(completed, codex, AT)).toEqual([{ at: AT, runId: 'build-S-1', sliceId: 'S', role: 'builder', provider: 'codex', kind: 'exec', tool: 'command_execution', command: "/bin/zsh -lc 'ls package.json'", detail: 'exit 0' }]);
-    expect(codexEvents('{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"done"}}', codex, AT)).toEqual([]);
+    expect(codexEvents('{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"done"}}', codex, AT)).toEqual([{ at: AT, runId: 'build-S-1', sliceId: 'S', role: 'builder', provider: 'codex', kind: 'say', text: 'done' }]);
     expect(codexEvents('{"type":"item.completed","item":{"id":"i","type":"error","message":"hooks"}}', codex, AT)).toEqual([]);
     expect(codexEvents('{"type":"thread.started","thread_id":"t"}', codex, AT)).toEqual([]);
   });

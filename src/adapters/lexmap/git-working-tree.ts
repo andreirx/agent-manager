@@ -24,7 +24,7 @@
 
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -42,9 +42,38 @@ const GIT_MAX_BUFFER = 256 * 1024 * 1024;
 export interface WorkingTreeReadParams {
   /** Files larger than this are skipped. Starting value 2 MB. */
   readonly maxFileBytes: number;
+  /**
+   * TRANSCRIPT-1: also read the relay's local trail, which git ignores —
+   * `.agent-manager/slices/**` (briefs, build reports, verdicts) and
+   * `.agent-manager/transcripts/**` (condensed run transcripts). Never the raw
+   * `logs/`, the `activity/` event files, `journals/`, or the `runs/*.json`
+   * run records under a slice (machine records: digests and paths nobody reads
+   * as text — ~1,300 of them on glamCRM, half the trail). The viewer and the
+   * lexmap CLI (`--trail`) opt in; the relay's reviewer hints keep the default
+   * (false) so its context is unchanged.
+   */
+  readonly includeTrail?: boolean;
 }
 
 export const DEFAULT_WORKING_TREE_PARAMS: WorkingTreeReadParams = { maxFileBytes: 2_000_000 };
+
+/** The trail directories the index may include, relative to the target. */
+export const TRAIL_INDEXED_DIRS: readonly string[] = ['.agent-manager/slices', '.agent-manager/transcripts'];
+/** Inside them, the run records are not text anyone reads. */
+const TRAIL_EXCLUDED = /\/runs\//;
+
+/** Every regular file under `dir` (target-relative, forward slashes, sorted); none when the directory is absent. */
+async function filesUnder(targetDir: string, dir: string): Promise<string[]> {
+  try {
+    const entries = await readdir(join(targetDir, dir), { recursive: true, withFileTypes: true });
+    return entries
+      .filter((e) => e.isFile())
+      .map((e) => `${e.parentPath.slice(targetDir.length + 1).split('\\').join('/')}/${e.name}`)
+      .sort();
+  } catch {
+    return [];
+  }
+}
 
 export interface WorkingTreeRead {
   readonly files: readonly SourceFile[];
@@ -110,10 +139,13 @@ async function readTextFiles(targetDir: string, paths: readonly string[], params
   return { files, bytes, inputsDigest, skipped };
 }
 
-/** Every text file of the working tree as git sees it (tracked + untracked, not ignored). */
+/** Every text file of the working tree as git sees it (tracked + untracked, not ignored), plus the trail when asked. */
 export async function readWorkingTreeFiles(targetDir: string, params: WorkingTreeReadParams = DEFAULT_WORKING_TREE_PARAMS): Promise<WorkingTreeRead> {
   const paths = await gitPaths(targetDir, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']);
-  return readTextFiles(targetDir, paths, params);
+  if (!params.includeTrail) return readTextFiles(targetDir, paths, params);
+  const seen = new Set(paths);
+  for (const dir of TRAIL_INDEXED_DIRS) for (const p of await filesUnder(targetDir, dir)) if (!TRAIL_EXCLUDED.test(p)) seen.add(p);
+  return readTextFiles(targetDir, [...seen].sort(), params);
 }
 
 /**

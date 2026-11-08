@@ -1001,3 +1001,11 @@ while another live run holds it.
 - Proper solution: capture one live Codex builder run with a write and one Antigravity run with a tool step (an operator-run smoke in a scratch target), pin both line shapes in `core/activity.test.ts`, and adjust the field names if they differ.
 - When to address: the first time a Codex or Antigravity builder runs under the relay after this commit — read its `.agent-manager/activity/<runId>.ndjson` and compare.
 - Status: OPEN
+
+## TD-039 — run records on glamCRM point at raw logs that do not exist (2026-11-07 runs)
+- Date: 2026-11-08
+- What was done: nothing yet — found while designing TRANSCRIPT-1. Of 653 `runs/*.json` under `glamCRM/.agent-manager/slices/*/`, 642 name a `logPath` that exists; every run of PRODUCT-REMARK-1 and runs of PRODUCT-ADMIN-UX-1, CATEGORY-SPLIT-1 and BEST-GUESS-UNITS-1 (all 2026-11-07) name `.agent-manager/logs/<ts>__<role>__<provider>__slice-<id>.txt` files that are absent everywhere under the parent directory (depth 4). The newest file in `logs/` is a stale `2026-11-07_17-02-24Z__builder__claude__slice-BEST-GUESS-UNITS-1.txt.live`; nothing was written to `logs/` after it. The activity ndjson for the same runs exists, so the runs happened and their events were captured.
+- Why acceptable: the durable record is the target's committed tree plus the slice docs; the raw log is the FULL transcript for a human. The condensed transcript (TRANSCRIPT-1) will exist for every run after that commit from the live events, and the missing logs cannot be recovered.
+- Proper solution: root-cause from the relay process that ran those slices (`logsDir` resolution, the `.live` → final `writeLog` step, a `rm`/cleanup in between) and add a test that the run record's `logPath` exists when the record is written.
+- When to address: before the next glamCRM relay launch; read the `.live` file first.
+- Status: OPEN

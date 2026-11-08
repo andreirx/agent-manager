@@ -139,6 +139,10 @@ VIEW-4 (PROTOTYPE — `docs/slices/view-4.md`): fixed orientation frame (focus b
 tabs + one-split workspace (human ruling 2026-11-07). `GET /api/files` added.
 VIEW-5 (PROTOTYPE — `docs/slices/view-5.md`): fixes from a Playwright walk — the spelling asked for wins the jump
 (`exactDefinitions`), slices list + picker (`/api/slice?id=`), legible runs, expandable commands, bridge defaults.
+TRANSCRIPT-1 (PROTOTYPE — `docs/slices/transcript-1.md`, human 2026-11-08): the trail is in the viewer. Every run writes a condensed
+transcript `.agent-manager/transcripts/<runId>.md` at run end (what the agent said — `say` events — and touched; never tool results or
+thinking); `npm run transcript -- <target> --all` recovers them from the raw logs. The viewer indexes `.agent-manager/slices` + `/transcripts`
+(class `session`; the relay's reviewer hints do not), lists the raw `logs/` as readable-not-indexed, and relates runs ↔ files both ways.
 
 ## Current Phase
 

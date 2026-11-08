@@ -21,7 +21,7 @@ import {
   type SourceFile,
 } from './lexmap.js';
 
-const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2, ranking: 'sum' };
+const PARAMS: LexmapParams = { minTokenLength: 3, noiseShare: 0.5, noiseFloor: 2, maxNeighbors: 20, maxTestRows: 8, maxDocRows: 8, maxSessionRows: 8, maxSharedShown: 6, maxBridgeTokens: 30, wordWeight: 0.2, ranking: 'sum' };
 
 describe('tokenize', () => {
   it('yields identifiers with 1-based line/col, honours minLength, marks likely definitions', () => {
@@ -102,6 +102,34 @@ describe('buildLexmap', () => {
     expect(tokens).toEqual(expect.arrayContaining(['order_ledger', 'user_table']));
     expect(tokens).not.toContain('order_settled');
     expect(r.rows[0]?.filesA).toContain('backend/orders.ts');
+  });
+
+  it('session class (TRANSCRIPT-1): transcripts are a fourth partition, the rest of the trail is documentation, bridges skip sessions', () => {
+    expect(pathClass('.agent-manager/transcripts/build-S-1-0.md')).toBe('session');
+    expect(pathClass('.agent-manager/slices/S-1/build-0.md')).toBe('session'); // a report is part of the session's record, not the repo's docs
+    expect(pathClass('.agent-manager/slices/S-1/review-0.json')).toBe('session');
+    expect(pathClass('src/transcripts/x.ts')).toBe('code');
+    const corpus: SourceFile[] = [
+      ...CORPUS,
+      { path: '.agent-manager/transcripts/build-S-1-0.md', text: '# build-S-1-0 · builder · claude\n\nI changed settleOrder to write order_ledger first.\n\n- edit `backend/orders.ts`\n' },
+    ];
+    const m = buildLexmap(corpus, PARAMS);
+    const n = neighbors(m, 'backend/orders.ts');
+    expect(n.status).toBe('found');
+    if (n.status !== 'found') return;
+    expect(n.rows.sessions.map((r) => r.path)).toEqual(['.agent-manager/transcripts/build-S-1-0.md']);
+    expect(n.rows.code.map((r) => r.path)).not.toContain('.agent-manager/transcripts/build-S-1-0.md');
+    // The trail is not population: N, the noise cutoff and every file↔file row are exactly what the repo alone gives.
+    expect(m.stats.files).toBe(CORPUS.length);
+    expect(m.stats.trailFiles).toBe(1);
+    expect(m.tokens.has('changed')).toBe(false); // a word only the transcript uses has no rarity in the repository
+    const alone = neighbors(buildLexmap(CORPUS, PARAMS), 'backend/orders.ts');
+    expect(alone.status === 'found' && n.rows.code).toEqual(alone.status === 'found' ? alone.rows.code : null);
+    // A transcript's `const` line is not a definition: no def-bonus from sessions.
+    expect(m.tokens.get(conceptKey('settleOrder'))?.defFiles.map((f) => m.files[f]?.path)).toEqual(['backend/orders.ts']);
+    // The transcript shares order_ledger with migrations/ and backend/ alike, yet is no side of their bridge.
+    const b = bridge(m, 'backend', '.agent-manager');
+    expect(b.rows).toEqual([]);
   });
 
   it('bridge: a name on several files of BOTH sides outranks one quoted once on the other side (VIEW-5c)', () => {
@@ -202,7 +230,7 @@ describe('parseUnifiedDiff', () => {
   it('hunkNeighbors: an empty candidate renders the no-neighbors line', () => {
     const map = buildLexmap(CORPUS, PARAMS);
     const report = hunkNeighbors(map, { diffText: '', changedPaths: [], untracked: [] });
-    expect(report.rows).toEqual({ code: [], tests: [], docs: [] });
+    expect(report.rows).toEqual({ code: [], tests: [], docs: [], sessions: [] });
     expect(renderHunkNeighborsSection(report, map, 0)).toContain('No unchanged file shares a rare identifier');
   });
 });
