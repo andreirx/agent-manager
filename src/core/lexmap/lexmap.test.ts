@@ -103,6 +103,26 @@ describe('buildLexmap', () => {
     expect(tokens).not.toContain('order_settled');
     expect(r.rows[0]?.filesA).toContain('backend/orders.ts');
   });
+
+  it('bridge: a name on several files of BOTH sides outranks one quoted once on the other side (VIEW-5c)', () => {
+    // Same df (4 → same weight, same shape) so only the spread term decides. Alphabetical order
+    // would put the mention first; the sum of sides (3+1 vs 2+2) would tie them.
+    const corpus: SourceFile[] = [
+      { path: 'a/1.ts', text: 'alpha_mention();\n' },
+      { path: 'a/2.ts', text: 'alpha_mention();\n' },
+      { path: 'a/3.ts', text: 'alpha_mention();\n' },
+      { path: 'a/4.ts', text: 'omega_bridge();\n' },
+      { path: 'a/5.ts', text: 'omega_bridge();\n' },
+      { path: 'b/1.ts', text: 'alpha_mention();\n' },
+      { path: 'b/2.ts', text: 'omega_bridge();\n' },
+      { path: 'b/3.ts', text: 'omega_bridge();\n' },
+    ];
+    const r = bridge(buildLexmap(corpus, PARAMS), 'a', 'b');
+    expect(r.rows.map((row) => [row.token, row.filesA.length, row.filesB.length])).toEqual([
+      ['omega_bridge', 2, 2],
+      ['alpha_mention', 3, 1],
+    ]);
+  });
 });
 
 describe('parseUnifiedDiff', () => {

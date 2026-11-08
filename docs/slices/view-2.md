@@ -9,7 +9,7 @@ Maturity: PROTOTYPE.
 
 ## What it is
 
-Left column, "Bridges between modules": two pickers listing the tree's directories (two levels, with file counts and languages seen beneath), and **show**. The right column then lists the identifiers both directories contain — heaviest first (rarity × shape), wider spread on ties — each with how many files on each side hold it and one example file per side; click the identifier for `where`, click a file to open it. The note on the panel says what every row is: a lexical bridge, not a resolved symbol.
+Left column, "Bridges between modules": two pickers listing the tree's directories (two levels, with file counts and languages seen beneath), and **show**. The right column then lists the identifiers both directories contain — ranked by rarity × spread on the smaller side (`weight × (1 + ln min(filesA, filesB))`, VIEW-5c; was weight with spread as tie-break, then the sum of both sides in VIEW-5b) — each with how many files on each side hold it and one example file per side; click the identifier for `where`, click a file to open it. The note on the panel says what every row is: a lexical bridge, not a resolved symbol.
 
 Routes: `GET /api/dirs`, `GET /api/bridge?a=&b=` (400 unless two different directories). Pure helper `directories(map, depth)` in `lexmap.ts`.
 

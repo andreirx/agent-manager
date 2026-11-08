@@ -564,10 +564,12 @@ export function bridge(map: Lexmap, dirA: string, dirB: string): BridgeResult {
     if (filesA.length === 0 || filesB.length === 0) continue;
     rows.push({ token: displayForm(map, token), weight: tokenWeight(map, token), filesA, filesB });
   }
-  // Rarity × spread: a name on one file each side is a coincidence as often as a bridge; one on
-  // several files of both sides is structural. ln keeps ecosystem vocabulary (dozens of files)
-  // from drowning the rare structural names. No oracle covers bridges yet (the eval labels neighbors).
-  const spread = (r: BridgeRow): number => r.weight * (1 + Math.log(r.filesA.length + r.filesB.length - 1));
+  // Rarity × spread on the SMALLER side: a name must sit on several files of BOTH modules to be
+  // structural. The sum of both sides scored `HttpServletRequest 20↔1` (Java vocabulary quoted once
+  // in TypeScript) above `getAll 26↔9` on glamCRM (VIEW-5b walk); min() ranks the mention like a
+  // 1↔1 coincidence (factor 1) and lets the two-sided names rise. ln keeps ecosystem vocabulary
+  // (dozens of files) from drowning the rare structural names. No oracle covers bridges yet.
+  const spread = (r: BridgeRow): number => r.weight * (1 + Math.log(Math.min(r.filesA.length, r.filesB.length)));
   rows.sort((x, y) => spread(y) - spread(x) || (x.token < y.token ? -1 : 1));
   return { dirA: a, dirB: b, rows: rows.slice(0, map.params.maxBridgeTokens) };
 }
