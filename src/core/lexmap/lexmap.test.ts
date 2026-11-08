@@ -14,8 +14,10 @@ import {
   pathClass,
   renderHunkNeighborsSection,
   renderNeighbors,
+  renderUninspectedSection,
   renderWhere,
   tokenShape,
+  uninspectedNeighbors,
   where,
   type LexmapParams,
   type SourceFile,
@@ -130,6 +132,27 @@ describe('buildLexmap', () => {
     // The transcript shares order_ledger with migrations/ and backend/ alike, yet is no side of their bridge.
     const b = bridge(m, 'backend', '.agent-manager');
     expect(b.rows).toEqual([]);
+  });
+
+  it('uninspected neighbors (REVIEW-UNINSPECTED-1): the code rows minus what the builder read or edited, rendered as a directive', () => {
+    const map = buildLexmap(CORPUS, PARAMS);
+    const report = hunkNeighbors(map, { diffText: '', changedPaths: [], untracked: [{ path: 'backend/new.ts', text: 'emit("order_settled"); db.query("user_table");\n' }] });
+    const code = report.rows.code.map((r) => r.path);
+    expect(code).toEqual(expect.arrayContaining(['backend/orders.ts', 'backend/users.ts', 'renderer/OrderPanel.tsx']));
+    const rows = uninspectedNeighbors(report, { read: ['backend/orders.ts'], edited: ['backend/users.ts'] });
+    expect(rows.map((r) => r.path)).toEqual(code.filter((p) => p !== 'backend/orders.ts' && p !== 'backend/users.ts'));
+    const text = renderUninspectedSection(rows, 2, code.length, { observed: 2, execCount: 3 });
+    expect(text).toContain('# Code neighbors the builder never opened (hints, not findings)');
+    expect(text).toContain(`it read or edited 2. The ${rows.length} below it never opened.`);
+    expect(text).toContain('renderer/OrderPanel.tsx');
+    expect(renderUninspectedSection([], 3, 3, { observed: 3, execCount: 0 })).toContain('None — the builder opened every code neighbor.');
+    // A run that read other files but no neighbor: every neighbor IS unopened — a real signal, listed.
+    expect(renderUninspectedSection(report.rows.code, 0, code.length, { observed: 8, execCount: 7 })).toContain(`it read or edited 0. The ${code.length} below it never opened.`);
+    // No recorded Read/Edit at all: coverage is unobservable — say so, list nothing.
+    const blind = renderUninspectedSection(report.rows.code, 0, code.length, { observed: 0, execCount: 7 });
+    expect(blind).toContain('holds no Read or Edit tool call (it ran 7 shell commands');
+    expect(blind).toContain('treat every row above as unconfirmed');
+    expect(blind).not.toContain('renderer/OrderPanel.tsx');
   });
 
   it('bridge: a name on several files of BOTH sides outranks one quoted once on the other side (VIEW-5c)', () => {

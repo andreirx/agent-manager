@@ -110,8 +110,10 @@ and its event list shows `say` lines (click to expand).
 - The 2026-11-07 runs of PRODUCT-REMARK-1, PRODUCT-ADMIN-UX-1, CATEGORY-SPLIT-1 and BEST-GUESS-UNITS-1 have run records
   whose `logPath` points at files that do not exist (TD-039); their activity ndjson exists, so the live-path transcript
   will exist for runs after this commit, but those runs have no FULL version to open.
-- Feeding a builder's condensed transcript to the reviewer (the token saving) is a relay change — a follow-up slice
-  with its own dry-run parity gate, not done here.
+- Feeding a builder's condensed transcript to the reviewer was considered and declined (human 2026-11-08): the
+  reviewer context already is the packet, the builder's report (its EXECUTED evidence), the lexical hints and the
+  diff it reads itself; a transcript (median 25 KB, p90 47 KB on glamCRM) would add the builder's framing, not
+  evidence. What the events do add as evidence is REVIEW-UNINSPECTED-1 (`docs/slices/review-uninspected-1.md`).
 
 ## 7. Backfill result (glamCRM, 2026-11-08)
 

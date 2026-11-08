@@ -31,10 +31,14 @@ import {
   buildLexmap,
   hunkNeighbors,
   renderHunkNeighborsSection,
+  renderUninspectedSection,
+  uninspectedNeighbors,
   type CandidateChanges,
   type Lexmap,
   type SourceFile,
 } from '../../core/lexmap/lexmap.js';
+import { touchedPaths } from '../../core/activity.js';
+import { readActivityEvents } from '../activity/ndjson-log.js';
 
 const execFileAsync = promisify(execFile);
 const GIT_MAX_BUFFER = 256 * 1024 * 1024;
@@ -192,13 +196,27 @@ export const LEXICAL_HINTS_HEADER = '# Lexical neighbors of the candidate (hints
 /**
  * The reviewer-context section for the candidate in `targetDir`: index the
  * tree, diff against `HEAD`, rank unchanged neighbors, render. Never throws.
+ *
+ * REVIEW-UNINSPECTED-1 (human 2026-11-08): with `builderRunId`, a second section
+ * lists the code neighbors that run never read or edited, from its activity log.
+ * Claude runs only — Codex reads happen inside shell commands and are not
+ * observable (TD-038), so for any other provider nothing is added rather than
+ * a list that would call every neighbor "unopened".
  */
-export async function candidateLexicalHints(targetDir: string): Promise<string> {
+export async function candidateLexicalHints(targetDir: string, builderRunId?: string): Promise<string> {
   try {
     const built = await buildWorkingTreeLexmap(targetDir);
     const changes = await readCandidateChanges(targetDir);
     const report = hunkNeighbors(built.map, changes);
-    return renderHunkNeighborsSection(report, built.map, built.buildMs, await treeIdentity(targetDir, built.read));
+    const hints = renderHunkNeighborsSection(report, built.map, built.buildMs, await treeIdentity(targetDir, built.read));
+    if (builderRunId === undefined) return hints;
+    const events = await readActivityEvents(targetDir, builderRunId);
+    if (events.length === 0 || events[0]?.provider !== 'claude') return hints;
+    const touched = touchedPaths(events);
+    const seen = new Set([...touched.read, ...touched.edited]);
+    const rows = uninspectedNeighbors(report, touched);
+    const activity = { observed: seen.size, execCount: events.filter((e) => e.kind === 'exec').length };
+    return `${hints}\n\n${renderUninspectedSection(rows, report.rows.code.filter((r) => seen.has(r.path)).length, report.rows.code.length, activity)}`;
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message.split('\n')[0] ?? cause.message : String(cause);
     return `${LEXICAL_HINTS_HEADER}\n\nUnavailable: ${reason}`;

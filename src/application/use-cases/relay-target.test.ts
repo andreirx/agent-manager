@@ -5182,13 +5182,14 @@ describe('LEXMAP-1 reviewer-context injection', () => {
     const seen: string[] = [];
     const deps = {
       ...makeDeps(builder, supervisor),
-      lexicalHints: async (dir: string) => {
-        seen.push(dir);
+      lexicalHints: async (dir: string, builderRunId?: string) => {
+        seen.push(`${dir}|${builderRunId ?? ''}`);
         return '# Lexical neighbors of the candidate (hints, not facts)\n\n   6.5  src/neighbor.ts  — rare_token';
       },
     };
     await targetRelayLoop({ ...makeInput(target), sliceId: 'IMPL-1' }, deps);
-    expect(seen).toEqual([target]);
+    // REVIEW-UNINSPECTED-1: the dependency is told which builder run's reads bound the "never opened" list.
+    expect(seen).toEqual([`${target}|build-IMPL-1-0`]);
     const context = reviewerContext(supervisor);
     const section = context.indexOf('# Lexical neighbors of the candidate (hints, not facts)');
     const task = context.indexOf('# Your task');

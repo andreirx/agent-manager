@@ -812,6 +812,47 @@ export function renderBridge(result: BridgeResult): string {
 }
 
 /**
+ * REVIEW-UNINSPECTED-1: the candidate's code neighbors the builder never opened —
+ * the hunk-neighbors code rows minus the paths the builder's activity events say it
+ * read or edited. One rule, two callers (the viewer's "Uninspected" block and the
+ * reviewer context). Pure: the caller supplies the touched paths.
+ */
+export function uninspectedNeighbors(report: HunkNeighborsReport, touched: { readonly read: readonly string[]; readonly edited: readonly string[] }): NeighborRow[] {
+  const seen = new Set<string>([...touched.read, ...touched.edited]);
+  return report.rows.code.filter((r) => !seen.has(r.path));
+}
+
+/**
+ * The reviewer-context section for the uninspected neighbors: a directive about
+ * what to check, derived from the builder's recorded reads — never from its prose.
+ * Empty rows still print (the reviewer should know the builder covered them all).
+ * A run with NO recorded Read/Edit at all (a Claude builder working through
+ * `cat`/heredocs in Bash — glamCRM build-GC-WS-ACQUISITIONS-2-0, 2026-11-08) must
+ * not be reported as "opened nothing": its coverage is unobservable, and the
+ * section says exactly that instead of listing every neighbor.
+ */
+export function renderUninspectedSection(rows: readonly NeighborRow[], seenCount: number, totalCode: number, activity: { readonly observed: number; readonly execCount: number }): string {
+  const title = '# Code neighbors the builder never opened (hints, not findings)';
+  // `observed` is the number of distinct files the run read or edited ANYWHERE in the tree — zero means
+  // blind, not "it opened none of the neighbors" (a run that read eight other files and no neighbor is a real signal).
+  if (activity.observed === 0 && rows.length > 0) {
+    return [
+      title,
+      '',
+      `The builder's recorded activity holds no Read or Edit tool call (it ran ${activity.execCount} shell command${activity.execCount === 1 ? '' : 's'}; files opened through the shell are not recorded as reads). Which of the ${totalCode} code neighbors above it opened is therefore not observable, and none can be subtracted: treat every row above as unconfirmed.`,
+    ].join('\n');
+  }
+  const head = [
+    title,
+    '',
+    `Of the ${totalCode} unchanged code file${totalCode === 1 ? '' : 's'} above that share rare identifiers with the changed lines, the builder's recorded activity shows it read or edited ${seenCount}. The ${rows.length} below it never opened. A shared name is a lexical match, not a resolved reference — but a file the change may affect and nobody looked at is where a reviewer looks first.`,
+    '',
+  ];
+  if (rows.length === 0) return [...head, 'None — the builder opened every code neighbor.'].join('\n');
+  return [...head, ...renderRows(rows)].join('\n');
+}
+
+/**
  * The reviewer-context section (LEXMAP-1 injection). States what the list is
  * and is not, so the reviewer can use it to choose what to open without
  * treating a row as a finding.

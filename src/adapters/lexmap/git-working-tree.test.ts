@@ -94,6 +94,26 @@ describe('git working-tree adapter', () => {
     expect(section).not.toContain('src/orders.ts  ');
   });
 
+  it('candidateLexicalHints with a builder run lists the code neighbors that run never opened — Claude runs only (REVIEW-UNINSPECTED-1)', async () => {
+    await writeFile(join(repo, 'src/orders.ts'), 'export function settleOrder() {\n  db.query("order_ledger");\n  audit("user_table");\n}\n');
+    await mkdir(join(repo, '.agent-manager/activity'), { recursive: true });
+    const ev = (provider: string, kind: string, extra: Record<string, unknown> = {}) => JSON.stringify({ at: '2026-11-08T10:00:00.000Z', runId: 'build-S-1-0', sliceId: 'S-1', role: 'builder', provider, kind, ...extra });
+    await writeFile(join(repo, '.agent-manager/activity/build-S-1-0.ndjson'), [ev('claude', 'run-start'), ev('claude', 'read', { tool: 'Read', path: 'sql/schema.sql' }), ev('claude', 'run-end', { detail: 'completed' }), ''].join('\n'));
+    const steady = (s: string) => s.replace(/built in [0-9.]+ s/, 'built in N s'); // the build time is the one thing that differs between two calls
+    const plain = steady(await candidateLexicalHints(repo));
+    const withRun = steady(await candidateLexicalHints(repo, 'build-S-1-0'));
+    expect(withRun.startsWith(plain)).toBe(true); // additive: the LEXMAP-1 section is byte-identical, the new one follows
+    const section = withRun.slice(plain.length);
+    expect(section).toContain('# Code neighbors the builder never opened (hints, not findings)');
+    expect(section).toContain('the builder\'s recorded activity shows it read or edited 1.');
+    expect(section).toMatch(/src\/users\.ts +— user_table/); // shares user_table, never opened
+    expect(section).not.toMatch(/sql\/schema\.sql +—/); // read by the run
+    // No such run → nothing added. A Codex run → nothing added (reads are not observable, TD-038).
+    expect(steady(await candidateLexicalHints(repo, 'build-S-1-9'))).toBe(plain);
+    await writeFile(join(repo, '.agent-manager/activity/build-S-1-1.ndjson'), [ev('codex', 'run-start'), ev('codex', 'exec', { command: 'cat sql/schema.sql' }), ''].join('\n'));
+    expect(steady(await candidateLexicalHints(repo, 'build-S-1-1'))).toBe(plain);
+  });
+
   it('candidateLexicalHints names the reason when the target is not a repository', async () => {
     const plain = await mkdtemp('/private/tmp/LEXMAP-1-norepo-');
     try {

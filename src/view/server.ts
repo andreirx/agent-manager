@@ -46,6 +46,7 @@ import {
   directories,
   hunkNeighbors,
   languageOf,
+  uninspectedNeighbors,
   neighbors,
   neighborsOfTokens,
   where,
@@ -267,7 +268,7 @@ export async function startViewServer(options: ViewServerOptions): Promise<ViewS
       const report = hunkNeighbors(built.map, changes);
       const seen = new Set<string>([...touched.read, ...touched.edited]);
       uninspected = {
-        rows: report.rows.code.filter((r) => !seen.has(r.path)),
+        rows: uninspectedNeighbors(report, touched),
         basis: readsObservable
           ? `code neighbors of the candidate's changed lines (${report.rows.code.length}) minus the ${seen.size} file${seen.size === 1 ? '' : 's'} this run read or edited`
           : `code neighbors of the candidate's changed lines (${report.rows.code.length}); ${provider} does not expose file reads (reads happen inside shell commands), so nothing could be subtracted — treat every row as unconfirmed`,

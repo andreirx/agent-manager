@@ -279,7 +279,8 @@ export interface TargetRelayDeps {
    * (tests and the dry-run). Best-effort: an implementation that cannot
    * compute it returns a section that names the reason.
    */
-  lexicalHints?: (targetDir: string) => Promise<string | undefined>;
+  /** LEXMAP-1 hints for the reviewer; REVIEW-UNINSPECTED-1 adds the builder run whose reads bound the "never opened" list. */
+  lexicalHints?: (targetDir: string, builderRunId?: string) => Promise<string | undefined>;
   /** Existing filesystem boundary used for contained baseline snapshots. */
   artifactStore: ArtifactStorePort;
   /** Stage-3 Git/index/working-tree mechanism; required only for a v3 allocation. */
@@ -2500,7 +2501,7 @@ async function runReview(
   let delivery: RunRequest['delivery'];
   // LEXMAP-1: computed once per review dispatch, before the directive is built,
   // from the candidate as it sits in the tree right now. Read-only.
-  const lexicalHints = deps.lexicalHints !== undefined ? await deps.lexicalHints(input.targetDir) : undefined;
+  const lexicalHints = deps.lexicalHints !== undefined ? await deps.lexicalHints(input.targetDir, `build-${status.sliceId}-${status.iteration}`) : undefined;
   const useSnapshots = status.assurance !== undefined && (status.assurance.contract === 'requirements-assurance/v2-stage2' || posture.kind === 'requirements-document');
   if (useSnapshots && status.assurance) {
     if (!dispatchCapture) throw new Error('invalid-field: reviewed reviewer dispatch has no admitted input capture');

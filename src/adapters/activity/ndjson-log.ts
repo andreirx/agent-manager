@@ -14,7 +14,7 @@
  * @maturity PROTOTYPE
  */
 
-import { appendFile, mkdir, stat } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ActivityEvent } from '../../core/activity.js';
 
@@ -30,6 +30,25 @@ const NO_OP: ActivityLog = { append: () => {}, close: async () => ({ written: 0,
 /** Path of a run's activity log inside a target (pure helper, exported for the viewer). */
 export function activityLogPath(workingDir: string, runId: string): string {
   return join(workingDir, '.agent-manager', 'activity', `${runId.replace(/[^A-Za-z0-9._-]/g, '_')}.ndjson`);
+}
+
+/**
+ * A run's recorded events (REVIEW-UNINSPECTED-1: the reviewer context needs the
+ * builder's reads). Missing log → `[]`; a partially written tail line is skipped.
+ */
+export async function readActivityEvents(workingDir: string, runId: string): Promise<ActivityEvent[]> {
+  let raw: string;
+  try {
+    raw = await readFile(activityLogPath(workingDir, runId), 'utf-8');
+  } catch {
+    return [];
+  }
+  const events: ActivityEvent[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try { events.push(JSON.parse(line) as ActivityEvent); } catch { /* a partially written tail line */ }
+  }
+  return events;
 }
 
 export async function openActivityLog(workingDir: string, runId: string): Promise<ActivityLog> {

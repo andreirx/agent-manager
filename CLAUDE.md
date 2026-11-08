@@ -143,6 +143,9 @@ TRANSCRIPT-1 (PROTOTYPE — `docs/slices/transcript-1.md`, human 2026-11-08): th
 transcript `.agent-manager/transcripts/<runId>.md` at run end (what the agent said — `say` events — and touched; never tool results or
 thinking); `npm run transcript -- <target> --all` recovers them from the raw logs. The viewer indexes `.agent-manager/slices` + `/transcripts`
 (class `session`; the relay's reviewer hints do not), lists the raw `logs/` as readable-not-indexed, and relates runs ↔ files both ways.
+REVIEW-UNINSPECTED-1 (PROTOTYPE — `docs/slices/review-uninspected-1.md`, human 2026-11-08): the reviewer context gains "Code neighbors the
+builder never opened" — the hunk-neighbors code rows minus the builder run's recorded reads/edits (Claude builders only; Codex reads are not
+observable, TD-038). Additive to the LEXMAP-1 hints; the builder's transcript is deliberately NOT fed (anchoring, not evidence).
 
 ## Current Phase
 
