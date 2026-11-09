@@ -146,6 +146,8 @@ thinking); `npm run transcript -- <target> --all` recovers them from the raw log
 REVIEW-UNINSPECTED-1 (PROTOTYPE — `docs/slices/review-uninspected-1.md`, human 2026-11-08): the reviewer context gains "Code neighbors the
 builder never opened" — the hunk-neighbors code rows minus the builder run's recorded reads/edits (Claude builders only; Codex reads are not
 observable, TD-038). Additive to the LEXMAP-1 hints; the builder's transcript is deliberately NOT fed (anchoring, not evidence).
+VIEW-6 (PROTOTYPE — `docs/slices/view-6.md`, human 2026-11-08): the four seams of the frame (tree | workspace | related, the pinned
+split, the drawer's top edge) are draggable gutters; sizes live in the browser's `localStorage`, double-click resets; one page file changed.
 
 ## Current Phase
 

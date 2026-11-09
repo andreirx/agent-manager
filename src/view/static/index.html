@@ -27,6 +27,11 @@
   the raw logs under /logs are listed in italics and open as plain text (the
   FULL version, never indexed). Related gains the sessions that talked about
   the names, and the runs whose transcript says they read or edited the file.
+  VIEW-6 (human 2026-11-08): the four seams are draggable — tree | workspace,
+  workspace | related, active pane | pinned pane, and the drawer's top edge.
+  A drag rewrites the one CSS value that owns that seam; the sizes are kept in
+  this browser's localStorage (a per-viewer convenience, never on the server);
+  double-click on a gutter restores its default.
 -->
 <style>
   :root { --bg:#fff; --fg:#1b1b1b; --muted:#666; --line:#e3e3e3; --add:#e6ffed; --del:#ffeef0; --accent:#0b57d0; --panel:#f7f7f8; --mark:#fff3bf;
@@ -36,7 +41,7 @@
   :root[data-theme="dark"] { --bg:#121314; --fg:#e8e8e8; --muted:#9a9a9a; --line:#2b2d30; --add:#12361f; --del:#3d1a1f; --accent:#8ab4f8; --panel:#1b1d1f; --mark:#4a3f12;
           --c-comment:#8b949e; --c-kw:#ff7b72; --c-str:#a5d6ff; --c-num:#79c0ff; --c-title:#d2a8ff; --c-type:#7ee787; }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  body { display:grid; grid-template-rows:auto auto 1fr auto; height:100vh; }
+  body { display:grid; grid-template-rows:auto auto 1fr auto auto; height:100vh; }
   header { padding:6px 16px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:baseline; flex-wrap:wrap; }
   header b { font-size:14px; }
   header input { font:inherit; padding:2px 6px; border:1px solid var(--line); border-radius:4px; background:var(--panel); color:var(--fg); width:18em; }
@@ -45,10 +50,14 @@
   #focus b { color:var(--accent); }
   #focus details { display:inline; } #focus summary { display:inline; cursor:pointer; color:var(--muted); }
   #focus .locs { position:absolute; z-index:5; background:var(--bg); border:1px solid var(--line); border-radius:4px; box-shadow:0 4px 16px rgba(0,0,0,.25); padding:6px 10px; max-height:50vh; max-width:60em; overflow:auto; margin-top:4px; }
-  main { display:grid; grid-template-columns:280px 1fr 360px; min-height:0; }
-  @media (max-width: 1000px) { main { grid-template-columns:1fr; } }
-  main > section { overflow:auto; border-right:1px solid var(--line); padding:8px 12px; min-height:0; }
-  main > section:last-child { border-right:0; }
+  main { display:grid; grid-template-columns:var(--col-l, 280px) 5px 1fr 5px var(--col-r, 360px); min-height:0; }
+  @media (max-width: 1000px) { main { grid-template-columns:1fr; } .gutter.col { display:none; } }
+  main > section { overflow:auto; padding:8px 12px; min-height:0; }
+  /* gutters (VIEW-6): the lines between panels are the drag handles */
+  .gutter { background:var(--line); touch-action:none; user-select:none; }
+  .gutter.col { cursor:col-resize; } .gutter.row { cursor:row-resize; height:5px; }
+  .gutter:hover, .gutter.drag { background:var(--accent); }
+  body.dragging { user-select:none; } body.dragging * { cursor:inherit !important; }
   h2 { font-size:12px; letter-spacing:.04em; color:var(--muted); margin:10px 0 6px; overflow-wrap:anywhere; }
   h2 .path { color:var(--fg); letter-spacing:0; }
   .note { color:var(--muted); font-size:12px; margin:2px 0 8px; }
@@ -71,7 +80,8 @@
   .tab.active { color:var(--fg); font-weight:600; } .tab.pinned { border-color:var(--accent); }
   .tab .x, .tab .pin { margin-left:6px; color:var(--muted); } .tab .x:hover, .tab .pin:hover { color:var(--fg); }
   #panes { display:flex; flex:1; min-height:0; }
-  .pane { flex:1; overflow:auto; padding:6px 10px; min-width:0; border-right:1px solid var(--line); } .pane:last-child { border-right:0; }
+  .pane { flex:1; overflow:auto; padding:6px 10px; min-width:0; box-sizing:border-box; } .pane.split-l { flex:0 0 var(--split, 50%); }
+  #panes .gutter.col { flex:0 0 5px; }
   .pane h2 { margin-top:2px; }
   pre { margin:0; white-space:pre; tab-size:4; }
   .hunk { margin:8px 0; border:1px solid var(--line); border-radius:4px; overflow:hidden; }
@@ -84,7 +94,7 @@
   .link { color:var(--muted); font-size:12px; margin-left:12px; }
   .where-file { margin:4px 0 2px; } .occ { margin-right:8px; }
   /* session drawer */
-  #session { border-top:1px solid var(--line); max-height:45vh; overflow:auto; background:var(--bg); }
+  #session { overflow:auto; background:var(--bg); } #session[open] { height:var(--drawer, auto); max-height:var(--drawer, 45vh); }
   #session > summary { padding:6px 16px; cursor:pointer; background:var(--panel); position:sticky; top:0; }
   #session .blocks { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:16px; padding:8px 16px 12px; }
   #session details pre { white-space:pre-wrap; background:var(--panel); padding:8px; border-radius:4px; max-height:30vh; overflow:auto; }
@@ -121,10 +131,12 @@
     <h2>Open files</h2>
     <div id="open-list" class="muted">none</div>
   </section>
+  <div class="gutter col" id="g-left" title="drag to resize · double-click to reset"></div>
   <section id="workspace">
     <div id="tabs"></div>
     <div id="panes"><div class="pane muted" id="empty">Open a file from the tree, a changed file from the session drawer below, or type an identifier in the header.</div></div>
   </section>
+  <div class="gutter col" id="g-right" title="drag to resize · double-click to reset"></div>
   <section id="right">
     <h2 id="right-title">Related</h2>
     <div class="note">For the active tab: files that share rare identifiers with it — code to open, tests that use the same names, docs that mention them, sessions that talked about them. Score = Σ rarity of the shared names (names the file defines count twice). Hints, not facts. Then the runs whose transcript says they read or edited the file (exact, from the transcript's own lines).</div>
@@ -135,6 +147,7 @@
     <div id="bridge" class="muted">choosing the two largest directories…</div>
   </section>
 </main>
+<div class="gutter row" id="g-drawer" title="drag to resize · double-click to reset"></div>
 <details id="session">
   <summary><span id="session-summary">Session — loading…</span></summary>
   <div class="blocks">
@@ -175,6 +188,38 @@
   const isTranscript = (p) => p.startsWith('.agent-manager/transcripts/');
   const LINK_MAX_CHARS = 400000;   // past this, identifiers are not linked (a raw log can be megabytes)
   const RAW_SHOW_CHARS = 400000;   // a raw log is shown up to here (they run to 35 MB); the note says where the whole file is
+
+  // ------------------------------------------------------------ layout (VIEW-6)
+  // Four values own the four seams: left/right column widths (px), the split share of the
+  // active pane (%), the drawer height (px). Absent = the CSS default. Kept in this browser.
+  const LAYOUT_KEY = 'relay-viewer.layout';
+  const layout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}') || {}; } catch { return {}; } })();
+  const saveLayout = () => { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch { /* storage blocked: the sizes last for this page only */ } };
+  function applyLayout() {
+    const st = document.documentElement.style;
+    const put = (name, v, unit) => (v === undefined ? st.removeProperty(name) : st.setProperty(name, `${v}${unit}`));
+    put('--col-l', layout.left, 'px'); put('--col-r', layout.right, 'px'); put('--split', layout.split, '%'); put('--drawer', layout.drawer, 'px');
+  }
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  // A gutter drags one layout value. `from` reads the current size, `scale` turns pointer pixels into
+  // the value's unit, `sign` says which way growing goes; pointer capture keeps the drag alive when the
+  // pointer leaves the 5 px strip; double-click deletes the value so the CSS default returns.
+  function gutter(el, key, { axis, from, scale = () => 1, sign = 1, min, max }) {
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault(); el.setPointerCapture(e.pointerId); el.classList.add('drag'); document.body.classList.add('dragging');
+      if (key === 'drawer') $('session').open = true;
+      const start = axis === 'x' ? e.clientX : e.clientY; const base = from();
+      const move = (ev) => { const d = ((axis === 'x' ? ev.clientX : ev.clientY) - start) * scale() * sign; layout[key] = Math.round(clamp(base + d, min(), max()) * 10) / 10; applyLayout(); };
+      const up = () => { el.removeEventListener('pointermove', move); el.classList.remove('drag'); document.body.classList.remove('dragging'); saveLayout(); };
+      el.addEventListener('pointermove', move); el.addEventListener('pointerup', up, { once: true }); el.addEventListener('pointercancel', up, { once: true });
+    });
+    el.addEventListener('dblclick', () => { delete layout[key]; saveLayout(); applyLayout(); });
+  }
+  applyLayout();
+  gutter($('g-left'), 'left', { axis: 'x', from: () => $('left').getBoundingClientRect().width, min: () => 160, max: () => window.innerWidth - $('right').getBoundingClientRect().width - 320 });
+  gutter($('g-right'), 'right', { axis: 'x', sign: -1, from: () => $('right').getBoundingClientRect().width, min: () => 160, max: () => window.innerWidth - $('left').getBoundingClientRect().width - 320 });
+  gutter($('g-drawer'), 'drawer', { axis: 'y', sign: -1, from: () => $('session').getBoundingClientRect().height, min: () => 80, max: () => window.innerHeight - 200 });
 
   // ------------------------------------------------------- highlighting
   function highlightLines(text, lang) {
@@ -299,7 +344,13 @@
     const active = tabs.find((t) => t.id === activeId);
     const pinned = tabs.find((t) => t.id === pinnedId && t.id !== activeId);
     if (!active) { panes.innerHTML = '<div class="pane muted">Open a file from the tree, a changed file from the session drawer below, or type an identifier in the header.</div>'; }
-    for (const t of [active, pinned].filter(Boolean)) panes.appendChild(renderPane(t));
+    if (active) panes.appendChild(renderPane(active));
+    if (active && pinned) {
+      panes.firstChild.classList.add('split-l');
+      const g = document.createElement('div'); g.className = 'gutter col'; g.title = 'drag to resize · double-click to reset'; panes.appendChild(g);
+      gutter(g, 'split', { axis: 'x', from: () => panes.firstChild.getBoundingClientRect().width / panes.getBoundingClientRect().width * 100, scale: () => 100 / panes.getBoundingClientRect().width, min: () => 15, max: () => 85 });
+      panes.appendChild(renderPane(pinned));
+    }
     $('open-list').innerHTML = tabs.length ? tabs.map((t) => `<div class="${t.id === activeId ? 'cur' : ''}"><span class="file" data-id="${t.id}">${t.kind === 'diff' ? 'Δ ' : ''}${esc(t.path)}${t.line ? ':' + t.line : ''}</span></div>`).join('') : '<span class="muted">none</span>';
     $('open-list').querySelectorAll('.file').forEach((el) => el.addEventListener('click', () => activate(Number(el.dataset.id))));
     $('tree').querySelectorAll('.leaf').forEach((l) => l.classList.toggle('opened', tabs.some((t) => t.path === l.dataset.path)));
