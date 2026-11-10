@@ -8,7 +8,11 @@ const [api, tokenFile, outDir, resultsJson, only] = process.argv.slice(2);
 // SPLIT MODE (CATEGORY-SPLIT-1, human 2026-11-07 "wipe dev products and import fresh"): `only` = 'SPLIT' imports every
 // `<list> — <Categorie>.xlsx` in outDir: producer = the first word(s) of the list name as in `plan`, category = the suffix
 // after ' — ' (created on dev when missing), VAT 0 % except KUBERIT (19 %, human ruling). One pricelist per file.
-const SPLIT = !!only && only.startsWith('SPLIT'); // 'SPLIT' = every split workbook; 'SPLIT:<substring>' = only those whose name contains it
+// REPLACE MODE (human 2026-11-10, dev re-import): `only` = 'REPLACE:<substring>' takes the split workbooks whose name contains the
+// substring and imports each as a REPLACEMENT VERSION of the one ACTIVE pricelist with the same producer + category (`replacesId`);
+// zero or several such lists -> that file is refused (recorded, nothing created). Unverified on live: the list route's field names.
+const REPLACE = !!only && only.startsWith('REPLACE:');
+const SPLIT = !!only && (only.startsWith('SPLIT') || REPLACE); // 'SPLIT' = every split workbook; 'SPLIT:<substring>' = only those whose name contains it
 const SPLIT_FILTER = SPLIT && only.includes(':') ? only.slice(only.indexOf(':') + 1) : '';
 const token = fs.readFileSync(tokenFile, 'utf8').trim();
 const H = { Authorization: `Bearer ${token}` };
@@ -72,13 +76,21 @@ for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
   const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': file.replace(/ — /g, ' - ').replace(/[^\x20-\x7e]/g, '_') }, body: fs.readFileSync(p) });
   const upj = await up.json(); if (!up.ok) { record({ file, step: 'upload', status: up.status, body: JSON.stringify(upj).slice(0, 300) }); continue; }
   const categoryId = await ensureCategory(cat);
-  const body = { producerName: producer, categoryId, applicableVatId: vat, fileName: upj.key, introducedAt: new Date().toISOString(), active: true, replacesId: null };
+  let replacesId = null;
+  if (REPLACE) {
+    const lr = await fetch(`${api}/api/v2/pricelists`, { headers: { ...H, 'Accept-Encoding': 'gzip' } });
+    const lj = await lr.json(); const lists = Array.isArray(lj) ? lj : (lj.items ?? lj.data ?? []);
+    const hits = lists.filter((x) => x.active && x.producerName === producer && x.categoryId === categoryId);
+    if (hits.length !== 1) { record({ file, step: 'replace-target', status: lr.status, body: `expected exactly 1 active ${producer} / ${cat} pricelist, found ${hits.length}` }); continue; }
+    replacesId = hits[0].id;
+  }
+  const body = { producerName: producer, categoryId, applicableVatId: vat, fileName: upj.key, introducedAt: new Date().toISOString(), active: true, replacesId };
   const cr = await fetch(`${api}/api/v2/pricelists`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const text = await cr.text(); let j = null; try { j = JSON.parse(text); } catch {}
   const ir = j?.importResult || null;
   const items = ir?.items || [];
   const rec = { file, producer, category: cat, vat: vat === VAT0 ? '0' : '19', status: cr.status, seconds: Math.round((Date.now() - t0) / 100) / 10,
-    pricelistId: j?.id, publicId: j?.publicId, added: ir?.added, replaced: ir?.replaced, removed: ir?.removed, items: items.length,
+    pricelistId: j?.id, publicId: j?.publicId, replacesId, added: ir?.added, replaced: ir?.replaced, removed: ir?.removed, items: items.length,
     importResultNull: j ? ir === null : undefined, error: cr.ok ? undefined : text.slice(0, 300), firstItems: items.slice(0, 2).map((i) => ({ name: i.name, code: i.producerCode, format: i.format, collection: i.collectionName })) };
   record(rec);
   console.log(`${cr.status} ${file.padEnd(40)} added ${rec.added ?? '-'} replaced ${rec.replaced ?? '-'} ${rec.importResultNull ? 'IMPORT RESULT NULL (refused?)' : ''} ${rec.seconds}s`);
