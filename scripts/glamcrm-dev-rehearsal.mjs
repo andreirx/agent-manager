@@ -36,6 +36,7 @@ const plan = [
   ['Greenflor vinyl 2026.xlsx', 'Greenflor', 'Parchet', VAT0],
   ['Gerflor vinyl 2026.xlsx', 'Gerflor', 'Parchet', VAT0],
   ['Tuscania ceramica 2026.xlsx', 'Tuscania', 'Ceramica', VAT0],
+  ['Dr. Schutz floor care 2026.xlsx', 'Dr. Schutz', 'Accesorii', VAT0], // producer of two words: the first-word rule would give 'Dr.'
   ['ALPOD laminate 2025.xlsx', 'ALPOD', 'Parchet', VAT0],
   ['ALPOD wood 2025.xlsx', 'ALPOD', 'Parchet', VAT0],
   ['ALPOD SPC 2025.xlsx', 'ALPOD', 'Parchet', VAT0],

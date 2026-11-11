@@ -13,6 +13,7 @@ const H = { Authorization: `Bearer ${fs.readFileSync(tokenFile, 'utf8').trim()}`
 const ORDER = [
   ['Parchet', true], ['Manopera', false], ['Plinte', true], ['Mocheta', true], ['Accesorii', true], ['Adezivi', true],
   ['Profilele', true], ['Ceramica', true], ['Vinil', true], ['Decking', true], ['Laminat', true],
+  ['Panouri', true], // wall panels (human 2026-11-10: a new category), appended as 12
 ];
 const existing = await (await fetch(`${api}/api/v2/categories`, { headers: H })).json();
 if (!Array.isArray(existing)) { console.error('categories read failed:', JSON.stringify(existing).slice(0, 200)); process.exit(1); }
