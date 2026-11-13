@@ -60,8 +60,11 @@ const results = fs.existsSync(resultsJson) ? JSON.parse(fs.readFileSync(resultsJ
 // Every outcome (absent file, failed upload, import response) is written to the results file and
 // echoed, so a silent run cannot hide a failure (2026-11-06: an expired token produced 401 on
 // upload and the run printed nothing).
+let stopRun = false;
 function record(rec) {
   results.push(rec); fs.writeFileSync(resultsJson, JSON.stringify(results, null, 2));
+  // REPLACE mode stops at the first failed file (2026-11-13: a second large file was sent after the first had failed).
+  if (REPLACE && rec.step && !String(rec.step).startsWith('replace-target')) { console.log(`STOP: ${rec.file} failed at ${rec.step}; no further file is sent.`); stopRun = true; }
   if (rec.skipped || rec.step) console.log(`${rec.status ?? '-'} ${rec.file.padEnd(40)} ${rec.skipped ? 'SKIPPED absent' : `FAILED at ${rec.step}: ${rec.body}`}`);
 }
 const producerOf = (file) => { const base = file.split(' — ')[0]; const hit = plan.find(([f]) => f.replace('.xlsx', '') === base); return hit ? hit[1] : base.split(' ')[0]; };
@@ -71,12 +74,11 @@ const splitPlan = SPLIT ? fs.readdirSync(outDir).filter((f) => f.endsWith('.xlsx
 }) : null;
 if (SPLIT) console.log(`split mode: ${splitPlan.length} workbooks`);
 for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
+  if (stopRun) break;
   if (only && !SPLIT && !file.includes(only)) continue;
   const p = path.join(outDir, file); if (!fs.existsSync(p)) { record({ file, skipped: 'absent' }); continue; }
   const t0 = Date.now();
   const uploadName = file.replace(/ — /g, ' - ').replace(/[^\x20-\x7e]/g, '_');
-  const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': uploadName }, body: fs.readFileSync(p) });
-  const upj = await up.json(); if (!up.ok) { record({ file, step: 'upload', status: up.status, body: JSON.stringify(upj).slice(0, 300) }); continue; }
   const categoryId = await ensureCategory(cat);
   let replacesId = null;
   if (REPLACE) {
@@ -86,9 +88,11 @@ for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
     // `<ms>_<uuid>_<x-file-name>`). Producer + category alone is ambiguous (2026-11-13: ALPOD, BerryAlloc, IVC, KUBERIT each
     // hold several active lists in one category), so the file name is part of the identity.
     const hits = lists.filter((x) => x.active && x.producerName === producer && x.categoryId === categoryId && String(x.fileName ?? '').endsWith(`_${uploadName}`));
-    if (hits.length !== 1) { record({ file, step: 'replace-target', status: lr.status, body: `expected exactly 1 active ${producer} / ${cat} pricelist uploaded as "${uploadName}", found ${hits.length}` }); continue; }
+    if (hits.length !== 1) { record({ file, step: 'replace-target (nothing uploaded)', status: lr.status, body: `expected exactly 1 active ${producer} / ${cat} pricelist uploaded as "${uploadName}", found ${hits.length}` }); continue; }
     replacesId = hits[0].id;
   }
+  const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': uploadName }, body: fs.readFileSync(p) });
+  const upj = await up.json(); if (!up.ok) { record({ file, step: 'upload', status: up.status, body: JSON.stringify(upj).slice(0, 300) }); continue; }
   const body = { producerName: producer, categoryId, applicableVatId: vat, fileName: upj.key, introducedAt: new Date().toISOString(), active: true, replacesId };
   const cr = await fetch(`${api}/api/v2/pricelists`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const text = await cr.text(); let j = null; try { j = JSON.parse(text); } catch {}
@@ -98,6 +102,7 @@ for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
     pricelistId: j?.id, publicId: j?.publicId, replacesId, added: ir?.added, replaced: ir?.replaced, removed: ir?.removed, items: items.length,
     importResultNull: j ? ir === null : undefined, error: cr.ok ? undefined : text.slice(0, 300), firstItems: items.slice(0, 2).map((i) => ({ name: i.name, code: i.producerCode, format: i.format, collection: i.collectionName })) };
   record(rec);
+  if (REPLACE && (!cr.ok || ir === null)) { console.log(`STOP: ${file}: status ${cr.status}, import result ${ir === null ? 'absent' : 'present'}; no further file is sent.`); stopRun = true; }
   console.log(`${cr.status} ${file.padEnd(40)} added ${rec.added ?? '-'} replaced ${rec.replaced ?? '-'} ${rec.importResultNull ? 'IMPORT RESULT NULL (refused?)' : ''} ${rec.seconds}s`);
 }
 console.log('results →', resultsJson);
