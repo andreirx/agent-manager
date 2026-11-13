@@ -9,7 +9,7 @@ const [api, tokenFile, outDir, resultsJson, only] = process.argv.slice(2);
 // `<list> — <Categorie>.xlsx` in outDir: producer = the first word(s) of the list name as in `plan`, category = the suffix
 // after ' — ' (created on dev when missing), VAT 0 % except KUBERIT (19 %, human ruling). One pricelist per file.
 // REPLACE MODE (human 2026-11-10, dev re-import): `only` = 'REPLACE:<substring>' takes the split workbooks whose name contains the
-// substring and imports each as a REPLACEMENT VERSION of the one ACTIVE pricelist with the same producer + category (`replacesId`);
+// substring and imports each as a REPLACEMENT VERSION of the one ACTIVE pricelist with the same producer + category + uploaded file name (`replacesId`);
 // zero or several such lists -> that file is refused (recorded, nothing created). Unverified on live: the list route's field names.
 const REPLACE = !!only && only.startsWith('REPLACE:');
 const SPLIT = !!only && (only.startsWith('SPLIT') || REPLACE); // 'SPLIT' = every split workbook; 'SPLIT:<substring>' = only those whose name contains it
@@ -74,15 +74,19 @@ for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
   if (only && !SPLIT && !file.includes(only)) continue;
   const p = path.join(outDir, file); if (!fs.existsSync(p)) { record({ file, skipped: 'absent' }); continue; }
   const t0 = Date.now();
-  const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': file.replace(/ — /g, ' - ').replace(/[^\x20-\x7e]/g, '_') }, body: fs.readFileSync(p) });
+  const uploadName = file.replace(/ — /g, ' - ').replace(/[^\x20-\x7e]/g, '_');
+  const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': uploadName }, body: fs.readFileSync(p) });
   const upj = await up.json(); if (!up.ok) { record({ file, step: 'upload', status: up.status, body: JSON.stringify(upj).slice(0, 300) }); continue; }
   const categoryId = await ensureCategory(cat);
   let replacesId = null;
   if (REPLACE) {
     const lr = await fetch(`${api}/api/v2/pricelists`, { headers: { ...H, 'Accept-Encoding': 'gzip' } });
     const lj = await lr.json(); const lists = Array.isArray(lj) ? lj : (lj.items ?? lj.data ?? []);
-    const hits = lists.filter((x) => x.active && x.producerName === producer && x.categoryId === categoryId);
-    if (hits.length !== 1) { record({ file, step: 'replace-target', status: lr.status, body: `expected exactly 1 active ${producer} / ${cat} pricelist, found ${hits.length}` }); continue; }
+    // Target = the ONE active list of this producer + category that was uploaded under this same file name (the API stores
+    // `<ms>_<uuid>_<x-file-name>`). Producer + category alone is ambiguous (2026-11-13: ALPOD, BerryAlloc, IVC, KUBERIT each
+    // hold several active lists in one category), so the file name is part of the identity.
+    const hits = lists.filter((x) => x.active && x.producerName === producer && x.categoryId === categoryId && String(x.fileName ?? '').endsWith(`_${uploadName}`));
+    if (hits.length !== 1) { record({ file, step: 'replace-target', status: lr.status, body: `expected exactly 1 active ${producer} / ${cat} pricelist uploaded as "${uploadName}", found ${hits.length}` }); continue; }
     replacesId = hits[0].id;
   }
   const body = { producerName: producer, categoryId, applicableVatId: vat, fileName: upj.key, introducedAt: new Date().toISOString(), active: true, replacesId };
