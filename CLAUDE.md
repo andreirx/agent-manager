@@ -289,10 +289,7 @@ target's own CLAUDE.md, not here.
   (was `claude-opus-4-8`); `codex` without `--supervisor-model` resolves to `gpt-6.1-sol` (was
   `gpt-5.6-terra`). Explicit flags in the standing assignments above are unchanged.
 - amodx slices from 2026-10-16 (human): builder `--builder-model claude-opus-5-5` (claude), reviewer
-  `--supervisor-model gpt-6.1-sol` (codex). On a provider capacity/503 failure "just let it retry": the
-  relay's own retries, then a later relaunch of the same model — the operator does not switch models.
-  Reason: on 2026-10-16 `gpt-6-sol` reported capacity for hours and the operator swapped reviewers
-  mid-slice; the human prefers one named reviewer and patience over a fallback chain.
+  `--supervisor-model gpt-6.1-sol` (codex). These are defaults; a change is discussed in the manager session.
 - glamCRM slices from 2026-10-31 (human, during PL-TOOLS-2): builder `--builder-model claude-opus-5-5` (claude),
   reviewer `--supervisor codex --supervisor-model gpt-6.1-sol`. Launch with `RELAY_STALL_MINUTES=35` while TD-036 is open
   (pl-tools image-verification joins run 15–27 minutes with no builder output).
@@ -312,9 +309,6 @@ target's own CLAUDE.md, not here.
   them operator-run.
 - repo-graph code slices launch with `--timeout 120`. Reason: the builder's corpus proofs and the
   reviewer at high effort both need more than the 20-minute default.
-- After each slice closes out, wait one hour (a background `sleep 3600` whose completion resumes
-  you), prepare the next packet's reads meanwhile, then launch the next slice without waiting for
-  the human. Reason: the account's rolling allowance. The pause is a wait, never a stop.
 
 #### Authority
 

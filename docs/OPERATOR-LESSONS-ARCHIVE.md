@@ -414,3 +414,21 @@ Rules retired outright at that curation, with the reason:
   Refinement (human, same day): an internal-method decision MAY be surfaced when it is MAPPED to
   the outward surface it changes — name the command/output a user of the product sees and the
   question about a repo it answers differently under each option. No mapping → no decision.
+
+## 2026-11-15 — two standing rules removed from CLAUDE.md (human direction)
+
+The human, 2026-11-15: "I did not want those lines in CLAUDE.md in the first place what kind of a rule is that - we
+have defaults but whenever needed we discuss in the manager session". Also the same day: "no pauses".
+
+Removed text, verbatim:
+
+- (amodx standing assignment) On a provider capacity/503 failure "just let it retry": the relay's own retries, then a
+  later relaunch of the same model — the operator does not switch models. Reason: on 2026-10-16 `gpt-6-sol` reported
+  capacity for hours and the operator swapped reviewers mid-slice; the human prefers one named reviewer and patience
+  over a fallback chain.
+- After each slice closes out, wait one hour (a background `sleep 3600` whose completion resumes you), prepare the next
+  packet's reads meanwhile, then launch the next slice without waiting for the human. Reason: the account's rolling
+  allowance. The pause is a wait, never a stop.
+
+What stands instead: the model assignments are defaults; a change of model, a fallback or a pause is discussed with the
+human in the manager session when the need comes up.
