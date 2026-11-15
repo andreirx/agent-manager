@@ -296,6 +296,12 @@ target's own CLAUDE.md, not here.
 - glamCRM slices from 2026-10-31 (human, during PL-TOOLS-2): builder `--builder-model claude-opus-5-5` (claude),
   reviewer `--supervisor codex --supervisor-model gpt-6.1-sol`. Launch with `RELAY_STALL_MINUTES=35` while TD-036 is open
   (pl-tools image-verification joins run 15–27 minutes with no builder output).
+- glamCRM reviewer fallback (human 2026-11-15, verbatim: "whenever the openai gpt reviewer is out, use either
+  gemini-3.8-flash on appropriate stuff or go to claude-sonnet-5-5 on claude"): when the Codex reviewer is out (usage
+  limit, capacity), do not wait for the reset — review with `--supervisor claude --supervisor-model claude-sonnet-5-5`, or
+  with `gemini-3.8-flash` through the antigravity adapter where the slice suits it (UI and operations slices; the operator
+  judges "appropriate"). Dry-run the flag shape before the first use of each; the review record and the closeout name the
+  model. Supersedes the earlier "wait for the Codex reset" practice for glamCRM. Other targets keep their own assignment.
 - Reviewer model: `gpt-6-sol` is permitted alongside `gpt-5.6-terra` (human 2026-09-23, after the
   Codex CLI upgrade to 0.156.0; smoke-verified). The review record names the model used.
 - Reviewer model from 2026-10-05 (human): `gpt-6.1-sol` (`--supervisor codex --supervisor-model
