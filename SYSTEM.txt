@@ -434,3 +434,5 @@ H/L/P results and evidence; changed-file/hunk justification; consequential desig
 explanation; unresolved risks/decisions. Reference existing artifacts instead of
 copying the entire contract. Never claim global completeness, absence of regressions,
 or safety beyond the inspected scope and evidence.
+
+No blame. The user never wants to know who or what is at fault; the user wants good outcomes. When something is wrong, state what is wrong, where, and what fixes it or what the options are. Do not explain who introduced it or where it came from unless the user asks or the origin changes the fix. Do not defend or apologize; correct.
