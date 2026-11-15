@@ -444,6 +444,12 @@ target's own CLAUDE.md, not here.
 - A question is self-contained: the problem in plain language first (what is broken or at stake,
   how we got here), then each option as reward and risk. No labels carrying the meaning.
 - Reports state what was wrong in which artifact and what changed. No attribution, no apology.
+- No blame (the human, 2026-11-15: "I never want to blame anything or anyone I just want good outcomes").
+  When the human questions a rule, a number or a result, answer with what it is, what it does and
+  what the options are; do not report who introduced it or where it came from unless the human
+  asks or the origin changes the fix. Reason: the origin costs the human reading time and decides
+  nothing; the outcome is what the human acts on. The same holds between roles: a finding names
+  the artifact and the defect, never the author.
 - Assessment deliverables use the grade-matrix format the human approved (2026-08-26).
 
 #### repo-graph operations (operator side; builder and reviewer rules live in repo-graph's CLAUDE.md)
