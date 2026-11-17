@@ -4,7 +4,12 @@
 // DEV ONLY: reversible rehearsal data. Usage: node scripts/glamcrm-dev-rehearsal.mjs <api> <tokenFile> <outDir> <resultsJson> [only=substring]
 import fs from 'node:fs';
 import path from 'node:path';
-const [api, tokenFile, outDir, resultsJson, only] = process.argv.slice(2);
+const [api, tokenFile, outDir, resultsJson, only, ...extra] = process.argv.slice(2);
+// GC-DEV-RESET-1 corrections (2026-11-17): SPLIT mode now ALSO stops at the first failed file (upload, create, non-201, or no import
+// result) — before, only REPLACE stopped. `exclude=<exact file name>` (repeatable) names a workbook of outDir that is NOT sent, and
+// is recorded as excluded (the over-limit unsplit KUBERIT Profilele, whose rows are the two parts of out/kuberit-parts/). Each
+// record now carries the import's `identity` report (IMPORT-IDENTITY-1) and its summary text.
+const EXCLUDE = extra.filter((a) => a.startsWith('exclude=')).map((a) => a.slice('exclude='.length));
 // SPLIT MODE (CATEGORY-SPLIT-1, human 2026-11-07 "wipe dev products and import fresh"): `only` = 'SPLIT' imports every
 // `<list> — <Categorie>.xlsx` in outDir: producer = the first word(s) of the list name as in `plan`, category = the suffix
 // after ' — ' (created on dev when missing), VAT 0 % except KUBERIT (19 %, human ruling). One pricelist per file.
@@ -63,8 +68,10 @@ const results = fs.existsSync(resultsJson) ? JSON.parse(fs.readFileSync(resultsJ
 let stopRun = false;
 function record(rec) {
   results.push(rec); fs.writeFileSync(resultsJson, JSON.stringify(results, null, 2));
-  // REPLACE mode stops at the first failed file (2026-11-13: a second large file was sent after the first had failed).
-  if (REPLACE && rec.step && !String(rec.step).startsWith('replace-target')) { console.log(`STOP: ${rec.file} failed at ${rec.step}; no further file is sent.`); stopRun = true; }
+  // SPLIT mode (REPLACE included) stops at the first failed file (2026-11-13: a second large file was sent after the first had failed;
+  // GC-DEV-RESET-1: SPLIT too).
+  if (SPLIT && rec.step && !String(rec.step).startsWith('replace-target')) { console.log(`STOP: ${rec.file} failed at ${rec.step}; no further file is sent.`); stopRun = true; }
+  if (rec.excluded) { console.log(`-   ${rec.file.padEnd(40)} EXCLUDED (named by exclude=)`); return; }
   if (rec.skipped || rec.step) console.log(`${rec.status ?? '-'} ${rec.file.padEnd(40)} ${rec.skipped ? 'SKIPPED absent' : `FAILED at ${rec.step}: ${rec.body}`}`);
 }
 const producerOf = (file) => { const base = file.split(' — ')[0]; const hit = plan.find(([f]) => f.replace('.xlsx', '') === base); return hit ? hit[1] : base.split(' ')[0]; };
@@ -76,6 +83,7 @@ if (SPLIT) console.log(`split mode: ${splitPlan.length} workbooks`);
 for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
   if (stopRun) break;
   if (only && !SPLIT && !file.includes(only)) continue;
+  if (EXCLUDE.includes(file)) { record({ file, excluded: true }); continue; }
   const p = path.join(outDir, file); if (!fs.existsSync(p)) { record({ file, skipped: 'absent' }); continue; }
   const t0 = Date.now();
   const uploadName = file.replace(/ — /g, ' - ').replace(/[^\x20-\x7e]/g, '_');
@@ -100,9 +108,12 @@ for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
   const items = ir?.items || [];
   const rec = { file, producer, category: cat, vat: vat === VAT0 ? '0' : '19', status: cr.status, seconds: Math.round((Date.now() - t0) / 100) / 10,
     pricelistId: j?.id, publicId: j?.publicId, replacesId, added: ir?.added, replaced: ir?.replaced, removed: ir?.removed, items: items.length,
-    importResultNull: j ? ir === null : undefined, error: cr.ok ? undefined : text.slice(0, 300), firstItems: items.slice(0, 2).map((i) => ({ name: i.name, code: i.producerCode, format: i.format, collection: i.collectionName })) };
+    importResultNull: j ? ir === null : undefined, error: cr.ok ? undefined : text.slice(0, 300), fileBytes: fs.statSync(p).size,
+    identity: ir?.identity ? { continued: ir.identity.continued, codeChanged: ir.identity.codeChanged, legacyDuplicateGroups: ir.identity.legacyDuplicateGroups,
+      skippedDuplicateGroups: ir.identity.skippedDuplicates.length, skippedDuplicateRows: ir.identity.skippedDuplicates.reduce((n, g) => n + g.rows.length, 0),
+      skippedDuplicates: ir.identity.skippedDuplicates, retired: ir.identity.retired } : null, summary: ir?.summary, firstItems: items.slice(0, 2).map((i) => ({ name: i.name, code: i.producerCode, format: i.format, collection: i.collectionName })) };
   record(rec);
-  if (REPLACE && (!cr.ok || ir === null)) { console.log(`STOP: ${file}: status ${cr.status}, import result ${ir === null ? 'absent' : 'present'}; no further file is sent.`); stopRun = true; }
+  if (SPLIT && (!cr.ok || ir === null)) { console.log(`STOP: ${file}: status ${cr.status}, import result ${ir === null ? 'absent' : 'present'}; no further file is sent.`); stopRun = true; }
   console.log(`${cr.status} ${file.padEnd(40)} added ${rec.added ?? '-'} replaced ${rec.replaced ?? '-'} ${rec.importResultNull ? 'IMPORT RESULT NULL (refused?)' : ''} ${rec.seconds}s`);
 }
 console.log('results →', resultsJson);

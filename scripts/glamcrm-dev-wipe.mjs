@@ -7,6 +7,11 @@
 // Usage: node scripts/glamcrm-dev-wipe.mjs <tableName> <region> --yes [--categories]
 // --categories (human 2026-11-08 "erase them once again and the pricelists too and the categories too"): also deletes
 // TYPE#CATEGORY so the fresh set is numbered from publicId 1 again (category-service mints max+1 over what exists).
+// --chains (GC-DEV-RESET-1, 2026-11-17; since IMPORT-RECORD-IR-1 every price list belongs to a chain record): FIRST deletes the
+// PLCHAIN partition — the chain records `PLCHAIN`/`CHAIN#<n>` (each names its list versions) and the counter `PLCHAIN`/`COUNTER`
+// (the highest chain number allocated). They carry no GSI attribute, so they are read by a CONSISTENT Query on PK = PLCHAIN.
+// Deleted before the rows they name (no record is left naming a deleted list). After the wipe the counter is recreated by the
+// product's own chain migration (`scripts/migrate-price-list-chains.ts --apply`, then `--check-cutover`), not by this tool.
 import { createRequire } from 'node:module';
 const req = createRequire('/Users/apple/Documents/APLICATII BIJUTERIE/glamCRM/serverless/package.json');
 const { DynamoDBClient } = req('@aws-sdk/client-dynamodb');
@@ -14,11 +19,15 @@ const { DynamoDBDocumentClient, QueryCommand, BatchWriteCommand } = req('@aws-sd
 
 const [table, region, yes, ...flags] = process.argv.slice(2);
 const withCategories = flags.includes('--categories');
+const withChains = flags.includes('--chains');
 if (!table || !region) { console.error('usage: node scripts/glamcrm-dev-wipe.mjs <tableName> <region> --yes'); process.exit(2); }
 if (!/dev/i.test(table)) { console.error(`REFUSED: table "${table}" is not a dev table`); process.exit(3); }
 if (yes !== '--yes') { console.error('REFUSED: pass --yes to delete (dev only)'); process.exit(3); }
 
-const db = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
+// GC-DEV-RESET-1 (2026-11-17): every product shares GSI2PK = TYPE#PRODUCT, so a mass delete writes one GSI2 key range and DynamoDB
+// throttles it (IndexWriteKeyRangeThroughputExceeded after the SDK's default 3 attempts, 41,347 products). The SDK's ADAPTIVE retry
+// mode (client-side rate limiting + back-off) with more attempts paces the deletes instead of failing.
+const db = DynamoDBDocumentClient.from(new DynamoDBClient({ region, retryMode: 'adaptive', maxAttempts: 15 }));
 
 async function keysOf(type) {
   const keys = []; let ExclusiveStartKey;
@@ -46,6 +55,21 @@ async function deleteAll(keys) {
   return done;
 }
 
+async function chainKeys() {
+  const keys = []; let ExclusiveStartKey;
+  do {
+    const r = await db.send(new QueryCommand({ TableName: table, KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': 'PLCHAIN' },
+      ProjectionExpression: 'PK, SK', ConsistentRead: true, ExclusiveStartKey }));
+    for (const it of r.Items ?? []) keys.push({ PK: it.PK, SK: it.SK });
+    ExclusiveStartKey = r.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return keys;
+}
+if (withChains) {
+  const keys = await chainKeys();
+  const deleted = await deleteAll(keys);
+  console.log(`PLCHAIN: found ${keys.length} (${keys.filter((k) => k.SK === 'COUNTER').length} counter), deleted ${deleted}, remaining ${(await chainKeys()).length}`);
+}
 for (const type of ['PRODUCT', 'PRICELIST', ...(withCategories ? ['CATEGORY'] : [])]) {
   const keys = await keysOf(type);
   const before = keys.length;
