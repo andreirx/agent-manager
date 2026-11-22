@@ -311,15 +311,15 @@ target's own CLAUDE.md, not here.
   with `gemini-3.8-flash` through the antigravity adapter where the slice suits it (UI and operations slices; the operator
   judges "appropriate"). Dry-run the flag shape before the first use of each; the review record and the closeout name the
   model. Supersedes the earlier "wait for the Codex reset" practice for glamCRM. Other targets keep their own assignment.
-- glamCRM builder split (human 2026-11-22; supersedes the 2026-10-31 pair for glamCRM): the operator picks the builder
-  per slice. A slice with more unknowns or more design judgement → builder `--builder claude --builder-model
-  claude-opus-5-5`, reviewer `--supervisor codex --supervisor-model gpt-6.1-terra`. A straightforward slice (also a
-  large one, when the unknowns are few) → "whenever appropriate, sometimes" builder `--builder codex --builder-model
-  gpt-6.1-sol`, reviewer `--supervisor antigravity --supervisor-model gemini-4-hydrogen`, or `gpt-6.1-terra` when the
-  operator judges the review important. Not a quota: the operator judges "appropriate". A slice already admitted keeps
-  its pair to its closeout. `gpt-6.1-terra` smoke-verified on the Codex CLI 2026-11-22; dry-run the Codex-builder flag
-  shape before its first glamCRM use (a Codex builder cannot bind a Unix socket in its sandbox — see above). The
-  fallback rule of 2026-11-15 and "nothing reviewed only by a fallback reviewer goes to production" stay.
+- glamCRM builder split (human 2026-11-22): the operator picks the builder per slice. A slice with more unknowns or
+  more design judgement → builder `--builder claude --builder-model claude-opus-5-5`, reviewer `--supervisor codex
+  --supervisor-model gpt-6.1-sol` (unchanged; the human, same day: "keep using gpt-6.1-sol as reviewer then, but
+  sometimes as builder with hydrogen as reviewer"). A straightforward slice (also a large one, when the unknowns are
+  few) → "whenever appropriate, sometimes" builder `--builder codex --builder-model gpt-6.1-sol`, reviewer
+  `--supervisor antigravity --supervisor-model gemini-4-hydrogen`. Not a quota: the operator judges "appropriate". A
+  slice already admitted keeps its pair to its closeout. Dry-run the Codex-builder flag shape before its first
+  glamCRM use (a Codex builder cannot bind a Unix socket in its sandbox — see above). The fallback rule of 2026-11-15
+  and "nothing reviewed only by a fallback reviewer goes to production" stay.
 - Reviewer model: `gpt-6-sol` is permitted alongside `gpt-5.6-terra` (human 2026-09-23, after the
   Codex CLI upgrade to 0.156.0; smoke-verified). The review record names the model used.
 - Reviewer model from 2026-10-05 (human): `gpt-6.1-sol` (`--supervisor codex --supervisor-model
