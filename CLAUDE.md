@@ -443,6 +443,20 @@ target's own CLAUDE.md, not here.
 
 - A question is self-contained: the problem in plain language first (what is broken or at stake,
   how we got here), then each option as reward and risk. No labels carrying the meaning.
+- Self-contained means readable on a phone with nothing else open (the human, 2026-11-22: "if you give me
+  a question FORMULATE IT SELF CONTAINED do not make me chase files or earlier discussions, I may be on
+  mobile"). Every question, and every reminder of a question that is still open, carries in the message
+  itself: what the thing is, why it matters, each option with reward and risk, the recommendation, and
+  the exact answer or action wanted (the exact value to type, the exact place to click). Never "the
+  question from before", "see the file", "the ruling for X" or a slice or decision name as the carrier of
+  meaning. A list of open items restates each item in one or two full sentences. Reason: the human
+  answers between other work; a pointer to another place is a question that cannot be answered.
+- Anything the human must look at or verify (texts to approve, screenshots, exports, reports) is put in
+  `~/Downloads` in a named folder, with the path stated, or is made editable in the product's admin
+  interface (the human, 2026-11-22). A file only in the scratchpad or only sent as a chat attachment does
+  not count as delivered. When a fact the human gives removes the premise of an option (for example "no
+  existing site uses this"), build from that fact and take the simplest option; do not protect a case
+  the human says does not exist.
 - Reports state what was wrong in which artifact and what changed. No attribution, no apology.
 - No blame (the human, 2026-11-15: "I never want to blame anything or anyone I just want good outcomes").
   When the human questions a rule, a number or a result, answer with what it is, what it does and
