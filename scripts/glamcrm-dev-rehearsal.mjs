@@ -10,6 +10,10 @@ const [api, tokenFile, outDir, resultsJson, only, ...extra] = process.argv.slice
 // is recorded as excluded (the over-limit unsplit KUBERIT Profilele, whose rows are the two parts of out/kuberit-parts/). Each
 // record now carries the import's `identity` report (IMPORT-IDENTITY-1) and its summary text.
 const EXCLUDE = extra.filter((a) => a.startsWith('exclude=')).map((a) => a.slice('exclude='.length));
+// GC-DEV-IMPORT-2026 (2026-11-22): `target=<pricelist id>` names the REPLACE target explicitly, for a list whose earlier
+// version was uploaded under another file name (KUBERIT 2025 → 2026). REPLACE mode only, exactly one selected workbook;
+// the named list must still be ACTIVE and of the same producer + category, else the file is refused (nothing uploaded).
+const TARGET = extra.find((a) => a.startsWith('target='))?.slice('target='.length) ?? null;
 // SPLIT MODE (CATEGORY-SPLIT-1, human 2026-11-07 "wipe dev products and import fresh"): `only` = 'SPLIT' imports every
 // `<list> — <Categorie>.xlsx` in outDir: producer = the first word(s) of the list name as in `plan`, category = the suffix
 // after ' — ' (created on dev when missing), VAT 0 % except KUBERIT (19 %, human ruling). One pricelist per file.
@@ -27,7 +31,8 @@ const H = { Authorization: `Bearer ${token}` };
 // survived the category wipe and 35 lists were created against deleted category ids → the importer refused every row
 // (categoryPublicId=""), leaving empty pricelist shells (the swallow defect GC-IMPORT-PARITY-1 made them 201s).
 const CAT = {};
-const VAT0 = '01KEEZ2ZNFBYX4BV5N735WDJTZ', VAT19 = '01KECM0MJR7MT0YHDE8S1JM8QF';
+// GC-DEV-IMPORT-2026 (2026-11-22): VAT19 = the new 'TVA 19%' row; the old-format 19 % row 01KECM0MJR7MT0YHDE8S1JM8QF was deleted on dev.
+const VAT0 = '01KEEZ2ZNFBYX4BV5N735WDJTZ', VAT19 = '01M819G0F320FDDYFXMKXM74MF';
 const plan = [
   ['BOEN wood 2026.xlsx', 'BOEN', 'Parchet', VAT0],
   ['BerryAlloc parquet 2026.xlsx', 'BerryAlloc', 'Parchet', VAT0],
@@ -80,6 +85,7 @@ const splitPlan = SPLIT ? fs.readdirSync(outDir).filter((f) => f.endsWith('.xlsx
   return [f, producerOf(f), cat, /^KUBERIT/i.test(f) ? VAT19 : VAT0];
 }) : null;
 if (SPLIT) console.log(`split mode: ${splitPlan.length} workbooks`);
+if (TARGET && (!REPLACE || splitPlan.length !== 1)) { console.log(`REFUSED: target= needs REPLACE mode and exactly one selected workbook (selected ${splitPlan?.length ?? 0}); nothing sent.`); process.exit(2); }
 for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
   if (stopRun) break;
   if (only && !SPLIT && !file.includes(only)) continue;
@@ -95,8 +101,8 @@ for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
     // Target = the ONE active list of this producer + category that was uploaded under this same file name (the API stores
     // `<ms>_<uuid>_<x-file-name>`). Producer + category alone is ambiguous (2026-11-13: ALPOD, BerryAlloc, IVC, KUBERIT each
     // hold several active lists in one category), so the file name is part of the identity.
-    const hits = lists.filter((x) => x.active && x.producerName === producer && x.categoryId === categoryId && String(x.fileName ?? '').endsWith(`_${uploadName}`));
-    if (hits.length !== 1) { record({ file, step: 'replace-target (nothing uploaded)', status: lr.status, body: `expected exactly 1 active ${producer} / ${cat} pricelist uploaded as "${uploadName}", found ${hits.length}` }); continue; }
+    const hits = lists.filter((x) => x.active && x.producerName === producer && x.categoryId === categoryId && (TARGET ? x.id === TARGET : String(x.fileName ?? '').endsWith(`_${uploadName}`)));
+    if (hits.length !== 1) { record({ file, step: 'replace-target (nothing uploaded)', status: lr.status, body: `expected exactly 1 active ${producer} / ${cat} pricelist ${TARGET ? `with id ${TARGET}` : `uploaded as "${uploadName}"`}, found ${hits.length}` }); continue; }
     replacesId = hits[0].id;
   }
   const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': uploadName }, body: fs.readFileSync(p) });
