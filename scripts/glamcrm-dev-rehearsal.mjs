@@ -105,7 +105,7 @@ for (const [file, producer, cat, vat] of (splitPlan ?? plan)) {
     if (hits.length !== 1) { record({ file, step: 'replace-target (nothing uploaded)', status: lr.status, body: `expected exactly 1 active ${producer} / ${cat} pricelist ${TARGET ? `with id ${TARGET}` : `uploaded as "${uploadName}"`}, found ${hits.length}` }); continue; }
     replacesId = hits[0].id;
   }
-  const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': uploadName }, body: fs.readFileSync(p) });
+  const up = await fetch(`${api}/api/v2/files`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-file-name': uploadName, 'x-file-purpose': 'PRICE_LIST' }, body: fs.readFileSync(p) }); // GC-AUTHZ-PRICELIST-FILE-2 M1/M3: a list is made only from a marked file
   const upj = await up.json(); if (!up.ok) { record({ file, step: 'upload', status: up.status, body: JSON.stringify(upj).slice(0, 300) }); continue; }
   const body = { producerName: producer, categoryId, applicableVatId: vat, fileName: upj.key, introducedAt: new Date().toISOString(), active: true, replacesId };
   const cr = await fetch(`${api}/api/v2/pricelists`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
